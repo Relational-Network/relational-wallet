@@ -1,0 +1,111 @@
+' ------------------------------------------------------------------------------
+'  Relational Wallet SDK
+'  Copyright (C) 2025  Relational
+'
+'  This program is free software: you can redistribute it and/or modify
+'  it under the terms of the GNU Affero General Public License as published
+'  by the Free Software Foundation, either version 3 of the License, or
+'  (at your option) any later version.
+'
+'  This program is distributed in the hope that it will be useful,
+'  but WITHOUT ANY WARRANTY; without even the implied warranty of
+'  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'  GNU Affero General Public License for more details.
+'
+'  You should have received a copy of the GNU Affero General Public License
+'  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+' ------------------------------------------------------------------------------
+
+@startuml user_registration_kyc
+!include ../includes/style.puml
+
+title [WIP] Wallet SDK - Registration & KYC (Bank-ID or Document)
+
+' --- PARTICIPANTS ---
+actor "New User" as user
+
+box "Nautilus Ecosystem" #EBF5FB
+    participant "SDK Client\n(Mobile App)" as app
+    participant "SDK Core\n(Enclave)" as enclave
+    participant "Identity\nOrchestrator" as idService
+end box
+
+participant "KYC / Bank\nProvider" as kycProvider
+
+' --- FLOW ---
+group #F4F6F7 Phase 1: Account Initiation
+    user -> app: Open App & Enter Phone/Email
+    activate app
+    app -> idService: Register User (Phone/Email)
+    activate idService
+    idService --> app: Return Session ID
+    deactivate idService
+    
+    app --> user: Request Identity Verification
+    deactivate app
+end
+
+group #FEF9E7 Phase 2: The KYC "Standardized" Loop
+    user -> app: Select Method\n(Bank Login OR ID Scan)
+    activate app
+    
+    alt Option A: Bank KYC (Open Banking/PSD2)
+        app -> idService: Initiate Bank Verification
+        activate idService
+        idService -> kycProvider: Create Auth Request
+        activate kycProvider
+        kycProvider --> idService: Redirect URL
+        deactivate kycProvider
+        idService --> app: Open Bank Login
+        deactivate idService
+        
+        app -> kycProvider: User Logs into Bank
+        activate kycProvider
+        kycProvider --> app: Success (Attributes Shared)
+        deactivate kycProvider
+        
+    else Option B: Document Verification (ID + Selfie)
+        app -> idService: Get SDK Token for ID Scan
+        activate idService
+        idService --> app: Token
+        deactivate idService
+        
+        user -> app: Take Photo of ID & Selfie
+        app -> kycProvider: Upload Biometrics & Docs
+        activate kycProvider
+        kycProvider --> app: Upload Complete
+        deactivate kycProvider
+    end
+    
+    app -> idService: Check Verification Status
+    activate idService
+    idService -> kycProvider: Fetch Verified Attributes\n(Name, DOB, Address)
+    activate kycProvider
+    kycProvider --> idService: Return Identity Data
+    deactivate kycProvider
+    
+    idService -> idService: Risk Check & Sanctions Screen
+    idService --> app: KYC Approved (Identity Token)
+    deactivate idService
+end
+
+group #D6EAF8 Phase 3: Wallet Provisioning
+    note right of app
+      The Wallet is only created
+      AFTER identity is proven.
+    end note
+
+    app -> enclave: SDK.createWallet(Identity Token)
+    activate enclave
+    
+    enclave -> enclave: Generate Keys
+    enclave -> enclave: Bind Keys to Identity
+    
+    enclave --> app: Wallet Created Successfully
+    deactivate enclave
+    
+    app --> user: "Registration Complete!\nWelcome [Name]"
+    deactivate app
+end
+
+@enduml

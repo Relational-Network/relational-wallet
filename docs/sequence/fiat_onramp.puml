@@ -1,0 +1,103 @@
+' ------------------------------------------------------------------------------
+'  Wallet SDK Diagrams
+'  Copyright (C) 2025  Relational
+
+'  This program is free software: you can redistribute it and/or modify
+'  it under the terms of the GNU Affero General Public License as published
+'  by the Free Software Foundation, either version 3 of the License, or
+'  (at your option) any later version.
+
+'  This program is distributed in the hope that it will be useful,
+'  but WITHOUT ANY WARRANTY; without even the implied warranty of
+'  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'  GNU Affero General Public License for more details.
+
+'  You should have received a copy of the GNU Affero General Public License
+'  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+' ------------------------------------------------------------------------------
+
+@startuml fiat_onramp
+!include ../includes/style.puml
+
+title Wallet SDK - Fiat On-Ramp (Bank Deposit)
+
+' --- PARTICIPANTS ---
+actor "Retail User" as retailUser
+
+box "Host Application (Integrated with Wallet SDK)" #EBF5FB
+    participant "SDK Client\n(Connector)" as connectorApp
+    participant "SDK Core\n(Enclave)" as enclaveServer
+    participant "Sealed\nStorage" as sealedStorage
+    participant "Stable Coin\nService\n(Enclave)" as stableCoinService
+end box
+
+participant "Payment\nGateway" as PP
+participant "Avalanche\nLedger" as ledger
+
+' --- FLOW ---
+group #F4F6F7 Phase 1: SDK Initialization
+    retailUser -> connectorApp: Login (Username + PIN)
+    activate connectorApp
+    connectorApp -> enclaveServer: SDK.openWallet()
+    activate enclaveServer
+    enclaveServer -> sealedStorage: Retrieve Key Blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed Data
+    deactivate sealedStorage
+    enclaveServer --> enclaveServer: Unseal Data
+    enclaveServer --> connectorApp: Wallet Ready
+    deactivate enclaveServer
+
+    connectorApp -> ledger: Fetch Wallet Balance
+    activate ledger
+    ledger --> connectorApp: Balance
+    deactivate ledger
+    connectorApp --> retailUser: Display Wallet Data and Balance
+end
+
+group #D6EAF8 Phase 2: Fiat Payment Processing
+    retailUser -> connectorApp: Select "Buy Stable Coin"\n (Input Amount)
+
+    connectorApp -> stableCoinService: POST /deposit-request
+    activate stableCoinService
+    stableCoinService -> PP: Initialize Payment Session
+    activate PP
+    PP --> stableCoinService: Return Redirect URL
+    deactivate PP
+    stableCoinService --> connectorApp: Redirect User
+    deactivate stableCoinService
+
+    connectorApp --> retailUser: Open Webview/Browser
+    
+    retailUser -> PP: Authorize Bank Transfer
+    activate PP
+    PP --> stableCoinService: Webhook: Payment Successful
+    deactivate PP
+
+    activate stableCoinService
+    note right of stableCoinService
+      **Minting/Transfer:**
+      Service signs a deposit 
+      transaction on Ledger
+    end note
+
+    stableCoinService -> ledger: Submit Deposit Transaction
+    activate ledger
+    ledger --> stableCoinService: Transaction Confirmed
+    deactivate ledger
+
+    stableCoinService --> connectorApp: Push Notification/Response
+    deactivate stableCoinService
+end
+
+group #FEF9E7 Phase 3: Reconciliation
+    connectorApp -> ledger: Fetch Updated Balance
+    activate ledger
+    ledger --> connectorApp: New Balance
+    deactivate ledger
+    
+    connectorApp --> retailUser: Display Wallet Data and Balance
+    deactivate connectorApp
+end
+
+@enduml

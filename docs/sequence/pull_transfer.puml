@@ -1,0 +1,100 @@
+' ------------------------------------------------------------------------------
+'  Wallet SDK Diagrams
+'  Copyright (C) 2025  Relational
+'
+'  This program is free software: you can redistribute it and/or modify
+'  it under the terms of the GNU Affero General Public License as published
+'  by the Free Software Foundation, either version 3 of the License, or
+'  (at your option) any later version.
+'
+'  This program is distributed in the hope that it will be useful,
+'  but WITHOUT ANY WARRANTY; without even the implied warranty of
+'  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'  GNU Affero General Public License for more details.
+'
+'  You should have received a copy of the GNU Affero General Public License
+'  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+' ------------------------------------------------------------------------------
+
+@startuml pull_transfer
+' --- CONFIGURATION ---
+!include ../includes/style.puml
+
+title Wallet SDK - Stable Coin Pull Transfer Flow
+
+' --- PARTICIPANTS ---
+actor "Retail\nUser" as retailUser
+actor "Customer/\nSender" as customer
+
+box "Host Application (Integrated with Wallet SDK)" #EBF5FB
+    participant "SDK Client\n(Connector)" as connectorApp
+    participant "SDK Core\n(Enclave)" as enclaveServer
+    participant "Secure\nStorage" as sealedStorage
+end box
+
+participant "Avalanche\nLedger" as ledger
+
+' --- FLOW ---
+group #F4F6F7 Phase 1: SDK Initialization & Balance Check
+    retailUser -> connectorApp: Login (Username + PIN)
+    activate connectorApp
+    
+    connectorApp -> enclaveServer: SDK.openWallet()
+    activate enclaveServer
+    
+    enclaveServer -> sealedStorage: Retrieve sealed wallet blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed data
+    deactivate sealedStorage
+    
+    enclaveServer -> enclaveServer: Unseal logic
+    enclaveServer --> connectorApp: Wallet Instance Ready
+    deactivate enclaveServer
+    
+    connectorApp --> retailUser: Authentication Success
+    
+    connectorApp -> ledger: Fetch Balance/Metadata
+    activate ledger
+    ledger --> connectorApp: Return Balance Data
+    deactivate ledger
+    
+    connectorApp --> retailUser: Render Dashboard
+    retailUser -> customer: Request Sender Address
+    customer -> retailUser: Share Sender Address\n (QR/NFC/phone)
+    retailUser -> connectorApp: Initiate Pull Payment (Input Amount, Sender Address)
+    deactivate connectorApp
+end
+
+group #FEF9E7 Phase 2: Pull Payment Execution
+   
+    connectorApp --> customer: Prompt for Credentials
+    activate connectorApp
+    customer -> connectorApp: Login (Username + PIN)
+    
+    connectorApp -> enclaveServer: SDK.createTx()
+    activate enclaveServer
+    
+    enclaveServer -> sealedStorage: Retrieve Sender's Sealed Blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed data
+    deactivate sealedStorage
+    
+    note right of enclaveServer
+      **Secure Operation:**
+      The SDK unseals the private key
+      in memory to sign the payload.
+    end note
+    
+    enclaveServer -> enclaveServer: Sign Transaction    
+    enclaveServer -> ledger: Broadcast Transaction
+    activate ledger
+    ledger --> enclaveServer: Success (Tx Hash)
+    deactivate ledger
+    deactivate enclaveServer
+    enclaveServer --> connectorApp: Transaction Successful
+    
+    connectorApp --> retailUser: Display Success Receipt
+    deactivate connectorApp
+end
+
+@enduml

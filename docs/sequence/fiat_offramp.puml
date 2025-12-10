@@ -1,0 +1,120 @@
+' ------------------------------------------------------------------------------
+'  Wallet SDK Diagrams
+'  Copyright (C) 2025  Relational
+'
+'  This program is free software: you can redistribute it and/or modify
+'  it under the terms of the GNU Affero General Public License as published
+'  by the Free Software Foundation, either version 3 of the License, or
+'  (at your option) any later version.
+'
+'  This program is distributed in the hope that it will be useful,
+'  but WITHOUT ANY WARRANTY; without even the implied warranty of
+'  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'  GNU Affero General Public License for more details.
+'
+'  You should have received a copy of the GNU Affero General Public License
+'  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+' ------------------------------------------------------------------------------
+
+@startuml fiat_offramp
+!include ../includes/style.puml
+
+title Wallet SDK - Fiat Off-Ramp (Withdraw to Bank)
+
+' --- PARTICIPANTS ---
+actor "Retail User" as retailUser
+
+box "Host Application (Integrated with Wallet SDK)" #EBF5FB
+    participant "SDK Client\n(Connector)" as connectorApp
+    participant "SDK Core\n(Enclave)" as enclaveServer
+    participant "Stable Coin\nService\n(Enclave)" as stableCoinService
+    participant "Sealed\nStorage" as sealedStorage
+end box
+
+participant "Avalanche\nLedger" as ledger
+participant "Payment\nGateway" as PP
+participant "User's\nBank" as bank
+
+' --- FLOW ---
+group #F4F6F7 Phase 1: SDK Initialization
+    retailUser -> connectorApp: Login (Username + PIN)
+    activate connectorApp
+    connectorApp -> enclaveServer: SDK.openWallet()
+    activate enclaveServer
+    enclaveServer -> sealedStorage: Retrieve Key Blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed Data
+    deactivate sealedStorage
+    enclaveServer --> enclaveServer: Unseal Data
+    enclaveServer --> connectorApp: Wallet Ready
+
+    connectorApp -> ledger: Fetch Wallet Balance
+    activate ledger
+    ledger --> connectorApp: Balance
+    deactivate ledger
+    connectorApp --> retailUser: Display Wallet Data and Balance
+    ' deactivate connectorApp
+end
+
+
+group #F4F6F7 Phase 2: Withdrawal Request
+    retailUser -> connectorApp: Select "Withdraw to Bank" \n(Input Amount & IBAN)
+    ' activate connectorApp
+
+    connectorApp -> stableCoinService: Verify Off-Ramp Limits
+    activate stableCoinService
+    stableCoinService --> connectorApp: Authorization OK \n(Returns Service Wallet Address)
+    ' deactivate stableCoinService
+end
+
+group #FEF9E7 Phase 3: Stable Coin Transfer (Burn/Escrow)
+    connectorApp -> enclaveServer: SDK.createSignedTx()
+    note right
+        User sends Stable Coin to the
+        Service Provider first
+    end note
+
+    enclaveServer -> enclaveServer: Sign Tx (User -> Stable Coin Service)
+    enclaveServer --> connectorApp: Signed Payload
+    deactivate enclaveServer
+    
+    connectorApp -> ledger: Broadcast Transaction
+    activate ledger
+    ledger --> connectorApp: Success (Tx Hash)
+    deactivate ledger
+    
+    connectorApp --> retailUser: "Processing Withdrawal..."
+end
+
+group #D6EAF8 Phase 4: Fiat Payout
+    connectorApp -> stableCoinService: Submit Withdrawal Proof \n(Tx Hash)
+    ' activate stableCoinService
+
+    stableCoinService -> ledger: Verify Transaction Finality
+    activate ledger
+    ledger --> stableCoinService: Confirmed (Funds Received)
+    deactivate ledger
+
+    note right of stableCoinService
+        **Payout Trigger:**
+        Once Stable Coin is secured,
+        release Fiat via Gateway
+    end note
+
+    stableCoinService -> PP: Initiate Payout (Fiat Amount)
+    activate PP
+    PP -> bank: Credit User Account (ACH/SEPA/Wire)
+    activate bank
+    bank --> PP: Ack
+    deactivate bank
+    PP --> stableCoinService: Payout Successful
+    deactivate PP
+
+    stableCoinService --> connectorApp: Withdrawal Complete
+    deactivate stableCoinService
+
+    connectorApp --> retailUser: Display Success \n"Funds sent to Bank"
+    deactivate connectorApp
+end
+
+@enduml

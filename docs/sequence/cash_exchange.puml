@@ -1,0 +1,107 @@
+' ------------------------------------------------------------------------------
+'  Wallet SDK Diagrams
+'  Copyright (C) 2025  Relational
+'
+'  This program is free software: you can redistribute it and/or modify
+'  it under the terms of the GNU Affero General Public License as published
+'  by the Free Software Foundation, either version 3 of the License, or
+'  (at your option) any later version.
+'
+'  This program is distributed in the hope that it will be useful,
+'  but WITHOUT ANY WARRANTY; without even the implied warranty of
+'  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+'  GNU Affero General Public License for more details.
+'
+'  You should have received a copy of the GNU Affero General Public License
+'  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+' ------------------------------------------------------------------------------
+
+@startuml cash_exchange
+!include ../includes/style.puml
+!pragma teoz true
+
+title Wallet SDK - Cash to Stable Coin Exchange (P2P)
+
+' --- PARTICIPANTS ---
+actor "Household User\n(Cash Holder)" as houseUser
+actor "Retail User\n(Stable Coin Holder)" as retailUser
+
+box "Host Application (Integrated with Wallet SDK)" #EBF5FB
+    participant "SDK Client\n(Connector)" as connectorApp
+    participant "SDK Core\n(Enclave)" as enclaveServer
+    participant "Sealed\nStorage" as sealedStorage
+end box
+
+participant "Avalanche\nLedger" as ledger
+
+' --- FLOW ---
+group #FDEDEC Phase 0: Physical Exchange
+    houseUser -> retailUser: **Hand over Physical Cash**
+end
+
+group #F4F6F7 Phase 1: Retail User Sends Stable Coin(s)
+    retailUser -> connectorApp: Login (Username + PIN)
+    activate connectorApp
+    
+    ' -- Shortened Auth Flow for visual clarity --
+    connectorApp -> enclaveServer: SDK.openWallet()
+    activate enclaveServer
+    enclaveServer -> sealedStorage: Retrieve Key Blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed Data
+    deactivate sealedStorage
+    enclaveServer --> enclaveServer: Unseal Data
+    enclaveServer --> connectorApp: Wallet Ready
+    connectorApp --> retailUser: Login Successful
+
+    connectorApp -> ledger: Fetch Wallet Balance
+    activate ledger
+    ledger --> connectorApp: Balance
+    deactivate ledger
+    connectorApp --> retailUser: Display wallet data and balance
+    retailUser -> houseUser: Request recipient address
+    houseUser -> retailUser: Share recipient address (QR/NFC/phone)
+    retailUser -> connectorApp: Enter amount and recipient address\n (Initiate Push Transfer to Household User)
+
+    connectorApp -> enclaveServer: SDK.createTx()
+    enclaveServer -> enclaveServer: Sign Tx with Private Key
+    enclaveServer -> ledger: Broadcast Signed Payload
+    
+    activate ledger
+    ledger --> enclaveServer: Tx Confirmation
+    deactivate ledger
+
+    enclaveServer --> connectorApp: Tx Successful
+    deactivate enclaveServer
+
+    connectorApp --> retailUser: Transfer Success\n and Tx Details
+    deactivate connectorApp
+end
+
+|||
+
+group #FEF9E7 Phase 2: Household User Verification
+    houseUser -> connectorApp: Login (Username + PIN)
+    activate connectorApp
+    
+    connectorApp -> enclaveServer: SDK.openWallet()
+    activate enclaveServer
+    enclaveServer -> sealedStorage: Retrieve Key Blob
+    activate sealedStorage
+    sealedStorage --> enclaveServer: Sealed Data
+    deactivate sealedStorage
+    enclaveServer --> enclaveServer: Unseal Data
+    enclaveServer --> connectorApp: Wallet Ready
+    deactivate enclaveServer
+    connectorApp --> houseUser: Login Successful
+
+    connectorApp -> ledger: Fetch Wallet Balance
+    activate ledger
+    ledger --> connectorApp: Balance (Updated)
+    deactivate ledger
+    
+    connectorApp --> houseUser: Display Dashboard\n(Confirm funds received)
+    deactivate connectorApp
+end
+
+@enduml
