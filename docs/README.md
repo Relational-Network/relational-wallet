@@ -4,6 +4,7 @@ This repository contains the [architecture](architecture/) and [sequence](sequen
 
 ## Structure
 * `sequence/`: Source PlantUML sequence diagram files (.puml)
+* `architecture/`: Architecture diagrams
 * `includes/`: Shared styles and configuration
 * `seq-diagrams/`: Output of rendered images 
 
