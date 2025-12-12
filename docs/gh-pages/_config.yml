@@ -6,8 +6,8 @@ repository: Relational-Network/relational-wallet
 color_scheme: dark
 favicon_ico: /favicon.ico
 
-baseurl: ""
-url: ""
+url: "https://relational-network.github.io"
+baseurl: "/relational-wallet"
 
 sass:
   quiet_deps: true
