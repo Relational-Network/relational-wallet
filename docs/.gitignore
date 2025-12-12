@@ -21,6 +21,10 @@
 *.svg
 *.atxt
 ./seq-diagrams/
+_site/
+gh-pages/_site/
+gh-pages/.jekyll-cache/
+gh-pages/.sass-cache/
 
 # System files
 .DS_Store
