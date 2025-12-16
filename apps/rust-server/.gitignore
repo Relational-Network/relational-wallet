@@ -15,3 +15,6 @@ target/
 # OS
 .DS_Store
 Thumbs.db
+
+# Coverage report
+tarpaulin-report.html

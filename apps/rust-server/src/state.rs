@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 use std::sync::Arc;
 

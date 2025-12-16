@@ -1,15 +1,13 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WalletAddress(pub String);
 
 impl From<String> for WalletAddress {
@@ -30,7 +28,7 @@ impl From<WalletAddress> for String {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub struct Bookmark {
     pub id: String,
     pub wallet_id: WalletAddress,
@@ -38,14 +36,14 @@ pub struct Bookmark {
     pub address: WalletAddress,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub struct Invite {
     pub id: String,
     pub code: String,
     pub redeemed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
 pub struct RecurringPayment {
     pub id: String,
     pub wallet_id: WalletAddress,
@@ -105,4 +103,21 @@ pub struct UpdateRecurringPaymentRequest {
 pub struct UpdateLastPaidDateRequest {
     pub recurring_payment_id: String,
     pub last_paid_date: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wallet_address_from_and_into_string() {
+        let from_str: WalletAddress = "abc".into();
+        assert_eq!(from_str.0, "abc");
+
+        let from_string: WalletAddress = String::from("def").into();
+        assert_eq!(from_string.0, "def");
+
+        let to_string: String = WalletAddress("ghi".into()).into();
+        assert_eq!(to_string, "ghi");
+    }
 }

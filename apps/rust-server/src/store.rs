@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
- 
 use std::collections::HashMap;
 
 use chrono::{Datelike, Utc};
@@ -171,7 +170,10 @@ impl InMemoryStore {
         }
     }
 
-    pub fn update_last_paid_date(&mut self, request: UpdateLastPaidDateRequest) -> Result<(), ApiError> {
+    pub fn update_last_paid_date(
+        &mut self,
+        request: UpdateLastPaidDateRequest,
+    ) -> Result<(), ApiError> {
         if request.last_paid_date <= 0 {
             return Err(ApiError::bad_request(
                 "last_paid_date must be a positive ordinal date",
@@ -230,4 +232,136 @@ fn validate_date_range(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delete_bookmark_not_found_errors() {
+        let mut store = InMemoryStore::new();
+        let err = store.delete_bookmark("missing").unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn invite_by_code_handles_missing_and_redeemed() {
+        let mut store = InMemoryStore::new();
+        let err_missing = store.invite_by_code("nothing").unwrap_err();
+        assert_eq!(err_missing.status, axum::http::StatusCode::NOT_FOUND);
+
+        let redeemed = store.insert_invite("USED", true);
+        let err_redeemed = store.invite_by_code(&redeemed.code).unwrap_err();
+        assert_eq!(
+            err_redeemed.status,
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    #[test]
+    fn redeem_invite_missing_and_already_redeemed() {
+        let mut store = InMemoryStore::new();
+        let err_missing = store
+            .redeem_invite(RedeemInviteRequest {
+                invite_id: "nope".into(),
+            })
+            .unwrap_err();
+        assert_eq!(err_missing.status, axum::http::StatusCode::NOT_FOUND);
+
+        let invite = store.insert_invite("CODE", true);
+        let err_redeemed = store
+            .redeem_invite(RedeemInviteRequest {
+                invite_id: invite.id,
+            })
+            .unwrap_err();
+        assert_eq!(
+            err_redeemed.status,
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    #[test]
+    fn validate_recurring_payment_inputs() {
+        let mut store = InMemoryStore::new();
+        let wallet_id = WalletAddress::from("wallet_a");
+        let base_request = CreateRecurringPaymentRequest {
+            wallet_id: wallet_id.clone(),
+            wallet_public_key: "pk".into(),
+            recipient: WalletAddress::from("recipient"),
+            amount: 1.0,
+            currency_code: "USD".into(),
+            payment_start_date: 10,
+            frequency: 5,
+            payment_end_date: 20,
+        };
+
+        // start date must be positive
+        let mut req = base_request.clone();
+        req.payment_start_date = 0;
+        assert_eq!(
+            store.create_recurring_payment(req).unwrap_err().status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+
+        // end date must be positive
+        let mut req = base_request.clone();
+        req.payment_end_date = 0;
+        assert_eq!(
+            store.create_recurring_payment(req).unwrap_err().status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+
+        // frequency must be positive
+        let mut req = base_request.clone();
+        req.frequency = 0;
+        assert_eq!(
+            store.create_recurring_payment(req).unwrap_err().status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+
+        // start before end
+        let mut req = base_request.clone();
+        req.payment_start_date = 30;
+        req.payment_end_date = 20;
+        assert_eq!(
+            store.create_recurring_payment(req).unwrap_err().status,
+            axum::http::StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn update_and_delete_recurring_payment_not_found() {
+        let mut store = InMemoryStore::new();
+
+        let err_update = store
+            .update_recurring_payment(UpdateRecurringPaymentRequest {
+                recurring_payment_id: "missing".into(),
+                wallet_id: WalletAddress::from("wallet"),
+                wallet_public_key: "pk".into(),
+                recipient: WalletAddress::from("rec"),
+                amount: 1.0,
+                currency_code: "USD".into(),
+                payment_start_date: 1,
+                frequency: 1,
+                payment_end_date: 2,
+            })
+            .unwrap_err();
+        assert_eq!(err_update.status, axum::http::StatusCode::NOT_FOUND);
+
+        let err_delete = store.delete_recurring_payment("missing").unwrap_err();
+        assert_eq!(err_delete.status, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn update_last_paid_date_not_found() {
+        let mut store = InMemoryStore::new();
+        let err = store
+            .update_last_paid_date(UpdateLastPaidDateRequest {
+                recurring_payment_id: "missing".into(),
+                last_paid_date: 1,
+            })
+            .unwrap_err();
+        assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+    }
 }

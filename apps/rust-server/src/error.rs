@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 use axum::{
     http::StatusCode,
@@ -49,5 +49,36 @@ impl IntoResponse for ApiError {
             error: self.message,
         });
         (self.status, body).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[test]
+    fn constructors_set_status_and_message() {
+        let nf = ApiError::not_found("missing");
+        assert_eq!(nf.status, StatusCode::NOT_FOUND);
+        assert_eq!(nf.message, "missing");
+
+        let bad = ApiError::bad_request("bad");
+        assert_eq!(bad.status, StatusCode::BAD_REQUEST);
+        assert_eq!(bad.message, "bad");
+
+        let unp = ApiError::unprocessable("oops");
+        assert_eq!(unp.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(unp.message, "oops");
+    }
+
+    #[tokio::test]
+    async fn into_response_returns_json_body() {
+        let response = ApiError::bad_request("bad data").into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert_eq!(body, r#"{"error":"bad data"}"#);
     }
 }

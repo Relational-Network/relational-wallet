@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 use axum::{
     extract::{Query, State},
@@ -52,4 +52,63 @@ pub async fn redeem_invite(
     let mut store = state.store.write().await;
     store.redeem_invite(request)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        extract::{Query, State},
+        http::StatusCode,
+        Json,
+    };
+
+    #[tokio::test]
+    async fn get_invite_success() {
+        let state = AppState::default();
+        let invite = {
+            let mut store = state.store.write().await;
+            store.insert_invite("AAABBB", false)
+        };
+
+        let Json(returned) = get_invite(
+            State(state.clone()),
+            Query(InviteQuery {
+                invite_code: invite.code.clone(),
+            }),
+        )
+        .await
+        .expect("invite fetch succeeds");
+
+        assert_eq!(returned, invite);
+    }
+
+    #[tokio::test]
+    async fn redeem_invite_success() {
+        let state = AppState::default();
+        let invite = {
+            let mut store = state.store.write().await;
+            store.insert_invite("AAABBB", false)
+        };
+
+        redeem_invite(
+            State(state.clone()),
+            Json(RedeemInviteRequest {
+                invite_id: invite.id.clone(),
+            }),
+        )
+        .await
+        .expect("invite redeem succeeds");
+
+        // A redeemed invite should now be rejected by invite_by_code.
+        let result = {
+            let store = state.store.read().await;
+            store.invite_by_code(&invite.code)
+        };
+
+        match result {
+            Err(err) => assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY),
+            Ok(invite) => panic!("expected invite to be marked redeemed, got {invite:?}"),
+        }
+    }
 }

@@ -1,13 +1,14 @@
 # Rust-Server WIP
 
-> TODO
+Lightweight Axum backend for bookmarks, invites, recurring payments, and wallet utilities. Uses an in-memory store for now; swap the store for a persistent backend as needed.
 
 ## What’s included
 - Bookmarks: list, create, delete.
 - Invites: fetch by code, redeem.
 - Recurring payments: list, create, update, delete, fetch payments due today, update last paid date.
-- Wallet autofund: laceholder to autofund wallets (DEV)
+- Wallet autofund: placeholder to autofund wallets (DEV).
 - Swagger/OpenAPI: JSON at `/api-doc/openapi.json`, Swagger UI at `/docs`.
+- Tests: async unit tests covering bookmark CRUD and invite fetch/redeem flows.
 
 ## Quick start
 ```bash
@@ -16,6 +17,21 @@ cargo run
 # server listens on 127.0.0.1:8080 by default; set PORT to override
 # optional: SEED_INVITE_CODE=WELCOME cargo run   # preload a single invite for testing
 ```
+
+## Testing
+```bash
+cd apps/rust-server
+cargo test
+```
+
+## Coverage
+- Local quick check: `cargo tarpaulin --ignore-tests` (install with `cargo install cargo-tarpaulin`).
+- HTML report: `cargo tarpaulin --out Html && open tarpaulin-report.html`.
+Run after meaningful changes or wire into CI to block merges on coverage drops.
+
+## Configuration
+- `HOST`/`PORT`: override bind address (defaults to 127.0.0.1:8080).
+- `SEED_INVITE_CODE`: seed a single invite code into the in-memory store at startup.
 
 ## Route map (all prefixed with /v1)
 - `GET  /v1/bookmarks?wallet_id=...`

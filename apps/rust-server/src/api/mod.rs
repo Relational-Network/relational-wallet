@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 use axum::{
     routing::{delete, get, post, put},
@@ -15,8 +15,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     models::{
         AutofundRequest, Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite,
-        RecurringPayment, RedeemInviteRequest, UpdateLastPaidDateRequest, WalletAddress,
-        UpdateRecurringPaymentRequest,
+        RecurringPayment, RedeemInviteRequest, UpdateLastPaidDateRequest,
+        UpdateRecurringPaymentRequest, WalletAddress,
     },
     state::AppState,
 };
@@ -32,7 +32,10 @@ pub fn router(state: AppState) -> Router {
             "/bookmarks",
             get(bookmarks::list_bookmarks).post(bookmarks::create_bookmark),
         )
-        .route("/bookmarks/:bookmark_id", delete(bookmarks::delete_bookmark))
+        .route(
+            "/bookmarks/:bookmark_id",
+            delete(bookmarks::delete_bookmark),
+        )
         .route("/invite", get(invites::get_invite))
         .route("/invite/redeem", post(invites::redeem_invite))
         .route("/wallet/autofund", post(wallet::autofund_wallet))
@@ -98,3 +101,15 @@ pub fn router(state: AppState) -> Router {
     )
 )]
 struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn router_builds_with_all_routes() {
+        let app = router(AppState::default());
+        // Ensure the router can be converted into a service without panicking.
+        let _ = app.into_make_service();
+    }
+}

@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later 
-// 
-// Copyright (C) 2025 Relational Network 
-// 
-// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Copyright (C) 2025 Relational Network
+//
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet)
 
 mod api;
 mod error;
@@ -10,12 +10,17 @@ mod models;
 mod state;
 mod store;
 
+#[cfg(not(test))]
 use std::{env, net::SocketAddr};
 
+#[cfg(not(test))]
 use api::router;
+#[cfg(not(test))]
 use state::AppState;
+#[cfg(not(test))]
 use store::InMemoryStore;
 
+#[cfg(not(test))]
 #[tokio::main]
 async fn main() {
     let mut store = InMemoryStore::new();
