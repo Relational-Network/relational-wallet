@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later 
+// 
+// Copyright (C) 2025 Relational Network 
+// 
+// Derived from Nautilus Wallet (https://github.com/ntls-io/nautilus-wallet) 
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(
+    Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+pub struct WalletAddress(pub String);
+
+impl From<String> for WalletAddress {
+    fn from(value: String) -> Self {
+        WalletAddress(value)
+    }
+}
+
+impl From<&str> for WalletAddress {
+    fn from(value: &str) -> Self {
+        WalletAddress(value.to_string())
+    }
+}
+
+impl From<WalletAddress> for String {
+    fn from(value: WalletAddress) -> Self {
+        value.0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Bookmark {
+    pub id: String,
+    pub wallet_id: WalletAddress,
+    pub name: String,
+    pub address: WalletAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Invite {
+    pub id: String,
+    pub code: String,
+    pub redeemed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RecurringPayment {
+    pub id: String,
+    pub wallet_id: WalletAddress,
+    pub wallet_public_key: String,
+    pub recipient: WalletAddress,
+    pub amount: f64,
+    pub currency_code: String,
+    pub payment_start_date: i32,
+    pub frequency: i32,
+    pub payment_end_date: i32,
+    pub last_paid_date: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateBookmarkRequest {
+    pub wallet_id: WalletAddress,
+    pub name: String,
+    pub address: WalletAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RedeemInviteRequest {
+    pub invite_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AutofundRequest {
+    pub wallet_id: WalletAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreateRecurringPaymentRequest {
+    pub wallet_id: WalletAddress,
+    pub wallet_public_key: String,
+    pub recipient: WalletAddress,
+    pub amount: f64,
+    pub currency_code: String,
+    pub payment_start_date: i32,
+    pub frequency: i32,
+    pub payment_end_date: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRecurringPaymentRequest {
+    pub recurring_payment_id: String,
+    pub wallet_id: WalletAddress,
+    pub wallet_public_key: String,
+    pub recipient: WalletAddress,
+    pub amount: f64,
+    pub currency_code: String,
+    pub payment_start_date: i32,
+    pub frequency: i32,
+    pub payment_end_date: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateLastPaidDateRequest {
+    pub recurring_payment_id: String,
+    pub last_paid_date: i32,
+}
