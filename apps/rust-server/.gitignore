@@ -1,12 +1,14 @@
-
-debug/
+# Compiled artifacts
 target/
-
-# Cargo.lock 
 
 # Environment variables
 .env
 .env.local
+
+# Gramine files
+rust-server.manifest
+rust-server.manifest.sgx
+*.sig
 
 # IDE
 .idea/

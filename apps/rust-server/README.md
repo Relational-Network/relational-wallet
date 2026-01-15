@@ -12,7 +12,7 @@ Lightweight Axum backend for bookmarks, invites, recurring payments, and wallet 
 
 ## Quick start
 ```bash
-cd apps/rust-server
+cargo build
 cargo run
 # server listens on 127.0.0.1:8080 by default; set PORT to override
 # optional: SEED_INVITE_CODE=WELCOME cargo run   # preload a single invite for testing
@@ -20,7 +20,6 @@ cargo run
 
 ## Testing
 ```bash
-cd apps/rust-server
 cargo test
 ```
 
@@ -28,6 +27,35 @@ cargo test
 - Local quick check: `cargo tarpaulin --ignore-tests` (install with `cargo install cargo-tarpaulin`).
 - HTML report: `cargo tarpaulin --out Html && open tarpaulin-report.html`.
 Run after meaningful changes or wire into CI to block merges on coverage drops.
+
+## Run using Gramine (Intel SGX)
+### Requirements (one-time)
+- Install Gramine packages: [Installation Guide](https://gramine.readthedocs.io/en/stable/installation.html#install-gramine-packages-1)
+- Create a signing key (SGX only): [Quickstart](https://gramine.readthedocs.io/en/stable/quickstart.html#prepare-a-signing-key)
+	```sh
+	gramine-sgx-gen-private-key
+	```
+- Install Rust: https://www.rust-lang.org/tools/install
+
+### Gramine (build with Makefile, then run)
+Use Gramine to validate manifest/runtime, and optionally run inside SGX.
+
+Build:
+```bash
+make            # non-SGX
+make SGX=1      # SGX (generates .sig and .manifest.sgx)
+```
+
+Run:
+```bash
+make start-wallet           # Gramine Direct (non-SGX)
+make SGX=1 start-wallet     # Gramine SGX
+```
+
+Notes:
+- Gramine Direct runs without SGX hardware to validate the manifest/runtime.
+- Gramine SGX runs inside an Intel SGX enclave.
+- If you see `sgx.debug = true`, the enclave is in debug mode (not for production).
 
 ## Configuration
 - `HOST`/`PORT`: override bind address (defaults to 127.0.0.1:8080).
