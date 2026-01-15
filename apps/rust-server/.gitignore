@@ -1,0 +1,20 @@
+
+debug/
+target/
+
+# Cargo.lock 
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage report
+tarpaulin-report.html

@@ -24,7 +24,7 @@ title [WIP] Wallet SDK - Registration & KYC (Bank-ID or Document)
 ' --- PARTICIPANTS ---
 actor "New User" as user
 
-box "Nautilus Ecosystem" #EBF5FB
+box "Relational Ecosystem" #EBF5FB
     participant "SDK Client\n(Mobile App)" as app
     participant "SDK Core\n(Enclave)" as enclave
     participant "Identity\nOrchestrator" as idService
