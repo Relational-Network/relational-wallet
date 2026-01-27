@@ -7,6 +7,8 @@ libos.entrypoint = "{{ self_exe }}"
 loader.log_level = "{{ log_level }}"
 
 loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}"
+loader.env.HOST = "0.0.0.0"
+loader.env.PORT = "8080"
 
 # See https://gramine.readthedocs.io/en/stable/performance.html#glibc-malloc-tuning
 loader.env.MALLOC_ARENA_MAX = "1"
@@ -17,6 +19,7 @@ loader.env.RUST_BACKTRACE = "full"
 fs.mounts = [
   { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
   { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
+  { path = "{{ app_dir }}", uri = "file:{{ app_dir }}" },
 ]
 
 sgx.debug = true
@@ -30,6 +33,7 @@ sgx.trusted_files = [
   "file:{{ self_exe }}",
   "file:{{ gramine.runtimedir() }}/",
   "file:{{ arch_libdir }}/",
+  "file:{{ app_dir }}/",
 ]
 
 # The maximum number of threads in a single process needs to be declared in advance.

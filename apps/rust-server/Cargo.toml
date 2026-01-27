@@ -2,19 +2,19 @@
 name = "relational-rust-server"
 version = "0.1.0"
 edition = "2021"
-
+authors = ["Relational Network"]
 license = "AGPL-3.0-or-later"
 publish = false
-
+rust-version = "1.92"
 description = "Minimal Rust backend APIs (bookmarks, invites, recurring payments)."
 
 [dependencies]
-axum = { version = "0.7", features = ["macros", "json"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-uuid = { version = "1", features = ["v4", "serde", "fast-rng"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-utoipa = { version = "4", features = ["axum_extras", "uuid"] }
-utoipa-swagger-ui = { version = "7", features = ["axum", "vendored"] }
-tower-http = { version = "0.5", features = ["cors"] }
+axum = { version = "0.8.8", features = ["macros", "json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.20.0", features = ["v4", "serde", "fast-rng"] }
+chrono = { version = "0.4.43", default-features = false, features = ["clock"] }
+utoipa = { version = "5.4.0", features = ["axum_extras", "uuid"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
+tower-http = { version = "0.6.8", features = ["cors"] }

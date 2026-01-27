@@ -57,6 +57,18 @@ Notes:
 - Gramine SGX runs inside an Intel SGX enclave.
 - If you see `sgx.debug = true`, the enclave is in debug mode (not for production).
 
+## Docker (SGX)
+Build and run the SGX-enabled container (Ubuntu 20.04):
+
+```bash
+make docker-build
+make docker-run
+make docker-stop
+```
+
+The container binds to `0.0.0.0:8080` and publishes port 8080. It uses your host
+SGX signing key from `$HOME/.config/gramine/enclave-key.pem`.
+
 ## Configuration
 - `HOST`/`PORT`: override bind address (defaults to 127.0.0.1:8080).
 - `SEED_INVITE_CODE`: seed a single invite code into the in-memory store at startup.

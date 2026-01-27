@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Relational Network
+
+# Rust build outputs
+/target
+
+# Gramine outputs
+/*.manifest
+/*.manifest.sgx
+/*.sig
+
+# Env files
+/.env
+/.env.local
+
+# IDE/OS
+/.idea
+/.vscode
+/.DS_Store
+/Thumbs.db
+
+# Coverage
+/tarpaulin-report.html
+
+# Git metadata
+/.git
+/.gitignore

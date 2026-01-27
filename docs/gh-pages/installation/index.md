@@ -10,5 +10,6 @@ permalink: /installation/
 
 1. **Web Enclave (`wallet-enclave`)** — Trusted execution environment (TEE) workload responsible for custodial logic, signing, and secure key storage.
 2. **Wallet Web (`wallet-web`)** — Client-side UI + SDK bundle that communicates with the enclave and Avalanche.
+3. **Rust Server (`rust-server`)** — SGX-enabled Axum backend running under Gramine (Docker on Ubuntu 20.04).
 
 Each sub-page below outlines prerequisites, environment configuration, build/test steps, and deployment notes.

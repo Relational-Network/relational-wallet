@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub mod bookmarks;
+pub mod health;
 pub mod invites;
 pub mod recurring;
 pub mod wallet;
@@ -31,7 +32,7 @@ pub fn router(state: AppState) -> Router {
             get(bookmarks::list_bookmarks).post(bookmarks::create_bookmark),
         )
         .route(
-            "/bookmarks/:bookmark_id",
+            "/bookmarks/{bookmark_id}",
             delete(bookmarks::delete_bookmark),
         )
         .route("/invite", get(invites::get_invite))
@@ -42,11 +43,11 @@ pub fn router(state: AppState) -> Router {
             get(recurring::list_recurring_payments).post(recurring::create_recurring_payment),
         )
         .route(
-            "/recurring/payment/:recurring_payment_id",
+            "/recurring/payment/{recurring_payment_id}",
             delete(recurring::delete_recurring_payment).put(recurring::update_recurring_payment),
         )
         .route(
-            "/recurring/payment/:recurring_payment_id/last-paid-date",
+            "/recurring/payment/{recurring_payment_id}/last-paid-date",
             put(recurring::update_last_paid_date),
         )
         .route(
@@ -56,6 +57,9 @@ pub fn router(state: AppState) -> Router {
         .with_state(state);
 
     Router::new()
+        .route("/health", get(health::health))
+        .route("/health/live", get(health::liveness))
+        .route("/health/ready", get(health::readiness))
         .nest("/v1", v1_routes)
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(CorsLayer::permissive())
@@ -75,7 +79,10 @@ pub fn router(state: AppState) -> Router {
         recurring::update_recurring_payment,
         recurring::delete_recurring_payment,
         recurring::recurring_payments_today,
-        recurring::update_last_paid_date
+        recurring::update_last_paid_date,
+        health::health,
+        health::liveness,
+        health::readiness
     ),
     components(
         schemas(
@@ -88,14 +95,18 @@ pub fn router(state: AppState) -> Router {
             AutofundRequest,
             CreateRecurringPaymentRequest,
             UpdateRecurringPaymentRequest,
-            UpdateLastPaidDateRequest
+            UpdateLastPaidDateRequest,
+            health::HealthResponse,
+            health::HealthChecks,
+            health::ReadyResponse
         )
     ),
     tags(
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "Invites", description = "Invite validation and redemption"),
         (name = "Wallet", description = "Wallet utilities"),
-        (name = "Recurring", description = "Recurring payment scheduling")
+        (name = "Recurring", description = "Recurring payment scheduling"),
+        (name = "Health", description = "Liveness and readiness checks")
     )
 )]
 struct ApiDoc;

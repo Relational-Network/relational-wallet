@@ -5,6 +5,8 @@
 ARCH_LIBDIR ?= /lib/$(shell $(CC) -dumpmachine)
 
 SELF_EXE = target/release/relational-rust-server
+SRCS = $(shell find src -type f)
+APP_DIR = $(abspath $(patsubst %/,%,$(dir $(SELF_EXE))))
 
 .PHONY: all
 all: $(SELF_EXE) rust-server.manifest
@@ -23,13 +25,14 @@ endif
 # performance that makes testing by running a benchmark with ab painful. The primary goal
 # of the DEBUG setting is to control Gramine's loglevel.
 -include $(SELF_EXE).d # See also: .cargo/config.toml
-$(SELF_EXE): Cargo.toml
+$(SELF_EXE): Cargo.toml Cargo.lock $(SRCS)
 	cargo build --release
 
 rust-server.manifest: rust-server.manifest.template $(SELF_EXE)
 	gramine-manifest \
 		-Dlog_level=$(GRAMINE_LOG_LEVEL) \
 		-Darch_libdir=$(ARCH_LIBDIR) \
+		-Dapp_dir=$(APP_DIR) \
 		-Dself_exe=$(SELF_EXE) \
 		$< $@
 
@@ -47,6 +50,25 @@ endif
 .PHONY: start-wallet
 start-wallet: all
 	$(GRAMINE) rust-server
+
+.PHONY: docker-build
+docker-build:
+	cd docker && sudo ./build.sh ubuntu20
+
+.PHONY: docker-run
+docker-run:
+	sudo docker run --rm -it \
+		--name rust-server-sgx \
+		--device /dev/sgx/enclave \
+		--device /dev/sgx/provision \
+		-p 8080:8080 \
+		-v "$$HOME/.config/gramine/enclave-key.pem:/keys/enclave-key.pem:ro" \
+		-e GRAMINE_SGX_SIGNING_KEY=/keys/enclave-key.pem \
+		relationalnetwork/rust-server:focal
+
+.PHONY: docker-stop
+docker-stop:
+	sudo docker stop rust-server-sgx
 
 .PHONY: clean
 clean:

@@ -23,8 +23,10 @@
 ./seq-diagrams/
 _site/
 gh-pages/_site/
+gh-pages/.bundle/
 gh-pages/.jekyll-cache/
 gh-pages/.sass-cache/
+gh-pages/vendor/
 
 # System files
 .DS_Store
