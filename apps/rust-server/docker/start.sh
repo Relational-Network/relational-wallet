@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Relational Network
 
+# Start script for SGX container with DCAP RA-TLS attestation
+# This script:
+# 1. Restarts AESM service for SGX attestation
+# 2. Signs the enclave if not already signed
+# 3. Launches the server via gramine-sgx (which invokes gramine-ratls)
+
 set -e
 
 /restart_aesm.sh
@@ -21,4 +27,10 @@ if [ ! -f /app/rust-server.manifest.sgx ]; then
         --key "${KEY_PATH}"
 fi
 
+echo "Starting Rust server with DCAP RA-TLS attestation..."
+echo "Server will be available at https://0.0.0.0:8080"
+
+# gramine-sgx will execute the manifest which uses gramine-ratls as entrypoint
+# gramine-ratls generates TLS cert/key with DCAP attestation evidence,
+# then executes the actual Rust server binary
 exec gramine-sgx rust-server

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Relational Network
 
+# SGX-only Docker image with DCAP RA-TLS attestation support
+
 ARG UBUNTU_IMAGE=ubuntu:20.04
 
 FROM ${UBUNTU_IMAGE} AS builder
@@ -39,8 +41,11 @@ RUN curl -fsSLo /usr/share/keyrings/gramine-keyring.gpg https://packages.gramine
 RUN curl -fsSLo /usr/share/keyrings/intel-sgx-deb.key https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key && \
     echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/intel-sgx-deb.key] https://download.01.org/intel-sgx/sgx_repo/ubuntu '${UBUNTU_CODENAME}' main' > /etc/apt/sources.list.d/intel-sgx.list
 
+# Install Gramine with DCAP support and all required SGX/DCAP packages
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y gramine \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    gramine \
+    gramine-ratls-dcap \
     sgx-aesm-service \
     libsgx-aesm-launch-plugin \
     libsgx-aesm-quote-ex-plugin \
@@ -55,11 +60,17 @@ WORKDIR /app
 COPY --from=builder /app/target/release/relational-rust-server /app/relational-rust-server
 COPY rust-server.manifest.template /app/rust-server.manifest.template
 
-RUN gramine-manifest \
+# Find gramine-ratls binary path and generate Gramine manifest with DCAP RA-TLS configuration
+RUN ENTRYPOINT=$(which gramine-ratls) && \
+    gramine-manifest \
+    -Dentrypoint=${ENTRYPOINT} \
     -Dlog_level=error \
     -Darch_libdir=/lib/x86_64-linux-gnu \
     -Dapp_dir=/app \
     -Dself_exe=/app/relational-rust-server \
+    -Dra_type=dcap \
+    -Disvprodid=0 \
+    -Disvsvn=0 \
     /app/rust-server.manifest.template /app/rust-server.manifest
 
 RUN mkdir -p /var/run/aesmd/
