@@ -1,10 +1,30 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Relational Network
 
-# Rust manifest example
+# Rust server manifest with DCAP RA-TLS attestation
+# This manifest configures the server to run inside an SGX enclave with
+# remote attestation using DCAP (Data Center Attestation Primitives).
 
-libos.entrypoint = "{{ self_exe }}"
+# Use gramine-ratls as the entrypoint to generate RA-TLS credentials before
+# launching the actual application. The -P flag writes the private key
+# unencrypted (required for rustls to load it).
+libos.entrypoint = "{{ entrypoint }}"
+
 loader.log_level = "{{ log_level }}"
+
+# Arguments for gramine-ratls:
+# -P: Write private key in plain (unencrypted) PEM format
+# /tmp/ra-tls.crt.pem: Output path for the certificate
+# /tmp/ra-tls.key.pem: Output path for the private key
+# --: Separator before the actual application command
+# {{ self_exe }}: The Rust server binary to execute after TLS setup
+loader.argv = [
+    "gramine-ratls", "-P",
+    "/tmp/ra-tls.crt.pem",
+    "/tmp/ra-tls.key.pem",
+    "--",
+    "{{ self_exe }}"
+]
 
 loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}"
 loader.env.HOST = "0.0.0.0"
@@ -17,12 +37,20 @@ loader.env.MALLOC_ARENA_MAX = "1"
 loader.env.RUST_BACKTRACE = "full"
 
 fs.mounts = [
-  { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
-  { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
-  { path = "{{ app_dir }}", uri = "file:{{ app_dir }}" },
+    { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+    { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
+    { path = "{{ app_dir }}", uri = "file:{{ app_dir }}" },
+    # tmpfs mount for RA-TLS certificate and key generation
+    { path = "/tmp", type = "tmpfs" },
+    # gramine-ratls binary location (passed via -Dentrypoint)
+    { path = "{{ entrypoint }}", uri = "file:{{ entrypoint }}" },
 ]
 
+# SGX configuration - DCAP attestation is mandatory
 sgx.debug = true
+sgx.remote_attestation = "{{ ra_type }}"
+sgx.isvprodid = {{ isvprodid }}
+sgx.isvsvn = {{ isvsvn }}
 sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 
 # `use_exinfo = true` is needed because the application may trigger lazy allocation of pages
@@ -30,10 +58,11 @@ sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 sgx.use_exinfo = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 
 sgx.trusted_files = [
-  "file:{{ self_exe }}",
-  "file:{{ gramine.runtimedir() }}/",
-  "file:{{ arch_libdir }}/",
-  "file:{{ app_dir }}/",
+    "file:{{ self_exe }}",
+    "file:{{ gramine.runtimedir() }}/",
+    "file:{{ arch_libdir }}/",
+    "file:{{ app_dir }}/",
+    "file:{{ entrypoint }}",
 ]
 
 # The maximum number of threads in a single process needs to be declared in advance.
