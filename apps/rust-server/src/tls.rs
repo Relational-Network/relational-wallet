@@ -15,9 +15,11 @@ use std::io::{BufReader, Cursor};
 use std::path::Path;
 
 /// Default path where gramine-ratls writes the TLS certificate.
+#[allow(dead_code)]
 pub const RA_TLS_CERT_PATH: &str = "/tmp/ra-tls.crt.pem";
 
 /// Default path where gramine-ratls writes the TLS private key.
+#[allow(dead_code)]
 pub const RA_TLS_KEY_PATH: &str = "/tmp/ra-tls.key.pem";
 
 /// Errors that can occur when loading TLS credentials.
@@ -166,6 +168,7 @@ pub fn load_ratls_private_key<P: AsRef<Path>>(
 ///
 /// Panics if either file is missing or cannot be parsed. This is intentional
 /// as the server cannot operate securely without valid TLS credentials.
+#[allow(dead_code)]
 pub fn load_ratls_credentials() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
     let certs = load_ratls_certificate(RA_TLS_CERT_PATH).unwrap_or_else(|e| {
         panic!(

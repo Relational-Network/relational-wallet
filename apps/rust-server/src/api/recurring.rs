@@ -35,7 +35,7 @@ pub async fn list_recurring_payments(
     State(state): State<AppState>,
     Query(params): Query<RecurringQuery>,
 ) -> Result<Json<Vec<RecurringPayment>>, ApiError> {
-    let store = state.store.read().await;
+    let store = state.legacy_store.read().await;
     Ok(Json(store.list_recurring(&params.wallet_id)))
 }
 
@@ -50,7 +50,7 @@ pub async fn create_recurring_payment(
     State(state): State<AppState>,
     Json(request): Json<CreateRecurringPaymentRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.create_recurring_payment(request)?;
     Ok(StatusCode::CREATED)
 }
@@ -76,7 +76,7 @@ pub async fn update_recurring_payment(
 ) -> Result<StatusCode, ApiError> {
     request.recurring_payment_id = recurring_payment_id;
 
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.update_recurring_payment(request)?;
     Ok(StatusCode::OK)
 }
@@ -98,7 +98,7 @@ pub async fn delete_recurring_payment(
     Path(recurring_payment_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.delete_recurring_payment(&recurring_payment_id)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -112,7 +112,7 @@ pub async fn delete_recurring_payment(
 pub async fn recurring_payments_today(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<RecurringPayment>>, ApiError> {
-    let store = state.store.read().await;
+    let store = state.legacy_store.read().await;
     Ok(Json(store.recurring_due_today()))
 }
 
@@ -137,7 +137,7 @@ pub async fn update_last_paid_date(
 ) -> Result<StatusCode, ApiError> {
     request.recurring_payment_id = recurring_payment_id;
 
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.update_last_paid_date(request)?;
     Ok(StatusCode::OK)
 }
@@ -183,7 +183,7 @@ mod tests {
         .expect("create recurring payment succeeds");
 
         assert_eq!(status, StatusCode::CREATED);
-        let stored = state.store.read().await.list_recurring(&wallet_id);
+        let stored = state.legacy_store.read().await.list_recurring(&wallet_id);
         assert_eq!(stored.len(), 1);
         let payment = &stored[0];
         assert_eq!(payment.wallet_id, wallet_id);
@@ -199,7 +199,7 @@ mod tests {
         let other_wallet = WalletAddress::from("wallet_b");
 
         let mut expected = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             let first = store
                 .create_recurring_payment(sample_create_request(wallet_id.clone()))
                 .expect("create first");
@@ -235,7 +235,7 @@ mod tests {
         let wallet_id = WalletAddress::from("wallet_a");
 
         let payment = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store
                 .create_recurring_payment(sample_create_request(wallet_id.clone()))
                 .expect("create payment")
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let updated = state
-            .store
+            .legacy_store
             .read()
             .await
             .list_recurring(&wallet_id)
@@ -290,7 +290,7 @@ mod tests {
         let wallet_id = WalletAddress::from("wallet_a");
 
         let payment = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store
                 .create_recurring_payment(sample_create_request(wallet_id.clone()))
                 .expect("create payment")
@@ -301,7 +301,7 @@ mod tests {
             .expect("delete recurring succeeds");
 
         assert_eq!(status, StatusCode::NO_CONTENT);
-        let payments = state.store.read().await.list_recurring(&wallet_id);
+        let payments = state.legacy_store.read().await.list_recurring(&wallet_id);
         assert!(payments.is_empty());
     }
 
@@ -312,7 +312,7 @@ mod tests {
         let today = today();
 
         let (due_one, due_two, future_payment) = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
 
             let mut req1 = sample_create_request(wallet_id.clone());
             req1.payment_start_date = today - 2;
@@ -376,7 +376,7 @@ mod tests {
         let state = AppState::default();
         let wallet_id = WalletAddress::from("wallet_a");
         let payment = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store
                 .create_recurring_payment(sample_create_request(wallet_id.clone()))
                 .expect("create payment")
@@ -397,7 +397,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let updated = state
-            .store
+            .legacy_store
             .read()
             .await
             .list_recurring(&wallet_id)
@@ -413,7 +413,7 @@ mod tests {
         let state = AppState::default();
         let wallet_id = WalletAddress::from("wallet_a");
         let payment = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store
                 .create_recurring_payment(sample_create_request(wallet_id.clone()))
                 .expect("create payment")

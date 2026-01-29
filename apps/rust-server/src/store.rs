@@ -2,6 +2,19 @@
 //
 // Copyright (C) 2026 Relational Network
 
+//! Legacy in-memory store for backwards compatibility.
+//!
+//! **DEPRECATED**: This module is being replaced by encrypted storage repositories.
+//! Only invites and autofund_log are still used. Bookmarks have been migrated.
+//!
+//! ## Migration Status
+//! - [x] Wallets → WalletRepository
+//! - [x] Bookmarks → BookmarkRepository (but legacy methods kept for tests)
+//! - [ ] Invites → InviteRepository
+//! - [ ] Recurring → RecurringRepository
+
+#![allow(dead_code)] // Legacy code being phased out
+
 use std::collections::HashMap;
 
 use chrono::{Datelike, Utc};

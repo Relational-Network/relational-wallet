@@ -12,3 +12,15 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Rust
+apps/rust-server/target/
+apps/rust-server/data/
+
+# Next.js / Node
+apps/wallet-web/node_modules/
+apps/wallet-web/.next/
+apps/wallet-web/out/
+
+# Documentation build
+docs/_site/

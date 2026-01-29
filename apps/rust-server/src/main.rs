@@ -3,42 +3,58 @@
 // Copyright (C) 2026 Relational Network
 
 mod api;
+mod auth;
+mod blockchain;
 mod config;
 mod error;
 mod models;
 mod state;
+mod storage;
 mod store;
 mod tls;
 
 #[cfg(not(test))]
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 #[cfg(not(test))]
 use api::router;
 #[cfg(not(test))]
+use auth::JwksManager;
+#[cfg(not(test))]
 use axum_server::tls_rustls::RustlsConfig;
 #[cfg(not(test))]
-use state::AppState;
+use state::{AppState, AuthConfig};
+#[cfg(not(test))]
+use storage::EncryptedStorage;
 #[cfg(not(test))]
 use store::InMemoryStore;
 #[cfg(not(test))]
 use tls::load_ratls_credentials;
+#[cfg(not(test))]
+use tower_http::{
+    request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
+    trace::TraceLayer,
+};
+#[cfg(not(test))]
+use tracing::{info, warn};
+#[cfg(not(test))]
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[cfg(not(test))]
 #[tokio::main]
 async fn main() {
+    // Initialize structured logging
+    init_tracing();
+
     // Install the ring crypto provider for rustls (must be done before any TLS operations)
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
     // Load RA-TLS credentials (panics if not available - TLS is mandatory)
-    println!("Loading RA-TLS credentials...");
+    info!("Loading RA-TLS credentials...");
     let (certs, key) = load_ratls_credentials();
-    println!(
-        "Loaded {} certificate(s) from RA-TLS",
-        certs.len()
-    );
+    info!(cert_count = certs.len(), "Loaded RA-TLS certificates");
 
     // Build rustls server config
     let tls_config = RustlsConfig::from_config(Arc::new(
@@ -48,15 +64,64 @@ async fn main() {
             .expect("Failed to build TLS server config"),
     ));
 
+    // ========== Initialize Authentication ==========
+    let auth_config = initialize_auth_config().await;
+
+    // ========== Initialize Encrypted Storage ==========
+    // /data is mounted as type="encrypted" with key_name="_sgx_mrsigner" in the Gramine manifest.
+    // Gramine handles all encryption/decryption transparently.
+    // The Rust application uses normal filesystem I/O.
+    info!("Initializing encrypted storage at /data...");
+    let mut encrypted_storage = EncryptedStorage::with_default_paths();
+    encrypted_storage
+        .initialize()
+        .expect("Failed to initialize encrypted storage - is /data mounted?");
+
+    // Verify encrypted storage is working
+    encrypted_storage
+        .health_check()
+        .expect("Encrypted storage health check failed");
+    info!("Encrypted storage initialized and verified");
+
     // Initialize application state
-    let mut store = InMemoryStore::new();
+    let mut legacy_store = InMemoryStore::new();
 
     if let Ok(code) = env::var("SEED_INVITE_CODE") {
-        store.insert_invite(code, false);
+        legacy_store.insert_invite(code, false);
     }
 
-    let state = AppState::new(store);
-    let app = router(state);
+    let state = AppState::new(legacy_store, encrypted_storage)
+        .with_auth_config(auth_config);
+    
+    // Build router with tracing middleware for request IDs
+    let app = router(state)
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    let request_id = request
+                        .headers()
+                        .get("x-request-id")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
+                    tracing::info_span!(
+                        "http_request",
+                        request_id = %request_id,
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                })
+                .on_response(
+                    |response: &axum::http::Response<_>, latency: Duration, _span: &tracing::Span| {
+                        tracing::info!(
+                            status = %response.status().as_u16(),
+                            latency_ms = %latency.as_millis(),
+                            "response"
+                        );
+                    },
+                ),
+        );
 
     // Parse bind address
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -69,12 +134,97 @@ async fn main() {
         .parse()
         .expect("Failed to parse bind address");
 
-    println!("Relational Wallet server listening on https://{addr} (docs at /docs)");
-    println!("Running with DCAP RA-TLS attestation");
+    info!(
+        address = %addr,
+        docs = "/docs",
+        "Relational Wallet server starting"
+    );
+    info!("Running with DCAP RA-TLS attestation");
+    info!(path = "/data", "Persistent storage: Gramine encrypted filesystem");
 
     // Start HTTPS server (TLS is mandatory - no HTTP fallback)
     axum_server::bind_rustls(addr, tls_config)
         .serve(app.into_make_service())
         .await
         .expect("HTTPS server failed");
+}
+
+/// Initialize the tracing subscriber with JSON output for production.
+#[cfg(not(test))]
+fn init_tracing() {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug"));
+
+    // Check if we should use JSON format (production) or pretty format (development)
+    let use_json = env::var("LOG_FORMAT")
+        .map(|v| v.to_lowercase() == "json")
+        .unwrap_or(false);
+
+    if use_json {
+        // JSON format for production (easier to parse by log aggregators)
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt::layer().json())
+            .init();
+    } else {
+        // Pretty format for development
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt::layer().pretty())
+            .init();
+    }
+}
+
+/// Initialize authentication configuration from environment variables.
+///
+/// Required for production:
+/// - CLERK_JWKS_URL: The JWKS endpoint (e.g., https://your-clerk.clerk.accounts.dev/.well-known/jwks.json)
+/// - CLERK_ISSUER: The expected issuer (e.g., https://your-clerk.clerk.accounts.dev)
+///
+/// Optional:
+/// - CLERK_AUDIENCE: Expected audience claim
+#[cfg(not(test))]
+async fn initialize_auth_config() -> AuthConfig {
+    let jwks_url = env::var("CLERK_JWKS_URL").ok();
+    let issuer = env::var("CLERK_ISSUER").ok();
+    let audience = env::var("CLERK_AUDIENCE").ok();
+
+    if let Some(url) = jwks_url {
+        info!("Initializing JWKS authentication...");
+        info!(jwks_url = %url, "JWKS endpoint configured");
+        
+        let jwks_manager = JwksManager::new(&url);
+        
+        // Pre-fetch JWKS to verify connectivity
+        match jwks_manager.refresh().await {
+            Ok(()) => info!("JWKS fetched successfully"),
+            Err(e) => {
+                warn!(error = %e, "Failed to fetch JWKS - JWT verification will fail until available");
+            }
+        }
+
+        if let Some(ref iss) = issuer {
+            info!(issuer = %iss, "Issuer validation enabled");
+        } else {
+            warn!("CLERK_ISSUER not set - issuer validation disabled");
+        }
+
+        if let Some(ref aud) = audience {
+            info!(audience = %aud, "Audience validation enabled");
+        }
+
+        info!("Production authentication ENABLED");
+
+        AuthConfig {
+            jwks: Some(Arc::new(jwks_manager)),
+            issuer,
+            audience,
+        }
+    } else {
+        warn!("CLERK_JWKS_URL not set - running in DEVELOPMENT MODE");
+        warn!("JWT signature verification is DISABLED");
+        warn!("Set CLERK_JWKS_URL for production use");
+
+        AuthConfig::default()
+    }
 }

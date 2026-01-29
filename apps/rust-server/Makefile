@@ -14,6 +14,10 @@ SELF_EXE = target/release/relational-rust-server
 SRCS = $(shell find src -type f)
 APP_DIR = $(abspath $(patsubst %/,%,$(dir $(SELF_EXE))))
 
+# Directory for encrypted persistent storage (on host)
+# This will be mounted as /data inside the enclave with Gramine encryption
+DATA_DIR ?= $(abspath data)
+
 # RA type is always DCAP - no EPID support
 RA_TYPE = dcap
 
@@ -38,7 +42,11 @@ all: $(SELF_EXE) rust-server.manifest rust-server.manifest.sgx rust-server.sig
 $(SELF_EXE): Cargo.toml Cargo.lock $(SRCS)
 	cargo build --release
 
-rust-server.manifest: rust-server.manifest.template $(SELF_EXE)
+# Create data directory for encrypted storage
+$(DATA_DIR):
+	mkdir -p $(DATA_DIR)
+
+rust-server.manifest: rust-server.manifest.template $(SELF_EXE) | $(DATA_DIR)
 	@if [ -z "$(ENTRYPOINT)" ]; then \
 		echo "error: gramine-ratls not found; install gramine-ratls-dcap or set ENTRYPOINT=/path/to/gramine-ratls"; \
 		exit 1; \
@@ -52,6 +60,7 @@ rust-server.manifest: rust-server.manifest.template $(SELF_EXE)
 		-Dra_type=$(RA_TYPE) \
 		-Disvprodid=$(ISVPRODID) \
 		-Disvsvn=$(ISVSVN) \
+		-Ddata_dir=$(DATA_DIR) \
 		$< $@
 
 rust-server.manifest.sgx rust-server.sig &: rust-server.manifest

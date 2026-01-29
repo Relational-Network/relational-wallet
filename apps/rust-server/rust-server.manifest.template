@@ -44,6 +44,23 @@ fs.mounts = [
     { path = "/tmp", type = "tmpfs" },
     # gramine-ratls binary location (passed via -Dentrypoint)
     { path = "{{ entrypoint }}", uri = "file:{{ entrypoint }}" },
+
+    # ========== DNS RESOLUTION FOR NETWORK ACCESS ==========
+    # Required for connecting to external RPC endpoints (Avalanche, etc.)
+    { path = "/etc/resolv.conf", uri = "file:/etc/resolv.conf" },
+    { path = "/etc/hosts", uri = "file:/etc/hosts" },
+    { path = "/etc/nsswitch.conf", uri = "file:/etc/nsswitch.conf" },
+
+    # ========== ENCRYPTED PERSISTENT STORAGE ==========
+    # All persistent state MUST live under /data
+    # - Files are encrypted on the host filesystem
+    # - Files are transparently decrypted inside the enclave
+    # - Encryption keys are derived by Gramine (bound to enclave identity)
+    # - Using _sgx_mrsigner allows same-signer enclaves to access data (upgrade-safe)
+    #
+    # The Rust application uses normal filesystem I/O.
+    # DO NOT implement crypto in Rust for storage - Gramine owns all at-rest encryption.
+    { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted", key_name = "_sgx_mrsigner" },
 ]
 
 # SGX configuration - DCAP attestation is mandatory
@@ -63,6 +80,13 @@ sgx.trusted_files = [
     "file:{{ arch_libdir }}/",
     "file:{{ app_dir }}/",
     "file:{{ entrypoint }}",
+]
+
+# Allow reading DNS configuration files (network access)
+sgx.allowed_files = [
+    "file:/etc/resolv.conf",
+    "file:/etc/hosts",
+    "file:/etc/nsswitch.conf",
 ]
 
 # The maximum number of threads in a single process needs to be declared in advance.

@@ -31,7 +31,7 @@ pub async fn get_invite(
     State(state): State<AppState>,
     Query(params): Query<InviteQuery>,
 ) -> Result<Json<Invite>, ApiError> {
-    let store = state.store.read().await;
+    let store = state.legacy_store.read().await;
     let invite = store.invite_by_code(&params.invite_code)?;
     Ok(Json(invite))
 }
@@ -47,7 +47,7 @@ pub async fn redeem_invite(
     State(state): State<AppState>,
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<(), ApiError> {
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.redeem_invite(request)?;
     Ok(())
 }
@@ -65,7 +65,7 @@ mod tests {
     async fn get_invite_success() {
         let state = AppState::default();
         let invite = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store.insert_invite("AAABBB", false)
         };
 
@@ -85,7 +85,7 @@ mod tests {
     async fn redeem_invite_success() {
         let state = AppState::default();
         let invite = {
-            let mut store = state.store.write().await;
+            let mut store = state.legacy_store.write().await;
             store.insert_invite("AAABBB", false)
         };
 
@@ -100,7 +100,7 @@ mod tests {
 
         // A redeemed invite should now be rejected by invite_by_code.
         let result = {
-            let store = state.store.read().await;
+            let store = state.legacy_store.read().await;
             store.invite_by_code(&invite.code)
         };
 

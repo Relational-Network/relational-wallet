@@ -8,6 +8,12 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WalletAddress(pub String);
 
+impl std::fmt::Display for WalletAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl From<String> for WalletAddress {
     fn from(value: String) -> Self {
         WalletAddress(value)

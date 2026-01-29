@@ -8,18 +8,59 @@ authors = ["Relational Network"]
 license = "AGPL-3.0-or-later"
 publish = false
 rust-version = "1.92"
-description = "Minimal Rust backend APIs (bookmarks, invites, recurring payments)."
+description = "Custodial Avalanche wallet service running inside Intel SGX enclave with Gramine."
 
 [dependencies]
+# Web framework
 axum = { version = "0.8.8", features = ["macros", "json"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+tower-http = { version = "0.6.8", features = ["cors", "request-id", "trace"] }
+tower = "0.5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async runtime
 tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
+
+# Utilities
 uuid = { version = "1.20.0", features = ["v4", "serde", "fast-rng"] }
-chrono = { version = "0.4.43", default-features = false, features = ["clock"] }
-utoipa = { version = "5.4.0", features = ["axum_extras", "uuid"] }
+chrono = { version = "0.4.43", default-features = false, features = ["clock", "serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# API documentation
+utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
-tower-http = { version = "0.6.8", features = ["cors"] }
+
+# TLS (RA-TLS via Gramine)
 rustls = { version = "0.23.26", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2.2.0"
+
+# Authentication (Clerk JWT)
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# Wallet key generation (secp256k1 for Ethereum/Avalanche)
+k256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+rand = "0.9"
+hex = "0.4.3"
+sha3 = "0.10"
+
+# Blockchain (Avalanche C-Chain / EVM)
+alloy = { version = "1.5.2", features = ["providers", "transports", "rpc", "rpc-types-eth", "contract", "sol-types", "signers", "signer-local", "k256"] }
+url = "2.5"
+
+# Error handling
+thiserror = "2.0"
+
+# Utilities
+lazy_static = "1.5"
+
+[dev-dependencies]
+tempfile = "3.24.0"
+base64 = "0.22"
+

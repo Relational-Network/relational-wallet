@@ -17,7 +17,7 @@ pub async fn autofund_wallet(
     State(state): State<AppState>,
     Json(request): Json<AutofundRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = state.store.write().await;
+    let mut store = state.legacy_store.write().await;
     store.log_autofund(request);
     Ok(StatusCode::OK)
 }
@@ -39,7 +39,7 @@ mod tests {
             .expect("autofund succeeds");
 
         assert_eq!(status, StatusCode::OK);
-        let log = &state.store.read().await.autofund_log;
+        let log = &state.legacy_store.read().await.autofund_log;
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].wallet_id, request.wallet_id);
     }
