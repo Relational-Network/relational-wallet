@@ -93,16 +93,22 @@ relational-wallet/
 
 | Task | Description | Files |
 |------|-------------|-------|
-| **SGX Debug Mode Off** | Set `sgx.debug = false` for production | `rust-server.manifest.template` |
+| **SGX Debug Mode Off** | Set `sgx.debug = false` for production | `rust-server.manifest.template:68` |
+| **Remove Dev JWT Bypass** | Remove/guard `dangerous::insecure_decode` code path | `src/auth/extractor.rs:199-227` |
+| **JWKS Fail-Closed** | Change JWKS to fail-closed on fetch failures | `src/auth/jwks.rs:75-96` |
+| **Require CLERK_ISSUER** | Fail startup if JWKS URL set but issuer missing | `src/main.rs:initialize_auth_config()` |
 | **Enclave Signing Key** | Secure production signing key | Ops/deployment |
 
 ### 🟠 P1 — High Priority
 
 | Task | Description | Files |
 |------|-------------|-------|
-| **Rate Limiting** | Limit auth failures to prevent brute force | New middleware |
+| **Rate Limiting** | Limit auth failures to prevent brute force | New middleware using `tower::limit` or `governor` |
 | **Transaction History** | Store transaction records in `txs/` directory | `src/storage/repository/wallets.rs` |
 | **Clerk Organizations** | Support organization claims for multi-tenant | `src/auth/claims.rs` |
+| **Validate WalletAddress** | Add 0x + 40 hex validation on deserialize | `src/models.rs` |
+| **Separate WalletId Type** | Create distinct type for UUID wallet IDs | `src/models.rs`, `src/api/bookmarks.rs` |
+| **CORS Origin Validation** | Restrict allowed origins in production | `src/api/mod.rs` |
 
 ### 🟡 P2 — Medium Priority
 
@@ -113,11 +119,16 @@ relational-wallet/
 | **Storage Metrics** | Endpoint for disk usage, file counts | `src/api/admin.rs` |
 | **Storage Compaction** | Remove soft-deleted data after retention | `src/storage/` |
 | **Wallet Labels** | User-friendly naming for wallets | `src/storage/repository/wallets.rs` |
-| **Support Role** | Read-only metadata access endpoints | `src/api/` |
-| **Auditor Role** | Read-only audit access endpoints | `src/api/` |
+| **Support Role Endpoints** | Read-only metadata access endpoints | `src/api/` |
+| **Auditor Role Endpoints** | Read-only audit access endpoints | `src/api/` |
 | **Balance Caching** | Cache balance queries to avoid RPC rate limits | `src/api/balance.rs` |
 | **Wallet List Balances** | Show balance summary in wallet list | `src/api/wallets.rs` |
-| **Code Cleanup** | Remove unused exports and warnings | Various |
+| **Shorter JWKS TTL** | Reduce cache TTL from 5min to 60s for faster key rotation | `src/auth/jwks.rs:26` |
+| **Generic Auth Errors** | Return generic "authentication_failed" in production | `src/auth/error.rs` |
+| **Health Endpoint Minimal** | Move detailed health to admin-only endpoint | `src/api/health.rs` |
+| **Code Cleanup** | Remove unused code and `#[allow(dead_code)]` | Various (see Security Audit) |
+| **Fix Storage Path Comments** | Update `meta.json` comment to match `metadata.json` | `src/storage/paths.rs:49` |
+| **Update lib.rs Docs** | Remove outdated `sha3` reference | `src/lib.rs:55` |
 
 ### 🔵 P3 — Lower Priority (Future)
 
@@ -133,6 +144,7 @@ relational-wallet/
 | **OpenTelemetry** | Distributed tracing headers | Middleware |
 | **Backup/Export** | Export encrypted archives | New module |
 | **Multi-sig Wallets** | Multi-signature wallet support | New module |
+| **Frontend TLS Prod Check** | Prevent TLS bypass flag in production | `apps/wallet-web/` |
 
 ### 📋 Documentation TODO
 
@@ -141,6 +153,7 @@ relational-wallet/
 | **Deployment Runbook** | Step-by-step production deployment guide |
 | **Upgrade & Recovery** | Version upgrade and disaster recovery notes |
 | **Recurring Payments** | Document execution logic when implemented |
+| **Security Audit Report** | Formal documentation of audit findings |
 
 ---
 
@@ -157,6 +170,63 @@ relational-wallet/
 - [x] TLS certificate validation in JWKS fetch (rustls-tls)
 - [ ] Enclave signing key secured
 - [ ] Encrypted storage mount verified on host
+- [ ] Remove development mode JWT bypass (see Security Audit below)
+- [ ] Change JWKS fail-open behavior to fail-closed
+
+---
+
+## 🔒 Security Audit Findings
+
+### 🔴 Critical Issues
+
+| Issue | Location | Description | Remediation |
+|-------|----------|-------------|-------------|
+| **Development Mode JWT Bypass** | `src/auth/extractor.rs:199-227` | When `CLERK_JWKS_URL` is not set, JWT signature verification is **completely disabled** using `jsonwebtoken::dangerous::insecure_decode`. Tokens are accepted without cryptographic verification. | Remove this code path entirely OR add a compile-time feature flag (`#[cfg(feature = "dev")]`) so it cannot be accidentally enabled in production builds. |
+| **JWKS Fail-Open Behavior** | `src/auth/jwks.rs:10-11` | On JWKS fetch failure, stale cache is used ("fail-open for availability"). If cache has expired or was never populated, JWT verification may accept unauthenticated requests. | Change to fail-closed: if JWKS cannot be fetched and cache is stale/empty, reject all requests with 503 until JWKS is available. |
+| **SGX Debug Mode Enabled** | `rust-server.manifest.template:68` | `sgx.debug = true` allows debugging enclave memory. Private keys could be extracted. | Set `sgx.debug = false` before any production deployment. |
+
+### 🟠 High Priority Issues
+
+| Issue | Location | Description | Remediation |
+|-------|----------|-------------|-------------|
+| **No Rate Limiting** | Missing | No protection against brute-force attacks on JWT endpoints or wallet operations. | Add `tower::limit::RateLimitLayer` or `governor` crate with per-IP/per-user limits on auth failures. |
+| **Issuer Validation Not Enforced** | `src/auth/extractor.rs:152-156` | If `CLERK_ISSUER` is not configured, issuer validation is disabled entirely (only a warning logged). | Make `CLERK_ISSUER` required for production; fail startup if not set when `CLERK_JWKS_URL` is set. |
+| **Audience Validation Silently Disabled** | `src/auth/extractor.rs:159-163` | Missing `CLERK_AUDIENCE` disables audience validation with no visible indication. | Add startup warning; consider requiring audience in production. |
+| **Health Endpoint Exposes Debug Mode** | `src/api/health.rs:55-68` | `/health` endpoint returns JWKS status which reveals whether production auth is enabled. | Consider making detailed health info admin-only (`/v1/admin/health`), keep `/health` minimal for probes. |
+
+### 🟡 Medium Priority Issues
+
+| Issue | Location | Description | Remediation |
+|-------|----------|-------------|-------------|
+| **Frontend TLS Bypass in Dev** | `apps/wallet-web/src/app/api/proxy/[...path]/route.ts` | Comment mentions `NODE_TLS_REJECT_UNAUTHORIZED` can be used to skip cert validation. | Add runtime check to prevent this flag in production builds. |
+| **Stale JWKS Cache TTL** | `src/auth/jwks.rs:26` | 5-minute TTL may be too long if a key needs emergency rotation. | Consider shorter TTL (60s) or implement JWKS webhook for instant key rotation. |
+| **Error Messages May Leak Info** | `src/auth/error.rs` | Detailed error codes like `no_matching_key` could help attackers probe the auth system. | In production, consider generic "authentication_failed" for all auth errors. |
+| **Wallet Address Not Validated** | `src/models.rs:27-44` | `WalletAddress` newtype accepts any string without validation. | Add validation for `0x` prefix + 40 hex chars on deserialization. |
+| **Bookmark wallet_id Uses WalletAddress Type** | `src/models.rs:75` | `wallet_id` field is typed as `WalletAddress` but stores UUID wallet IDs, causing type confusion. | Create separate `WalletId` newtype for UUIDs vs `WalletAddress` for Ethereum addresses. |
+| **No CORS Origin Validation** | `src/api/mod.rs` | Uses `CorsLayer` but not visible whether origins are restricted. | Explicitly configure allowed origins for production. |
+
+### 🟢 Good Practices Found
+
+| Practice | Location | Notes |
+|----------|----------|-------|
+| **TLS Mandatory** | `src/main.rs:163-165` | No HTTP fallback; server only starts with HTTPS. |
+| **Ownership Verification** | `src/storage/ownership.rs`, all repositories | Every storage operation verifies `user_id` ownership. |
+| **Private Keys Never Exposed** | `src/api/wallets.rs:139-146` | `CreateWalletResponse` explicitly excludes private key from API response. |
+| **Audit Logging** | `src/storage/audit.rs` | All sensitive operations are logged with timestamps and user IDs. |
+| **Request ID Tracing** | `src/main.rs:107-129` | `x-request-id` header propagated for distributed tracing. |
+| **Encrypted Storage** | `rust-server.manifest.template:59-63` | `/data` mounted as Gramine encrypted FS with `_sgx_mrsigner` key derivation. |
+| **Pure Rust Crypto** | `Cargo.toml` | No C crypto dependencies; uses `k256`, `alloy`, `rustls`. |
+| **Minimal Dependencies** | `Cargo.toml` | Consolidated deps: `hex`→`alloy::hex`, `sha3`→`alloy::primitives::keccak256`, etc. |
+
+### 📋 Code Quality Issues
+
+| Issue | Location | Description |
+|-------|----------|-------------|
+| **Dead Code Warnings** | `src/auth/error.rs:27-45` | Several `AuthError` variants marked `#[allow(dead_code)]` |
+| **Dead Code Warnings** | `src/auth/claims.rs:18-75` | `ClerkClaims`, `UserMetadata`, `OrgMembership` marked `#[allow(dead_code)]` |
+| **Unused RequireRole Extractor** | `src/auth/extractor.rs:232-267` | `RequireRole` generic extractor implemented but not used; marked `#[allow(dead_code)]` |
+| **lib.rs Comment Outdated** | `src/lib.rs:55` | Mentions `sha3` crate but it's now consolidated into `alloy` |
+| **File Storage Path Inconsistency** | `src/storage/paths.rs:49` vs actual | Paths say `meta.json` but repository uses `metadata.json` |
 
 ---
 
