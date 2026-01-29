@@ -308,7 +308,6 @@ impl FromRequestParts<AppState> for OptionalAuth {
 mod tests {
     use super::*;
     use crate::state::{AppState, AuthConfig};
-    use crate::store::InMemoryStore;
     use crate::storage::{EncryptedStorage, StoragePaths};
     use axum::http::Request;
     use tempfile::TempDir;
@@ -317,10 +316,10 @@ mod tests {
     fn create_test_state() -> (AppState, TempDir) {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let paths = StoragePaths::new(temp_dir.path());
-        let storage = EncryptedStorage::new(paths);
-        let legacy_store = InMemoryStore::new();
+        let mut storage = EncryptedStorage::new(paths);
+        storage.initialize().expect("Failed to initialize storage");
         
-        let state = AppState::new(legacy_store, storage)
+        let state = AppState::new(storage)
             .with_auth_config(AuthConfig {
                 jwks: None,
                 issuer: Some("test".to_string()),

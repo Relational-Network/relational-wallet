@@ -20,7 +20,6 @@ export type Bookmark = components["schemas"]["Bookmark"];
 export type CreateBookmarkRequest = components["schemas"]["CreateBookmarkRequest"];
 export type Invite = components["schemas"]["Invite"];
 export type RedeemInviteRequest = components["schemas"]["RedeemInviteRequest"];
-export type AutofundRequest = components["schemas"]["AutofundRequest"];
 export type RecurringPayment = components["schemas"]["RecurringPayment"];
 export type CreateRecurringPaymentRequest = components["schemas"]["CreateRecurringPaymentRequest"];
 export type UpdateRecurringPaymentRequest = components["schemas"]["UpdateRecurringPaymentRequest"];
@@ -231,20 +230,6 @@ export class WalletApiClient {
     return this.request<DeleteWalletResponse>(`/v1/wallets/${encodeURIComponent(walletId)}`, {
       method: "DELETE",
       token,
-    });
-  }
-
-  /**
-   * Request autofunding for a wallet.
-   */
-  async autofundWallet(
-    token: string,
-    data: AutofundRequest
-  ): Promise<ApiResponse<void>> {
-    return this.request<void>("/v1/wallet/autofund", {
-      method: "POST",
-      token,
-      body: JSON.stringify(data),
     });
   }
 

@@ -6,13 +6,6 @@
 //!
 //! Invites are user-scoped codes for onboarding.
 //! Each invite is stored as a separate JSON file under `/data/invites/`.
-//!
-//! ## TODO
-//!
-//! Most methods in this module are implemented but not yet connected to API endpoints.
-//! The legacy InMemoryStore is still used for invite operations.
-
-#![allow(dead_code)] // TODO: Remove when invites are fully migrated to encrypted storage
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

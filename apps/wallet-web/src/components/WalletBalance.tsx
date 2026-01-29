@@ -37,10 +37,31 @@ interface WalletBalanceProps {
 }
 
 /**
+ * Skeleton placeholder for balance values.
+ * Uses fixed dimensions to prevent layout shift.
+ */
+function BalanceSkeleton({ width = "120px", height = "2rem" }: { width?: string; height?: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width,
+        height,
+        backgroundColor: "#e9ecef",
+        borderRadius: "4px",
+        animation: "pulse 1.5s ease-in-out infinite",
+      }}
+    />
+  );
+}
+
+/**
  * Client component for displaying wallet balance with refresh capability.
  *
  * Fetches native AVAX balance and ERC-20 token balances (USDC) from the
  * Avalanche Fuji testnet via the backend balance endpoint.
+ *
+ * Uses a fixed-layout skeleton to prevent Cumulative Layout Shift (CLS).
  */
 export function WalletBalance({
   walletId,
@@ -121,6 +142,9 @@ export function WalletBalance({
     );
   }
 
+  // Determine if we should show skeleton (loading without data yet)
+  const showSkeleton = isLoading && !balance;
+
   return (
     <section
       style={{
@@ -129,8 +153,11 @@ export function WalletBalance({
         padding: "1.5rem",
         marginBottom: "2rem",
         backgroundColor: "#ffffff",
+        // Fixed minimum height to prevent CLS
+        minHeight: "400px",
       }}
     >
+      {/* Header with refresh button */}
       <div
         style={{
           display: "flex",
@@ -153,6 +180,9 @@ export function WalletBalance({
             display: "flex",
             alignItems: "center",
             gap: "0.5rem",
+            // Fixed width to prevent button size change
+            minWidth: "110px",
+            justifyContent: "center",
           }}
           title="Refresh balance"
         >
@@ -169,7 +199,7 @@ export function WalletBalance({
                   animation: "spin 1s linear infinite",
                 }}
               />
-              Refreshing...
+              Loading
             </>
           ) : (
             <>↻ Refresh</>
@@ -177,7 +207,7 @@ export function WalletBalance({
         </button>
       </div>
 
-      {/* Network indicator */}
+      {/* Network indicator - always visible */}
       <div style={{ marginBottom: "1rem" }}>
         <span
           style={{
@@ -193,7 +223,8 @@ export function WalletBalance({
         </span>
       </div>
 
-      {error ? (
+      {/* Error state */}
+      {error && (
         <div
           style={{
             padding: "1rem",
@@ -201,6 +232,7 @@ export function WalletBalance({
             border: "1px solid #ffcdd2",
             borderRadius: "4px",
             color: "#c62828",
+            marginBottom: "1rem",
           }}
         >
           <strong>Error:</strong> {error}
@@ -220,209 +252,208 @@ export function WalletBalance({
             Retry
           </button>
         </div>
-      ) : isLoading && !balance ? (
+      )}
+
+      {/* Native AVAX balance - fixed layout */}
+      <div
+        style={{
+          padding: "1rem",
+          backgroundColor: "#f8f9fa",
+          borderRadius: "8px",
+          marginBottom: "1rem",
+          border: "1px solid #e9ecef",
+        }}
+      >
         <div
           style={{
-            padding: "2rem",
-            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            marginBottom: "0.5rem",
+          }}
+        >
+          <span style={{ fontSize: "1.5rem" }}>🔺</span>
+          <span style={{ fontWeight: "bold", color: "#1a1a1a" }}>AVAX</span>
+          <span style={{ color: "#666", fontSize: "0.875rem" }}>
+            Native Token
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: "2rem",
+            fontWeight: "bold",
+            color: "#1a1a1a",
+            fontFamily: "monospace",
+            // Fixed height for balance display
+            height: "2.5rem",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {showSkeleton ? (
+            <BalanceSkeleton width="150px" height="2rem" />
+          ) : balance ? (
+            formatBalance(balance.native_balance.balance_formatted)
+          ) : (
+            "—"
+          )}
+        </div>
+        <div
+          style={{
+            fontSize: "0.75rem",
             color: "#666",
+            marginTop: "0.25rem",
+            // Fixed height for wei display
+            height: "1rem",
+          }}
+        >
+          {showSkeleton ? (
+            <BalanceSkeleton width="200px" height="0.75rem" />
+          ) : balance ? (
+            `${balance.native_balance.balance_raw} wei`
+          ) : null}
+        </div>
+      </div>
+
+      {/* USDC Token balance - fixed layout (always shown) */}
+      <div>
+        <h3
+          style={{
+            margin: "1rem 0 0.5rem 0",
+            fontSize: "1rem",
+            color: "#1a1a1a",
+          }}
+        >
+          Tokens
+        </h3>
+        <div
+          style={{
+            padding: "1rem",
+            backgroundColor: "#f8f9fa",
+            borderRadius: "8px",
+            marginBottom: "0.5rem",
+            border: "1px solid #e9ecef",
           }}
         >
           <div
             style={{
-              display: "inline-block",
-              width: "24px",
-              height: "24px",
-              border: "3px solid #ddd",
-              borderTopColor: "#007bff",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-            }}
-          />
-          <p style={{ margin: "1rem 0 0 0", color: "#666" }}>
-            Loading balance...
-          </p>
-        </div>
-      ) : balance ? (
-        <div>
-          {/* Native AVAX balance */}
-          <div
-            style={{
-              padding: "1rem",
-              backgroundColor: "#f8f9fa",
-              borderRadius: "8px",
-              marginBottom: "1rem",
-              border: "1px solid #e9ecef",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "0.5rem",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                marginBottom: "0.5rem",
-              }}
-            >
-              <span style={{ fontSize: "1.5rem" }}>🔺</span>
-              <span style={{ fontWeight: "bold", color: "#1a1a1a" }}>AVAX</span>
-              <span style={{ color: "#666", fontSize: "0.875rem" }}>
-                Native Token
-              </span>
-            </div>
-            <div
-              style={{
-                fontSize: "2rem",
-                fontWeight: "bold",
-                color: "#1a1a1a",
-                fontFamily: "monospace",
-              }}
-            >
-              {formatBalance(balance.native_balance.balance_formatted)}
-            </div>
-            <div
-              style={{ fontSize: "0.75rem", color: "#666", marginTop: "0.25rem" }}
-            >
-              {balance.native_balance.balance_raw} wei
-            </div>
+            <span style={{ fontSize: "1.25rem" }}>💵</span>
+            <span style={{ fontWeight: "bold", color: "#1a1a1a" }}>USDC</span>
+            <span style={{ color: "#666", fontSize: "0.875rem" }}>
+              USD Coin
+            </span>
           </div>
-
-          {/* ERC-20 Token balances */}
-          {balance.token_balances.length > 0 && (
-            <div>
-              <h3
-                style={{
-                  margin: "1rem 0 0.5rem 0",
-                  fontSize: "1rem",
-                  color: "#1a1a1a",
-                }}
-              >
-                Tokens
-              </h3>
-              {balance.token_balances.map((token, index) => (
-                <div
-                  key={token.contract_address || index}
-                  style={{
-                    padding: "1rem",
-                    backgroundColor: "#f8f9fa",
-                    borderRadius: "8px",
-                    marginBottom: "0.5rem",
-                    border: "1px solid #e9ecef",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    <span style={{ fontSize: "1.25rem" }}>
-                      {token.symbol === "USDC" ? "💵" : "🪙"}
-                    </span>
-                    <span style={{ fontWeight: "bold", color: "#1a1a1a" }}>
-                      {token.symbol}
-                    </span>
-                    <span style={{ color: "#666", fontSize: "0.875rem" }}>
-                      {token.name}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "1.5rem",
-                      fontWeight: "bold",
-                      color: "#1a1a1a",
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    {formatBalance(token.balance_formatted)}
-                  </div>
-                  {token.contract_address && (
-                    <div
-                      style={{
-                        fontSize: "0.7rem",
-                        color: "#999",
-                        marginTop: "0.25rem",
-                        fontFamily: "monospace",
-                      }}
-                    >
-                      {token.contract_address}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Network details */}
-          <dl style={{ margin: "1rem 0 0 0", fontSize: "0.875rem" }}>
-            <dt
-              style={{ fontWeight: "bold", color: "#666", marginTop: "0.75rem" }}
-            >
-              Network
-            </dt>
-            <dd style={{ margin: "0.25rem 0 0 0", color: "#1a1a1a" }}>
-              {balance.network} (Chain ID: {balance.chain_id})
-            </dd>
-          </dl>
-
-          {/* Last updated */}
-          {lastUpdated && (
-            <p
-              style={{
-                marginTop: "1rem",
-                fontSize: "0.75rem",
-                color: "#888",
-              }}
-            >
-              Last updated: {lastUpdated.toLocaleTimeString()}
-            </p>
-          )}
-
-          {/* Testnet faucet links */}
           <div
             style={{
-              marginTop: "1rem",
-              padding: "0.75rem",
-              backgroundColor: "#e3f2fd",
-              borderRadius: "4px",
-              fontSize: "0.875rem",
+              fontSize: "1.5rem",
+              fontWeight: "bold",
               color: "#1a1a1a",
-              border: "1px solid #90caf9",
+              fontFamily: "monospace",
+              // Fixed height for balance display
+              height: "2rem",
+              display: "flex",
+              alignItems: "center",
             }}
           >
-            <strong style={{ color: "#1565c0" }}>Need test tokens?</strong>
-            <ul style={{ margin: "0.5rem 0 0 0", paddingLeft: "1.25rem" }}>
-              <li>
-                <a
-                  href={`https://core.app/tools/testnet-faucet/?subnet=c&address=${encodeURIComponent(publicAddress)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#1565c0", textDecoration: "underline" }}
-                >
-                  Get test AVAX from Avalanche Faucet →
-                </a>
-              </li>
-              <li style={{ marginTop: "0.25rem" }}>
-                <a
-                  href="https://faucet.circle.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#1565c0", textDecoration: "underline" }}
-                >
-                  Get test USDC from Circle Faucet →
-                </a>
-              </li>
-            </ul>
+            {showSkeleton ? (
+              <BalanceSkeleton width="120px" height="1.5rem" />
+            ) : balance?.token_balances?.[0] ? (
+              formatBalance(balance.token_balances[0].balance_formatted)
+            ) : (
+              "0"
+            )}
+          </div>
+          <div
+            style={{
+              fontSize: "0.7rem",
+              color: "#999",
+              marginTop: "0.25rem",
+              fontFamily: "monospace",
+              // Fixed height
+              height: "1rem",
+            }}
+          >
+            {balance?.token_balances?.[0]?.contract_address || "0x5425890298aed601595a70AB815c96711a31Bc65"}
           </div>
         </div>
-      ) : null}
+      </div>
 
-      {/* CSS animation for spinner */}
+      {/* Network details - fixed layout */}
+      <dl style={{ margin: "1rem 0 0 0", fontSize: "0.875rem" }}>
+        <dt
+          style={{ fontWeight: "bold", color: "#666", marginTop: "0.75rem" }}
+        >
+          Network
+        </dt>
+        <dd style={{ margin: "0.25rem 0 0 0", color: "#1a1a1a", height: "1.25rem" }}>
+          {balance ? `${balance.network} (Chain ID: ${balance.chain_id})` : "Fuji Testnet (Chain ID: 43113)"}
+        </dd>
+      </dl>
+
+      {/* Last updated - fixed height */}
+      <p
+        style={{
+          marginTop: "1rem",
+          fontSize: "0.75rem",
+          color: "#888",
+          height: "1rem",
+        }}
+      >
+        {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : "\u00A0"}
+      </p>
+
+      {/* Testnet faucet links - always visible */}
+      <div
+        style={{
+          marginTop: "1rem",
+          padding: "0.75rem",
+          backgroundColor: "#e3f2fd",
+          borderRadius: "4px",
+          fontSize: "0.875rem",
+          color: "#1a1a1a",
+          border: "1px solid #90caf9",
+        }}
+      >
+        <strong style={{ color: "#1565c0" }}>Need test tokens?</strong>
+        <ul style={{ margin: "0.5rem 0 0 0", paddingLeft: "1.25rem" }}>
+          <li>
+            <a
+              href={`https://core.app/tools/testnet-faucet/?subnet=c&address=${encodeURIComponent(publicAddress)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#1565c0", textDecoration: "underline" }}
+            >
+              Get test AVAX from Avalanche Faucet →
+            </a>
+          </li>
+          <li style={{ marginTop: "0.25rem" }}>
+            <a
+              href="https://faucet.circle.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#1565c0", textDecoration: "underline" }}
+            >
+              Get test USDC from Circle Faucet →
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      {/* CSS animations */}
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
         }
       `}</style>
     </section>

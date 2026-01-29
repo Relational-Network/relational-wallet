@@ -827,29 +827,6 @@
         ]
       }
     },
-    "/v1/wallet/autofund": {
-      "post": {
-        "tags": [
-          "Wallet"
-        ],
-        "operationId": "autofund_wallet",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AutofundRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        }
-      }
-    },
     "/v1/wallets": {
       "get": {
         "tags": [
@@ -1391,17 +1368,6 @@
             "type": "integer",
             "description": "Total count (before limit/offset).",
             "minimum": 0
-          }
-        }
-      },
-      "AutofundRequest": {
-        "type": "object",
-        "required": [
-          "wallet_id"
-        ],
-        "properties": {
-          "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
           }
         }
       },
@@ -2136,10 +2102,6 @@
     {
       "name": "Invites",
       "description": "Invite validation and redemption"
-    },
-    {
-      "name": "Wallet",
-      "description": "Wallet utilities (legacy)"
     },
     {
       "name": "Recurring",

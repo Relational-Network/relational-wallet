@@ -74,11 +74,6 @@ pub struct RedeemInviteRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct AutofundRequest {
-    pub wallet_id: WalletAddress,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateRecurringPaymentRequest {
     pub wallet_id: WalletAddress,
     pub wallet_public_key: String,

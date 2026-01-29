@@ -55,9 +55,6 @@ pub use paths::StoragePaths;
 pub use repository::{
     BookmarkRepository, InviteRepository, RecurringRepository, WalletRepository,
     WalletMetadata, WalletResponse, WalletStatus, StoredBookmark,
+    StoredInvite, StoredRecurringPayment, PaymentFrequency, PaymentStatus,
 };
-
-// Re-exports for future features (not yet used in handlers)
-// pub use ownership::{AdminAccess, OwnershipCheck};
-// pub use repository::{StoredInvite, StoredRecurringPayment, PaymentFrequency, PaymentStatus};
 

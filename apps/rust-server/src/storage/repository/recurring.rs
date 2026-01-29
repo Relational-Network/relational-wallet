@@ -7,13 +7,7 @@
 //! Recurring payments define scheduled transfers from user wallets.
 //! Each payment is stored as a separate JSON file under `/data/recurring/`.
 //!
-//! **Note**: Actual execution of recurring payments is a TODO.//!
-//! ## TODO
-//!
-//! Most methods in this module are implemented but not yet connected to API endpoints.
-//! The recurring payment execution logic needs to be implemented.
-
-#![allow(dead_code)] // TODO: Remove when recurring payments are fully implemented//! This repository only manages the scheduled payment records.
+//! **Note**: Actual execution of recurring payments is a TODO.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

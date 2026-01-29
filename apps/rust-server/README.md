@@ -222,17 +222,13 @@ Query parameters: `network=fuji` (default) or `network=mainnet`
 - `POST /v1/admin/wallets/{id}/suspend` — Suspend a wallet
 - `POST /v1/admin/wallets/{id}/activate` — Reactivate a suspended wallet
 
-### Legacy (DEV)
-- `POST /v1/wallet/autofund` — Autofund placeholder *(body: wallet_id)*
-
 ## Project Layout
 ```
 src/
 ├── main.rs          # HTTPS server startup with RA-TLS
 ├── tls.rs           # RA-TLS certificate loading
-├── state.rs         # AppState with legacy and encrypted storage
+├── state.rs         # AppState with encrypted storage
 ├── models.rs        # Request/response structs
-├── store.rs         # Legacy in-memory store
 ├── error.rs         # API error types
 ├── api/             # Handlers grouped by domain
 │   ├── mod.rs       # Router composition + OpenAPI
@@ -241,7 +237,6 @@ src/
 │   ├── invites.rs
 │   ├── recurring.rs
 │   ├── users.rs     # /v1/users/me endpoint
-│   ├── wallet.rs
 │   └── wallets.rs   # Wallet lifecycle endpoints
 ├── auth/            # Clerk JWT authentication
 │   ├── mod.rs       # Module exports
@@ -292,7 +287,3 @@ Clients can verify the server's attestation by:
 - All operations verify ownership before access
 - Private keys accessible only through signing operations
 - No export of private keys, ever
-
-## Notes on Autofund
-The `/v1/wallet/autofund` handler currently records the request in memory and returns `200 OK`. 
-> TODO: Avalanche funding implementation

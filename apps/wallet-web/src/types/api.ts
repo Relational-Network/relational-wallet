@@ -386,22 +386,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/wallet/autofund": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["autofund_wallet"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/wallets": {
         parameters: {
             query?: never;
@@ -567,9 +551,6 @@ export interface components {
             has_more: boolean;
             /** @description Total count (before limit/offset). */
             total: number;
-        };
-        AutofundRequest: {
-            wallet_id: components["schemas"]["WalletAddress"];
         };
         /** @description Balance response. */
         BalanceResponse: components["schemas"]["WalletBalanceResponse"] & {
@@ -1510,27 +1491,6 @@ export interface operations {
             };
             /** @description Unauthorized - invalid or missing token */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    autofund_wallet: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AutofundRequest"];
-            };
-        };
-        responses: {
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };

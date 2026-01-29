@@ -13,10 +13,6 @@ pub mod recurring;
 pub mod wallets;
 
 pub use bookmarks::{BookmarkRepository, StoredBookmark};
-pub use invites::InviteRepository;
-pub use recurring::RecurringRepository;
+pub use invites::{InviteRepository, StoredInvite};
+pub use recurring::{PaymentFrequency, PaymentStatus, RecurringRepository, StoredRecurringPayment};
 pub use wallets::{WalletMetadata, WalletRepository, WalletResponse, WalletStatus};
-
-// Re-exports for future use (not yet used in handlers)
-// pub use invites::StoredInvite;
-// pub use recurring::{PaymentFrequency, PaymentStatus, StoredRecurringPayment};

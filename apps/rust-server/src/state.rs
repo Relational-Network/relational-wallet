@@ -4,11 +4,8 @@
 
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use crate::auth::JwksManager;
 use crate::storage::EncryptedStorage;
-use crate::store::InMemoryStore;
 
 /// Authentication configuration.
 #[derive(Clone)]
@@ -35,14 +32,8 @@ impl Default for AuthConfig {
 ///
 /// ## Storage Model
 ///
-/// The application uses two storage backends:
-///
-/// 1. **`legacy_store`** (InMemoryStore) - Temporary in-memory storage for
-///    backwards compatibility with existing endpoints. Will be migrated to
-///    encrypted storage in Phase 5.
-///
-/// 2. **`storage`** (EncryptedStorage) - Persistent encrypted storage using
-///    Gramine's encrypted filesystem. All new features use this.
+/// The application uses encrypted persistent storage via Gramine's encrypted
+/// filesystem. All data is stored under `/data`.
 ///
 /// ## Authentication
 ///
@@ -57,8 +48,6 @@ impl Default for AuthConfig {
 /// - The Rust application uses normal filesystem I/O
 #[derive(Clone)]
 pub struct AppState {
-    /// Legacy in-memory store (for backwards compatibility during migration)
-    pub legacy_store: Arc<RwLock<InMemoryStore>>,
     /// Encrypted persistent storage
     pub storage: Arc<EncryptedStorage>,
     /// Authentication configuration
@@ -66,10 +55,9 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Create new application state with both legacy and encrypted storage.
-    pub fn new(legacy_store: InMemoryStore, encrypted_storage: EncryptedStorage) -> Self {
+    /// Create new application state with encrypted storage.
+    pub fn new(encrypted_storage: EncryptedStorage) -> Self {
         Self {
-            legacy_store: Arc::new(RwLock::new(legacy_store)),
             storage: Arc::new(encrypted_storage),
             auth_config: AuthConfig::default(),
         }
@@ -79,41 +67,6 @@ impl AppState {
     pub fn with_auth_config(mut self, auth_config: AuthConfig) -> Self {
         self.auth_config = auth_config;
         self
-    }
-
-    /// Create application state with only legacy storage (for tests).
-    #[cfg(test)]
-    pub fn with_legacy_only(legacy_store: InMemoryStore) -> Self {
-        use crate::storage::StoragePaths;
-        let temp_dir = std::env::temp_dir().join(format!("test-state-{}", uuid::Uuid::new_v4()));
-        let paths = StoragePaths::new(&temp_dir);
-        let mut storage = EncryptedStorage::new(paths);
-        storage.initialize().expect("Failed to initialize test storage");
-
-        Self {
-            legacy_store: Arc::new(RwLock::new(legacy_store)),
-            storage: Arc::new(storage),
-            auth_config: AuthConfig::default(),
-        }
-    }
-
-    /// Create application state with only encrypted storage (for tests).
-    #[cfg(test)]
-    pub fn with_encrypted_storage(storage: EncryptedStorage) -> Self {
-        Self {
-            legacy_store: Arc::new(RwLock::new(InMemoryStore::new())),
-            storage: Arc::new(storage),
-            auth_config: AuthConfig::default(),
-        }
-    }
-
-    /// Get a reference to the legacy store.
-    ///
-    /// **Deprecated**: Use encrypted storage repositories instead.
-    #[deprecated(note = "Use encrypted storage repositories for new code")]
-    #[allow(dead_code)]
-    pub fn legacy_store(&self) -> &Arc<RwLock<InMemoryStore>> {
-        &self.legacy_store
     }
 
     /// Get a reference to the encrypted storage.
@@ -139,7 +92,12 @@ impl Default for AppState {
         // Default creates a test-friendly instance with temp storage
         #[cfg(test)]
         {
-            Self::with_legacy_only(InMemoryStore::new())
+            use crate::storage::StoragePaths;
+            let temp_dir = std::env::temp_dir().join(format!("test-state-{}", uuid::Uuid::new_v4()));
+            let paths = StoragePaths::new(&temp_dir);
+            let mut storage = EncryptedStorage::new(paths);
+            storage.initialize().expect("Failed to initialize test storage");
+            Self::new(storage)
         }
         #[cfg(not(test))]
         {

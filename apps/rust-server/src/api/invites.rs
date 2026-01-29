@@ -10,9 +10,11 @@ use serde::Deserialize;
 use utoipa::IntoParams;
 
 use crate::{
+    auth::Auth,
     error::ApiError,
     models::{Invite, RedeemInviteRequest},
     state::AppState,
+    storage::repository::InviteRepository,
 };
 
 #[derive(Deserialize, IntoParams)]
@@ -31,9 +33,22 @@ pub async fn get_invite(
     State(state): State<AppState>,
     Query(params): Query<InviteQuery>,
 ) -> Result<Json<Invite>, ApiError> {
-    let store = state.legacy_store.read().await;
-    let invite = store.invite_by_code(&params.invite_code)?;
-    Ok(Json(invite))
+    let repo = InviteRepository::new(&state.storage);
+    let stored = repo.get_by_code(&params.invite_code).map_err(|_| {
+        ApiError::not_found("Invite not found")
+    })?;
+
+    if stored.redeemed {
+        return Err(ApiError::unprocessable(
+            "This invite code has already been redeemed.",
+        ));
+    }
+
+    Ok(Json(Invite {
+        id: stored.id,
+        code: stored.code,
+        redeemed: stored.redeemed,
+    }))
 }
 
 #[utoipa::path(
@@ -44,11 +59,20 @@ pub async fn get_invite(
     responses((status = 200))
 )]
 pub async fn redeem_invite(
+    Auth(user): Auth,
     State(state): State<AppState>,
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<(), ApiError> {
-    let mut store = state.legacy_store.write().await;
-    store.redeem_invite(request)?;
+    let repo = InviteRepository::new(&state.storage);
+    repo.redeem(&request.invite_id, &user.user_id).map_err(|e| {
+        match e {
+            crate::storage::StorageError::NotFound(_) => ApiError::not_found("Invite not found"),
+            crate::storage::StorageError::AlreadyExists(_) => {
+                ApiError::unprocessable("This invite code has already been redeemed.")
+            }
+            _ => ApiError::internal(format!("Failed to redeem invite: {e}")),
+        }
+    })?;
     Ok(())
 }
 
@@ -58,16 +82,41 @@ mod tests {
     use axum::{
         extract::{Query, State},
         http::StatusCode,
-        Json,
     };
+    use chrono::Utc;
+    use crate::auth::AuthenticatedUser;
+    use crate::storage::repository::invites::StoredInvite;
+
+    fn create_test_invite(repo: &InviteRepository, code: &str) -> StoredInvite {
+        let invite = StoredInvite {
+            id: uuid::Uuid::new_v4().to_string(),
+            code: code.to_string(),
+            redeemed: false,
+            created_by_user_id: Some("admin-1".to_string()),
+            redeemed_by_user_id: None,
+            created_at: Utc::now(),
+            redeemed_at: None,
+            expires_at: None,
+        };
+        repo.create(&invite).expect("create invite");
+        invite
+    }
+
+    fn mock_auth() -> Auth {
+        Auth(AuthenticatedUser {
+            user_id: "test-user-123".to_string(),
+            role: crate::auth::Role::Client,
+            session_id: None,
+            issuer: "https://test.clerk.dev".to_string(),
+            expires_at: Utc::now().timestamp() + 3600,
+        })
+    }
 
     #[tokio::test]
     async fn get_invite_success() {
         let state = AppState::default();
-        let invite = {
-            let mut store = state.legacy_store.write().await;
-            store.insert_invite("AAABBB", false)
-        };
+        let repo = InviteRepository::new(&state.storage);
+        let invite = create_test_invite(&repo, "AAABBB");
 
         let Json(returned) = get_invite(
             State(state.clone()),
@@ -78,18 +127,43 @@ mod tests {
         .await
         .expect("invite fetch succeeds");
 
-        assert_eq!(returned, invite);
+        assert_eq!(returned.id, invite.id);
+        assert_eq!(returned.code, invite.code);
+        assert!(!returned.redeemed);
+    }
+
+    #[tokio::test]
+    async fn get_invite_redeemed_fails() {
+        let state = AppState::default();
+        let repo = InviteRepository::new(&state.storage);
+        let mut invite = create_test_invite(&repo, "REDEEMED1");
+        
+        // Mark as redeemed
+        invite.redeemed = true;
+        repo.update(&invite).expect("update invite");
+
+        let result = get_invite(
+            State(state.clone()),
+            Query(InviteQuery {
+                invite_code: invite.code.clone(),
+            }),
+        )
+        .await;
+
+        match result {
+            Err(err) => assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY),
+            Ok(_) => panic!("expected error for redeemed invite"),
+        }
     }
 
     #[tokio::test]
     async fn redeem_invite_success() {
         let state = AppState::default();
-        let invite = {
-            let mut store = state.legacy_store.write().await;
-            store.insert_invite("AAABBB", false)
-        };
+        let repo = InviteRepository::new(&state.storage);
+        let invite = create_test_invite(&repo, "REDEEM_ME");
 
         redeem_invite(
+            mock_auth(),
             State(state.clone()),
             Json(RedeemInviteRequest {
                 invite_id: invite.id.clone(),
@@ -98,15 +172,18 @@ mod tests {
         .await
         .expect("invite redeem succeeds");
 
-        // A redeemed invite should now be rejected by invite_by_code.
-        let result = {
-            let store = state.legacy_store.read().await;
-            store.invite_by_code(&invite.code)
-        };
+        // Verify invite is now redeemed
+        let result = get_invite(
+            State(state.clone()),
+            Query(InviteQuery {
+                invite_code: invite.code.clone(),
+            }),
+        )
+        .await;
 
         match result {
             Err(err) => assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY),
-            Ok(invite) => panic!("expected invite to be marked redeemed, got {invite:?}"),
+            Ok(_) => panic!("expected invite to be marked redeemed"),
         }
     }
 }

@@ -217,6 +217,9 @@ src/
 ├── auth/          # JWT verification, roles, extractors
 ├── blockchain/    # Avalanche C-Chain client (alloy)
 ├── storage/       # Encrypted FS repositories
+├── state.rs       # AppState with encrypted storage
+├── models.rs      # Request/response structs
+├── error.rs       # API error types
 ├── tls.rs         # RA-TLS credential loading
 └── main.rs        # Server startup
 ```
@@ -246,7 +249,7 @@ make start-rust-server   # Run inside SGX enclave
 #### Testing
 
 ```bash
-cargo test                                          # Unit tests (102 passing)
+cargo test                                          # Unit tests (101 passing)
 cargo test --test blockchain_integration -- --ignored  # Integration tests (10 passing)
 cargo tarpaulin --ignore-tests                      # Coverage report
 ```

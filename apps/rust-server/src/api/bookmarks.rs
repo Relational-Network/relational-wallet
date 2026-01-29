@@ -213,7 +213,7 @@ mod tests {
         let mut storage = EncryptedStorage::new(paths);
         storage.initialize().unwrap();
 
-        let state = AppState::with_encrypted_storage(storage);
+        let state = AppState::new(storage);
         let user = AuthenticatedUser {
             user_id: "test_user".to_string(),
             role: Role::Client,

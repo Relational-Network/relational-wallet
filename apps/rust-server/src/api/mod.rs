@@ -14,7 +14,7 @@ use crate::{
     auth::Role,
     blockchain::{TokenBalance, WalletBalanceResponse},
     models::{
-        AutofundRequest, Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite,
+        Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite,
         RecurringPayment, RedeemInviteRequest, UpdateLastPaidDateRequest,
         UpdateRecurringPaymentRequest, WalletAddress,
     },
@@ -28,7 +28,6 @@ pub mod health;
 pub mod invites;
 pub mod recurring;
 pub mod users;
-pub mod wallet;
 pub mod wallets;
 
 pub fn router(state: AppState) -> Router {
@@ -65,8 +64,6 @@ pub fn router(state: AppState) -> Router {
         // Invite endpoints
         .route("/invite", get(invites::get_invite))
         .route("/invite/redeem", post(invites::redeem_invite))
-        // Wallet utilities (legacy)
-        .route("/wallet/autofund", post(wallet::autofund_wallet))
         // Recurring payment endpoints
         .route(
             "/recurring/payments",
@@ -133,8 +130,6 @@ pub fn router(state: AppState) -> Router {
         // Invite endpoints
         invites::get_invite,
         invites::redeem_invite,
-        // Wallet utilities (legacy)
-        wallet::autofund_wallet,
         // Recurring payment endpoints
         recurring::list_recurring_payments,
         recurring::create_recurring_payment,
@@ -190,7 +185,6 @@ pub fn router(state: AppState) -> Router {
             WalletAddress,
             CreateBookmarkRequest,
             RedeemInviteRequest,
-            AutofundRequest,
             CreateRecurringPaymentRequest,
             UpdateRecurringPaymentRequest,
             UpdateLastPaidDateRequest,
@@ -205,7 +199,6 @@ pub fn router(state: AppState) -> Router {
         (name = "Wallets", description = "Wallet lifecycle management"),
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "Invites", description = "Invite validation and redemption"),
-        (name = "Wallet", description = "Wallet utilities (legacy)"),
         (name = "Recurring", description = "Recurring payment scheduling"),
         (name = "Admin", description = "Admin-only system management"),
         (name = "Health", description = "Liveness and readiness checks")
@@ -240,5 +233,13 @@ mod tests {
         let app = router(AppState::default());
         // Ensure the router can be converted into a service without panicking.
         let _ = app.into_make_service();
+    }
+
+    #[test]
+    fn generate_openapi_json() {
+        use std::fs;
+        let json = ApiDoc::openapi().to_pretty_json().unwrap();
+        fs::write("/tmp/openapi_generated.json", &json).unwrap();
+        assert!(json.contains("openapi"));
     }
 }

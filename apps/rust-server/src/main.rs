@@ -10,7 +10,6 @@ mod error;
 mod models;
 mod state;
 mod storage;
-mod store;
 mod tls;
 
 #[cfg(not(test))]
@@ -26,8 +25,6 @@ use axum_server::tls_rustls::RustlsConfig;
 use state::{AppState, AuthConfig};
 #[cfg(not(test))]
 use storage::EncryptedStorage;
-#[cfg(not(test))]
-use store::InMemoryStore;
 #[cfg(not(test))]
 use tls::load_ratls_credentials;
 #[cfg(not(test))]
@@ -83,14 +80,34 @@ async fn main() {
         .expect("Encrypted storage health check failed");
     info!("Encrypted storage initialized and verified");
 
-    // Initialize application state
-    let mut legacy_store = InMemoryStore::new();
-
+    // Seed invite if configured
     if let Ok(code) = env::var("SEED_INVITE_CODE") {
-        legacy_store.insert_invite(code, false);
+        use chrono::Utc;
+        use storage::repository::InviteRepository;
+        use storage::repository::invites::StoredInvite;
+        
+        let repo = InviteRepository::new(&encrypted_storage);
+        // Only create if it doesn't exist
+        if repo.get_by_code(&code).is_err() {
+            let invite = StoredInvite {
+                id: uuid::Uuid::new_v4().to_string(),
+                code,
+                redeemed: false,
+                created_by_user_id: Some("system".to_string()),
+                redeemed_by_user_id: None,
+                created_at: Utc::now(),
+                redeemed_at: None,
+                expires_at: None,
+            };
+            if let Err(e) = repo.create(&invite) {
+                warn!(error = %e, "Failed to seed invite code");
+            } else {
+                info!("Seeded invite code from SEED_INVITE_CODE");
+            }
+        }
     }
 
-    let state = AppState::new(legacy_store, encrypted_storage)
+    let state = AppState::new(encrypted_storage)
         .with_auth_config(auth_config);
     
     // Build router with tracing middleware for request IDs
