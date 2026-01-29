@@ -103,7 +103,6 @@ relational-wallet/
 | **Rate Limiting** | Limit auth failures to prevent brute force | New middleware |
 | **Transaction History** | Store transaction records in `txs/` directory | `src/storage/repository/wallets.rs` |
 | **Clerk Organizations** | Support organization claims for multi-tenant | `src/auth/claims.rs` |
-| **Docker Update** | Update Dockerfile for alloy, k256, sha3 deps | `apps/rust-server/Dockerfile` |
 
 ### 🟡 P2 — Medium Priority
 
@@ -270,6 +269,35 @@ cargo tarpaulin --ignore-tests                      # Coverage report
 ---
 
 ## Code Conventions
+
+### Dependency Guidelines
+
+**Minimal dependencies for enclave security and audit scope:**
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Use std library** | Prefer `std::sync::OnceLock` over `lazy_static` |
+| **Consolidate crates** | Use `alloy::hex` instead of separate `hex` crate |
+| **Feature flags** | Use `alloy::primitives::keccak256` instead of `sha3` crate |
+| **Avoid C deps** | Use `rustls` not OpenSSL, pure-Rust crypto only |
+| **Pin versions** | Specify exact minor versions (e.g., `"1.5.2"` not `"1"`) |
+
+**Consolidated dependencies (do NOT add these separately):**
+- `hex` → use `alloy::hex`
+- `sha3` → use `alloy::primitives::keccak256`
+- `lazy_static` → use `std::sync::OnceLock`
+- `rand` → use `k256::elliptic_curve::rand_core::OsRng`
+
+**Current versions (Rust 1.92+):**
+```toml
+axum = "0.8.8"
+alloy = "1.5.2"
+k256 = "0.13.4"
+tokio = "1.49.0"
+serde = "1.0.228"
+rustls = "0.23.26"
+jsonwebtoken = "10.3.0"
+```
 
 ### File Headers (Required)
 

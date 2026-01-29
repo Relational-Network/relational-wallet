@@ -136,8 +136,15 @@ impl AvaxClient {
     }
 
     /// Create a signer from a private key (hex string without 0x prefix).
+    ///
+    /// # Arguments
+    /// * `private_key_hex` - Hex-encoded private key (64 characters, no 0x prefix)
+    ///
+    /// # Returns
+    /// A `PrivateKeySigner` that can be used to sign transactions.
     pub fn create_signer(private_key_hex: &str) -> Result<PrivateKeySigner, AvaxClientError> {
-        let key_bytes = hex::decode(private_key_hex)
+        // Use alloy's hex decoding (from alloy-primitives)
+        let key_bytes = alloy::hex::decode(private_key_hex)
             .map_err(|e| AvaxClientError::InvalidPrivateKey(e.to_string()))?;
 
         PrivateKeySigner::from_slice(&key_bytes)

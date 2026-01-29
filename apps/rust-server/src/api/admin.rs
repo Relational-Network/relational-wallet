@@ -168,17 +168,33 @@ pub struct StorageHealth {
 // ============================================================================
 // Server start time (for uptime calculation)
 // ============================================================================
+// Uses std::sync::OnceLock (stable since Rust 1.70) instead of lazy_static
+// for a lighter dependency footprint in the enclave.
+// ============================================================================
 
-lazy_static::lazy_static! {
-    static ref SERVER_START: std::time::Instant = std::time::Instant::now();
+use std::sync::OnceLock;
+use std::time::Instant;
+
+/// Server start time, initialized on first access.
+/// OnceLock provides thread-safe lazy initialization without external crates.
+static SERVER_START: OnceLock<Instant> = OnceLock::new();
+
+/// Get the server start time, initializing it on first call.
+/// 
+/// This function returns the instant when the server was first accessed,
+/// which is used for uptime calculations in system stats.
+fn get_server_start() -> &'static Instant {
+    SERVER_START.get_or_init(Instant::now)
 }
 
 /// Initialize the server start time. Call this at startup.
-/// Note: SERVER_START is lazily initialized, so this is optional.
+/// 
+/// This is optional since `get_server_start()` will initialize on first use,
+/// but calling it explicitly at startup ensures consistent uptime reporting.
 #[allow(dead_code)]
 pub fn init_server_start_time() {
-    // Access the lazy static to initialize it
-    let _ = *SERVER_START;
+    // Initialize the server start time immediately
+    let _ = get_server_start();
 }
 
 // ============================================================================
@@ -247,7 +263,7 @@ pub async fn get_system_stats(
         total_invites: all_invites.len(),
         redeemed_invites,
         total_recurring_payments: total_recurring,
-        uptime_seconds: SERVER_START.elapsed().as_secs(),
+        uptime_seconds: get_server_start().elapsed().as_secs(),
         timestamp: Utc::now().to_rfc3339(),
     }))
 }

@@ -264,11 +264,16 @@ pub async fn delete_wallet(
 /// 3. Take keccak256 hash of the public key (without 0x04 prefix, so 64 bytes)
 /// 4. Take the last 20 bytes of the hash
 /// 5. Encode as hex with 0x prefix (42 characters total)
+///
+/// # Returns
+/// A tuple of (private_key_pem, public_address) where:
+/// - `private_key_pem`: PKCS#8 PEM-encoded private key for encrypted storage
+/// - `public_address`: Ethereum-format address (0x + 40 hex chars)
 fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    use alloy::primitives::keccak256;
     use k256::ecdsa::SigningKey;
     use k256::elliptic_curve::rand_core::OsRng;
     use k256::pkcs8::EncodePrivateKey;
-    use sha3::{Digest, Keccak256};
 
     // Generate random signing key (secp256k1)
     let signing_key = SigningKey::random(&mut OsRng);
@@ -276,7 +281,7 @@ fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::
     // Get verifying (public) key
     let verifying_key = signing_key.verifying_key();
 
-    // Encode private key to PEM (PKCS#8 format)
+    // Encode private key to PEM (PKCS#8 format) for encrypted storage
     let private_key_pem = signing_key
         .to_pkcs8_pem(k256::pkcs8::LineEnding::LF)
         .map_err(|e| format!("Failed to encode private key: {}", e))?;
@@ -285,14 +290,14 @@ fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::
     let public_key_uncompressed = verifying_key.to_encoded_point(false);
     let public_key_bytes = public_key_uncompressed.as_bytes();
     
-    // Skip the 0x04 prefix byte, hash the remaining 64 bytes (x || y coordinates)
-    let mut hasher = Keccak256::new();
-    hasher.update(&public_key_bytes[1..]); // Skip first byte (0x04 prefix)
-    let hash = hasher.finalize();
+    // Hash the public key coordinates (skip 0x04 prefix) using alloy's keccak256
+    let hash = keccak256(&public_key_bytes[1..]);
 
     // Take the last 20 bytes of the hash as the address
     let address_bytes = &hash[12..]; // hash is 32 bytes, take last 20
-    let public_address = format!("0x{}", hex::encode(address_bytes));
+    
+    // Format as Ethereum address using alloy's hex encoding
+    let public_address = format!("0x{}", alloy::hex::encode(address_bytes));
 
     Ok((private_key_pem.to_string(), public_address))
 }
