@@ -1137,6 +1137,263 @@
           }
         ]
       }
+    },
+    "/v1/wallets/{wallet_id}/estimate": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Estimate gas for a transaction.",
+        "description": "Returns estimated gas limit and cost before sending.",
+        "operationId": "estimate_gas",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateGasRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Gas estimate calculated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateGasResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not wallet owner"
+          },
+          "404": {
+            "description": "Wallet not found"
+          },
+          "503": {
+            "description": "Blockchain network unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/send": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Send a transaction from a wallet.",
+        "description": "Signs the transaction inside the SGX enclave and broadcasts to the network.",
+        "operationId": "send_transaction",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendTransactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not wallet owner"
+          },
+          "404": {
+            "description": "Wallet not found"
+          },
+          "422": {
+            "description": "Insufficient balance"
+          },
+          "503": {
+            "description": "Blockchain network unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/transactions": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "List transactions for a wallet.",
+        "operationId": "list_transactions",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "network",
+            "in": "query",
+            "description": "Network filter: \"fuji\" or \"mainnet\"",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of results (default: 50)",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "default": 50,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not wallet owner"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/transactions/{tx_hash}": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Get the status of a specific transaction.",
+        "description": "Used for polling after send. Updates stored status from blockchain if pending.",
+        "operationId": "get_transaction_status",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tx_hash",
+            "in": "path",
+            "description": "Transaction hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not wallet owner"
+          },
+          "404": {
+            "description": "Wallet or transaction not found"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1394,6 +1651,7 @@
       },
       "Bookmark": {
         "type": "object",
+        "description": "A saved wallet address bookmark.\n\nBookmarks allow users to save frequently-used addresses with friendly names\nfor quick access when sending transactions.",
         "required": [
           "id",
           "wallet_id",
@@ -1402,21 +1660,26 @@
         ],
         "properties": {
           "address": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The bookmarked wallet address."
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique identifier for this bookmark."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "User-friendly name for the bookmarked address."
           },
           "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The wallet this bookmark belongs to."
           }
         }
       },
       "CreateBookmarkRequest": {
         "type": "object",
+        "description": "Request to create a new bookmark.",
         "required": [
           "wallet_id",
           "name",
@@ -1424,18 +1687,22 @@
         ],
         "properties": {
           "address": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The wallet address to bookmark."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "User-friendly name for the bookmark."
           },
           "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The wallet to add the bookmark to (must be owned by the user)."
           }
         }
       },
       "CreateRecurringPaymentRequest": {
         "type": "object",
+        "description": "Request to create a recurring payment schedule.",
         "required": [
           "wallet_id",
           "wallet_public_key",
@@ -1449,31 +1716,39 @@
         "properties": {
           "amount": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "Payment amount."
           },
           "currency_code": {
-            "type": "string"
+            "type": "string",
+            "description": "Currency code (e.g., \"AVAX\", \"USDC\")."
           },
           "frequency": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Frequency in days between payments."
           },
           "payment_end_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "End date (Unix timestamp in days, 0 = no end)."
           },
           "payment_start_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Start date (Unix timestamp in days)."
           },
           "recipient": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "Recipient address for payments."
           },
           "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The source wallet (must be owned by the user)."
           },
           "wallet_public_key": {
-            "type": "string"
+            "type": "string",
+            "description": "Public key for the wallet."
           }
         }
       },
@@ -1559,6 +1834,65 @@
           }
         }
       },
+      "EstimateGasRequest": {
+        "type": "object",
+        "description": "Request to estimate gas for a transaction.",
+        "required": [
+          "to",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount to send in human-readable format (e.g., \"1.5\")"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network: \"fuji\" (default) or \"mainnet\""
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient address (0x + 40 hex chars)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token type: \"native\" for AVAX or contract address for ERC-20"
+          }
+        }
+      },
+      "EstimateGasResponse": {
+        "type": "object",
+        "description": "Gas estimation response.",
+        "required": [
+          "gas_limit",
+          "max_fee_per_gas",
+          "max_priority_fee_per_gas",
+          "estimated_cost_wei",
+          "estimated_cost"
+        ],
+        "properties": {
+          "estimated_cost": {
+            "type": "string",
+            "description": "Total estimated cost in AVAX"
+          },
+          "estimated_cost_wei": {
+            "type": "string",
+            "description": "Total estimated cost in wei"
+          },
+          "gas_limit": {
+            "type": "string",
+            "description": "Estimated gas limit"
+          },
+          "max_fee_per_gas": {
+            "type": "string",
+            "description": "Max fee per gas in wei"
+          },
+          "max_priority_fee_per_gas": {
+            "type": "string",
+            "description": "Max priority fee per gas in wei"
+          }
+        }
+      },
       "HealthChecks": {
         "type": "object",
         "description": "Individual health check results.",
@@ -1600,6 +1934,7 @@
       },
       "Invite": {
         "type": "object",
+        "description": "An invitation code for new users.\n\nInvites can be used to control access to the wallet service. Each invite\ncode can only be redeemed once.",
         "required": [
           "id",
           "code",
@@ -1607,13 +1942,16 @@
         ],
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "description": "The invite code (shared with the invitee)."
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique identifier for this invite."
           },
           "redeemed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether this invite has been used."
           }
         }
       },
@@ -1670,6 +2008,7 @@
       },
       "RecurringPayment": {
         "type": "object",
+        "description": "A scheduled recurring payment configuration.\n\nRecurring payments allow automatic transfers on a schedule. The actual\nexecution logic is handled by a separate service.",
         "required": [
           "id",
           "wallet_id",
@@ -1685,49 +2024,61 @@
         "properties": {
           "amount": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "Payment amount."
           },
           "currency_code": {
-            "type": "string"
+            "type": "string",
+            "description": "Currency code (e.g., \"AVAX\", \"USDC\")."
           },
           "frequency": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Frequency in days between payments."
           },
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Unique identifier for this payment schedule."
           },
           "last_paid_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Last payment date (Unix timestamp in days)."
           },
           "payment_end_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "End date (Unix timestamp in days, 0 = no end)."
           },
           "payment_start_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Start date (Unix timestamp in days)."
           },
           "recipient": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The recipient address for payments."
           },
           "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "The source wallet for payments."
           },
           "wallet_public_key": {
-            "type": "string"
+            "type": "string",
+            "description": "Public key of the wallet (for verification)."
           }
         }
       },
       "RedeemInviteRequest": {
         "type": "object",
+        "description": "Request to redeem an invite code.",
         "required": [
           "invite_id"
         ],
         "properties": {
           "invite_id": {
-            "type": "string"
+            "type": "string",
+            "description": "The invite ID to redeem."
           }
         }
       },
@@ -1740,6 +2091,69 @@
           "support",
           "auditor"
         ]
+      },
+      "SendTransactionRequest": {
+        "type": "object",
+        "description": "Request to send a transaction.",
+        "required": [
+          "to",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount to send in human-readable format (e.g., \"1.5\")"
+          },
+          "gas_limit": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional gas limit override"
+          },
+          "max_priority_fee_per_gas": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional max priority fee per gas override (in wei)"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network: \"fuji\" (default) or \"mainnet\""
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient address (0x + 40 hex chars)"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token type: \"native\" for AVAX or contract address for ERC-20"
+          }
+        }
+      },
+      "SendTransactionResponse": {
+        "type": "object",
+        "description": "Transaction send response.",
+        "required": [
+          "tx_hash",
+          "status",
+          "explorer_url"
+        ],
+        "properties": {
+          "explorer_url": {
+            "type": "string",
+            "description": "Block explorer URL"
+          },
+          "status": {
+            "type": "string",
+            "description": "Current status"
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "Transaction hash"
+          }
+        }
       },
       "StorageHealth": {
         "type": "object",
@@ -1767,6 +2181,89 @@
           "writable": {
             "type": "boolean",
             "description": "Whether the data directory is writable."
+          }
+        }
+      },
+      "StoredTransaction": {
+        "type": "object",
+        "description": "Stored transaction record.",
+        "required": [
+          "tx_hash",
+          "wallet_id",
+          "from",
+          "to",
+          "amount",
+          "token",
+          "network",
+          "status",
+          "explorer_url",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount in human-readable format"
+          },
+          "block_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Block number (if confirmed)",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the transaction was submitted"
+          },
+          "explorer_url": {
+            "type": "string",
+            "description": "Block explorer URL"
+          },
+          "from": {
+            "type": "string",
+            "description": "Sender address"
+          },
+          "gas_used": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Gas used (if confirmed)",
+            "minimum": 0
+          },
+          "network": {
+            "type": "string",
+            "description": "Network (fuji or mainnet)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TxStatus",
+            "description": "Current transaction status"
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient address"
+          },
+          "token": {
+            "$ref": "#/components/schemas/TokenType",
+            "description": "Token type (native or ERC-20)"
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "Transaction hash (0x prefixed)"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the status was last updated"
+          },
+          "wallet_id": {
+            "type": "string",
+            "description": "Wallet ID that initiated the transaction"
           }
         }
       },
@@ -1880,8 +2377,176 @@
           }
         }
       },
+      "TokenType": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Native AVAX transfer",
+            "enum": [
+              "native"
+            ]
+          },
+          {
+            "type": "object",
+            "description": "ERC-20 token transfer (stores contract address)",
+            "required": [
+              "erc20"
+            ],
+            "properties": {
+              "erc20": {
+                "type": "string",
+                "description": "ERC-20 token transfer (stores contract address)"
+              }
+            }
+          }
+        ],
+        "description": "Token type for a transaction."
+      },
+      "TransactionListResponse": {
+        "type": "object",
+        "description": "Transaction list response.",
+        "required": [
+          "transactions"
+        ],
+        "properties": {
+          "transactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionSummary"
+            },
+            "description": "List of transactions"
+          }
+        }
+      },
+      "TransactionStatusResponse": {
+        "type": "object",
+        "description": "Transaction status response.",
+        "required": [
+          "tx_hash",
+          "status"
+        ],
+        "properties": {
+          "block_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Block number (if confirmed)",
+            "minimum": 0
+          },
+          "confirmations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Number of confirmations",
+            "minimum": 0
+          },
+          "gas_used": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Gas used (if confirmed)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status: pending, confirmed, failed"
+          },
+          "timestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timestamp"
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "Transaction hash"
+          }
+        }
+      },
+      "TransactionSummary": {
+        "type": "object",
+        "description": "Transaction summary for list view.",
+        "required": [
+          "tx_hash",
+          "status",
+          "direction",
+          "from",
+          "to",
+          "amount",
+          "token",
+          "network",
+          "explorer_url",
+          "timestamp"
+        ],
+        "properties": {
+          "amount": {
+            "type": "string",
+            "description": "Amount sent"
+          },
+          "block_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Block number (if confirmed)",
+            "minimum": 0
+          },
+          "direction": {
+            "type": "string",
+            "description": "Direction: \"sent\" or \"received\""
+          },
+          "explorer_url": {
+            "type": "string",
+            "description": "Block explorer URL"
+          },
+          "from": {
+            "type": "string",
+            "description": "Sender address"
+          },
+          "network": {
+            "type": "string",
+            "description": "Network"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status: pending, confirmed, failed"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Timestamp"
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient address"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token type"
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "Transaction hash"
+          }
+        }
+      },
+      "TxStatus": {
+        "type": "string",
+        "description": "Transaction status.",
+        "enum": [
+          "pending",
+          "confirmed",
+          "failed"
+        ]
+      },
       "UpdateLastPaidDateRequest": {
         "type": "object",
+        "description": "Request to update the last paid date for a recurring payment.",
         "required": [
           "recurring_payment_id",
           "last_paid_date"
@@ -1889,15 +2554,18 @@
         "properties": {
           "last_paid_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "New last paid date (Unix timestamp in days)."
           },
           "recurring_payment_id": {
-            "type": "string"
+            "type": "string",
+            "description": "ID of the recurring payment."
           }
         }
       },
       "UpdateRecurringPaymentRequest": {
         "type": "object",
+        "description": "Request to update an existing recurring payment.",
         "required": [
           "recurring_payment_id",
           "wallet_id",
@@ -1912,34 +2580,43 @@
         "properties": {
           "amount": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "Updated payment amount."
           },
           "currency_code": {
-            "type": "string"
+            "type": "string",
+            "description": "Updated currency code."
           },
           "frequency": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Updated frequency."
           },
           "payment_end_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Updated end date."
           },
           "payment_start_date": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Updated start date."
           },
           "recipient": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "Updated recipient address."
           },
           "recurring_payment_id": {
-            "type": "string"
+            "type": "string",
+            "description": "ID of the recurring payment to update."
           },
           "wallet_id": {
-            "$ref": "#/components/schemas/WalletAddress"
+            "$ref": "#/components/schemas/WalletAddress",
+            "description": "Updated source wallet."
           },
           "wallet_public_key": {
-            "type": "string"
+            "type": "string",
+            "description": "Updated public key."
           }
         }
       },
@@ -1969,7 +2646,8 @@
         }
       },
       "WalletAddress": {
-        "type": "string"
+        "type": "string",
+        "description": "Ethereum-compatible wallet address wrapper.\n\nProvides type safety for wallet addresses throughout the API.\nFormat: `0x` followed by 40 hexadecimal characters (20 bytes).\n\n# Example\n\n```rust,ignore\nlet addr = WalletAddress::from(\"0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12\");\n```"
       },
       "WalletBalanceResponse": {
         "type": "object",
@@ -2094,6 +2772,10 @@
     {
       "name": "Wallets",
       "description": "Wallet lifecycle management"
+    },
+    {
+      "name": "Transactions",
+      "description": "Transaction signing and sending"
     },
     {
       "name": "Bookmarks",

@@ -161,6 +161,51 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
             walletStatus={wallet.status}
           />
 
+          {/* Quick Actions - Send & History */}
+          <section
+            style={{
+              display: "flex",
+              gap: "1rem",
+              marginBottom: "2rem",
+            }}
+          >
+            <Link
+              href={`/wallets/${wallet.wallet_id}/send`}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1rem",
+                backgroundColor: wallet.status === "active" ? "#007bff" : "#aaa",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "4px",
+                fontWeight: "bold",
+                pointerEvents: wallet.status === "active" ? "auto" : "none",
+              }}
+            >
+              ↗ Send Transaction
+            </Link>
+            <Link
+              href={`/wallets/${wallet.wallet_id}/transactions`}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1rem",
+                backgroundColor: "#6c757d",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "4px",
+                fontWeight: "bold",
+              }}
+            >
+              📜 Transaction History
+            </Link>
+          </section>
+
           <section
             style={{
               border: "1px solid #ddd",

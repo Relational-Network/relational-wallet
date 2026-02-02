@@ -170,6 +170,156 @@ Returns native AVAX balance and configured ERC-20 token balances (including USDC
 - 404: Wallet not found
 - 503: Blockchain network unavailable
 
+---
+
+## Transaction Endpoints
+
+### POST /v1/wallets/{wallet_id}/estimate
+Estimate gas cost for a transaction before sending.
+
+**Auth**: Required (owner only)  
+**Request Body**:
+```json
+{
+  "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00",
+  "amount": "1.5",
+  "token": "native",
+  "network": "fuji"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `to` | string | Recipient address (0x + 40 hex chars) |
+| `amount` | string | Amount to send (human-readable, e.g., "1.5") |
+| `token` | string | `"native"` for AVAX or token contract address |
+| `network` | string | `"fuji"` or `"mainnet"` (default: fuji) |
+
+**Response** (200 OK):
+```json
+{
+  "gas_limit": "21000",
+  "max_fee_per_gas": "25000000000",
+  "max_priority_fee_per_gas": "1000000000",
+  "estimated_cost_wei": "525000000000000",
+  "estimated_cost": "0.000525"
+}
+```
+
+### POST /v1/wallets/{wallet_id}/send
+Sign and broadcast a transaction from the wallet.
+
+**Auth**: Required (owner only)  
+**Request Body**:
+```json
+{
+  "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00",
+  "amount": "1.5",
+  "token": "native",
+  "network": "fuji",
+  "gas_limit": "21000",
+  "max_priority_fee_per_gas": "1000000000"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `to` | string | Recipient address (required) |
+| `amount` | string | Amount to send (required) |
+| `token` | string | `"native"` for AVAX or USDC contract address |
+| `network` | string | Network selection (default: fuji) |
+| `gas_limit` | string | Optional gas limit override |
+| `max_priority_fee_per_gas` | string | Optional priority fee override |
+
+**Response** (200 OK):
+```json
+{
+  "tx_hash": "0xabc123...def456",
+  "status": "pending",
+  "explorer_url": "https://testnet.snowtrace.io/tx/0xabc123...def456"
+}
+```
+
+**Errors**:
+- 400: Invalid address or amount
+- 403: Not the wallet owner
+- 422: Insufficient balance
+- 503: Blockchain network unavailable
+
+### GET /v1/wallets/{wallet_id}/transactions
+List transaction history for a wallet.
+
+Shows both **sent** and **received** transactions. Incoming transactions are found by scanning the user's other wallets for transfers to this wallet's address.
+
+**Auth**: Required (owner only)  
+**Query Parameters**:
+- `network`: `fuji` or `mainnet` (default: fuji)
+- `limit`: Max results (default: 50)
+
+**Response** (200 OK):
+```json
+{
+  "transactions": [
+    {
+      "tx_hash": "0xabc123...def456",
+      "status": "confirmed",
+      "direction": "sent",
+      "from": "0x1234...abcd",
+      "to": "0x5678...efgh",
+      "amount": "1.5",
+      "token": "native",
+      "network": "fuji",
+      "block_number": 12345678,
+      "explorer_url": "https://testnet.snowtrace.io/tx/0xabc123...",
+      "timestamp": "2026-02-01T10:30:00Z"
+    },
+    {
+      "tx_hash": "0xdef789...abc012",
+      "status": "confirmed",
+      "direction": "received",
+      "from": "0x9999...0000",
+      "to": "0x1234...abcd",
+      "amount": "2.0",
+      "token": "native",
+      "network": "fuji",
+      "block_number": 12345600,
+      "explorer_url": "https://testnet.snowtrace.io/tx/0xdef789...",
+      "timestamp": "2026-02-01T09:00:00Z"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `direction` | `"sent"` if this wallet initiated, `"received"` if this wallet was recipient |
+| `token` | `"native"` for AVAX or ERC-20 contract address |
+| `explorer_url` | Link to Snowtrace block explorer |
+
+### GET /v1/wallets/{wallet_id}/transactions/{tx_hash}
+Get the status of a specific transaction. Used for polling after send.
+
+**Auth**: Required (owner only)  
+**Response** (200 OK):
+```json
+{
+  "tx_hash": "0xabc123...def456",
+  "status": "confirmed",
+  "block_number": 12345678,
+  "confirmations": 5,
+  "gas_used": "21000",
+  "timestamp": "2026-02-01T10:30:00Z"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Transaction submitted, awaiting confirmation |
+| `confirmed` | Transaction included in block |
+| `failed` | Transaction reverted or failed |
+
+---
+
 ### GET /v1/wallets/{wallet_id}/balance/native
 Get only the native AVAX balance (faster query).
 
@@ -331,13 +481,15 @@ All errors follow this format:
 
 | Endpoint | Description | Status |
 |----------|-------------|--------|
-| `POST /v1/wallets/{id}/sign` | Sign a transaction | Planned |
-| `POST /v1/wallets/{id}/send` | Send a transaction | Planned |
 | `GET /attestation` | Get DCAP attestation evidence | Planned |
 
 ## Recently Implemented
 
 | Endpoint | Description | Version |
-|----------|-------------|---------|
+|----------|-------------|--------|
 | `GET /v1/wallets/{id}/balance` | Query on-chain balance (AVAX + ERC-20) | v0.1.0 |
 | `GET /v1/wallets/{id}/balance/native` | Query native AVAX balance only | v0.1.0 |
+| `POST /v1/wallets/{id}/estimate` | Estimate gas for transaction | v0.2.0 |
+| `POST /v1/wallets/{id}/send` | Sign and broadcast transaction | v0.2.0 |
+| `GET /v1/wallets/{id}/transactions` | List transaction history | v0.2.0 |
+| `GET /v1/wallets/{id}/transactions/{tx_hash}` | Get transaction status | v0.2.0 |

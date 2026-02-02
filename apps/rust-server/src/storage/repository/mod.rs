@@ -10,9 +10,11 @@
 pub mod bookmarks;
 pub mod invites;
 pub mod recurring;
+pub mod transactions;
 pub mod wallets;
 
 pub use bookmarks::{BookmarkRepository, StoredBookmark};
 pub use invites::{InviteRepository, StoredInvite};
 pub use recurring::{PaymentFrequency, PaymentStatus, RecurringRepository, StoredRecurringPayment};
+pub use transactions::{StoredTransaction, TokenType, TransactionRepository, TxStatus};
 pub use wallets::{WalletMetadata, WalletRepository, WalletResponse, WalletStatus};

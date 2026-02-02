@@ -19,6 +19,7 @@ use crate::{
         UpdateRecurringPaymentRequest, WalletAddress,
     },
     state::AppState,
+    storage::{StoredTransaction, TokenType, TxStatus},
 };
 
 pub mod admin;
@@ -27,6 +28,7 @@ pub mod bookmarks;
 pub mod health;
 pub mod invites;
 pub mod recurring;
+pub mod transactions;
 pub mod users;
 pub mod wallets;
 
@@ -51,6 +53,23 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/wallets/{wallet_id}/balance/native",
             get(balance::get_native_balance),
+        )
+        // Transaction endpoints
+        .route(
+            "/wallets/{wallet_id}/estimate",
+            post(transactions::estimate_gas),
+        )
+        .route(
+            "/wallets/{wallet_id}/send",
+            post(transactions::send_transaction),
+        )
+        .route(
+            "/wallets/{wallet_id}/transactions",
+            get(transactions::list_transactions),
+        )
+        .route(
+            "/wallets/{wallet_id}/transactions/{tx_hash}",
+            get(transactions::get_transaction_status),
         )
         // Bookmark endpoints
         .route(
@@ -123,6 +142,11 @@ pub fn router(state: AppState) -> Router {
         // Wallet balance endpoints
         balance::get_wallet_balance,
         balance::get_native_balance,
+        // Transaction endpoints
+        transactions::estimate_gas,
+        transactions::send_transaction,
+        transactions::list_transactions,
+        transactions::get_transaction_status,
         // Bookmark endpoints
         bookmarks::list_bookmarks,
         bookmarks::create_bookmark,
@@ -167,6 +191,17 @@ pub fn router(state: AppState) -> Router {
             balance::NativeBalanceResponse,
             TokenBalance,
             WalletBalanceResponse,
+            // Transaction schemas
+            transactions::EstimateGasRequest,
+            transactions::EstimateGasResponse,
+            transactions::SendTransactionRequest,
+            transactions::SendTransactionResponse,
+            transactions::TransactionListResponse,
+            transactions::TransactionSummary,
+            transactions::TransactionStatusResponse,
+            StoredTransaction,
+            TokenType,
+            TxStatus,
             // Admin schemas
             admin::SystemStatsResponse,
             admin::AdminWalletItem,
@@ -197,6 +232,7 @@ pub fn router(state: AppState) -> Router {
     tags(
         (name = "Users", description = "User identity and authentication"),
         (name = "Wallets", description = "Wallet lifecycle management"),
+        (name = "Transactions", description = "Transaction signing and sending"),
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "Invites", description = "Invite validation and redemption"),
         (name = "Recurring", description = "Recurring payment scheduling"),

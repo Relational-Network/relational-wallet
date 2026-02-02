@@ -35,6 +35,64 @@ export type CreateWalletResponse = components["schemas"]["CreateWalletResponse"]
 export type DeleteWalletResponse = components["schemas"]["DeleteWalletResponse"];
 export type WalletStatus = components["schemas"]["WalletStatus"];
 
+// Transaction types (manually defined until OpenAPI is regenerated)
+export interface EstimateGasRequest {
+  to: string;
+  amount: string;
+  token: string; // "native" or token contract address
+  network?: string; // "fuji" or "mainnet"
+}
+
+export interface EstimateGasResponse {
+  gas_limit: string;
+  max_fee_per_gas: string;
+  max_priority_fee_per_gas: string;
+  estimated_cost_wei: string;
+  estimated_cost: string;
+}
+
+export interface SendTransactionRequest {
+  to: string;
+  amount: string;
+  token: string; // "native" or token contract address
+  network?: string;
+  gas_limit?: string;
+  max_priority_fee_per_gas?: string;
+}
+
+export interface SendTransactionResponse {
+  tx_hash: string;
+  status: "pending" | "confirmed" | "failed";
+  explorer_url: string;
+}
+
+export interface TransactionSummary {
+  tx_hash: string;
+  status: "pending" | "confirmed" | "failed";
+  direction: "sent" | "received";
+  from: string;
+  to: string;
+  amount: string;
+  token: string;
+  network: string;
+  block_number?: number;
+  explorer_url: string;
+  timestamp: string;
+}
+
+export interface TransactionListResponse {
+  transactions: TransactionSummary[];
+}
+
+export interface TransactionStatusResponse {
+  tx_hash: string;
+  status: "pending" | "confirmed" | "failed";
+  block_number?: number;
+  confirmations?: number;
+  gas_used?: string;
+  timestamp?: string;
+}
+
 // =============================================================================
 // API Response Types
 // =============================================================================
@@ -231,6 +289,81 @@ export class WalletApiClient {
       method: "DELETE",
       token,
     });
+  }
+
+  // ===========================================================================
+  // Transaction Endpoints
+  // ===========================================================================
+
+  /**
+   * Estimate gas cost for a transaction.
+   */
+  async estimateGas(
+    token: string,
+    walletId: string,
+    data: EstimateGasRequest
+  ): Promise<ApiResponse<EstimateGasResponse>> {
+    return this.request<EstimateGasResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/estimate`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Send a transaction from a wallet.
+   */
+  async sendTransaction(
+    token: string,
+    walletId: string,
+    data: SendTransactionRequest
+  ): Promise<ApiResponse<SendTransactionResponse>> {
+    return this.request<SendTransactionResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/send`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * List transaction history for a wallet.
+   */
+  async listTransactions(
+    token: string,
+    walletId: string,
+    network?: string
+  ): Promise<ApiResponse<TransactionListResponse>> {
+    const params = network ? `?network=${encodeURIComponent(network)}` : "";
+    return this.request<TransactionListResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/transactions${params}`,
+      {
+        method: "GET",
+        token,
+      }
+    );
+  }
+
+  /**
+   * Get status of a specific transaction (for polling).
+   */
+  async getTransactionStatus(
+    token: string,
+    walletId: string,
+    txHash: string
+  ): Promise<ApiResponse<TransactionStatusResponse>> {
+    return this.request<TransactionStatusResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/transactions/${encodeURIComponent(txHash)}`,
+      {
+        method: "GET",
+        token,
+      }
+    );
   }
 
   // ===========================================================================

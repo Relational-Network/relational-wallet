@@ -19,7 +19,8 @@ The core backend running inside Gramine SGX:
 - **Security**: DCAP RA-TLS for encrypted connections with attestation
 - **Storage**: Encrypted file-based persistence in `/data`
 - **Authentication**: Clerk JWT verification with JWKS
-- **Cryptography**: P256 keypairs for wallet addresses
+- **Cryptography**: secp256k1 keypairs (Ethereum/Avalanche compatible)
+- **Blockchain**: Avalanche C-Chain integration via alloy
 
 **Key Features**:
 - Health checks (liveness, readiness, component status)
@@ -43,12 +44,13 @@ Browser → /api/proxy/* → Next.js Server → SGX Enclave
 
 The proxy pattern is necessary because browsers reject self-signed RA-TLS certificates. The Next.js server-side route can accept the certificate and forward requests.
 
-### 3. Avalanche Settlement (Planned)
+### 3. Avalanche C-Chain Integration
 
-On-chain ledger for stablecoin transfers:
-- Transaction signing via enclave
-- Balance queries
-- Payment execution
+On-chain ledger for AVAX and stablecoin transfers:
+- **Balance queries**: Native AVAX and ERC-20 tokens (USDC)
+- **Transaction signing**: Sign transactions with enclave-held keys
+- **Transfer execution**: Send AVAX and USDC via Fuji testnet or mainnet
+- **Gas estimation**: Dynamic RPC-based estimation with optional override
 
 ## Data Flow
 
@@ -59,9 +61,9 @@ On-chain ledger for stablecoin transfers:
 2. Browser calls /api/proxy/v1/wallets (POST)
 3. Next.js proxy adds Clerk JWT, forwards to enclave
 4. Enclave verifies JWT via JWKS
-5. Enclave generates P256 keypair inside SGX
+5. Enclave generates secp256k1 keypair inside SGX
 6. Wallet data encrypted and saved to /data
-7. Public address returned to user
+7. Ethereum-compatible address returned to user
 ```
 
 ### Authentication Flow
@@ -84,15 +86,27 @@ relational-wallet/
 │   ├── rust-server/          # Enclave backend
 │   │   ├── src/
 │   │   │   ├── main.rs       # Entry point
-│   │   │   ├── router.rs     # API routes
+│   │   │   ├── config.rs     # Configuration
+│   │   │   ├── state.rs      # Application state
+│   │   │   ├── api/          # HTTP handlers
+│   │   │   │   ├── mod.rs    # Router setup
+│   │   │   │   ├── wallets.rs
+│   │   │   │   ├── balance.rs
+│   │   │   │   ├── transactions.rs
+│   │   │   │   └── admin.rs
 │   │   │   ├── auth/         # JWT verification
-│   │   │   ├── handlers/     # Request handlers
+│   │   │   ├── blockchain/   # Avalanche integration
+│   │   │   │   ├── client.rs # RPC client
+│   │   │   │   ├── erc20.rs  # Token interface
+│   │   │   │   ├── signing.rs
+│   │   │   │   └── transactions.rs
 │   │   │   └── storage/      # Encrypted persistence
 │   │   ├── rust-server.manifest.template
 │   │   └── Makefile
 │   └── wallet-web/           # Next.js frontend
 │       ├── src/
 │       │   ├── app/          # App Router pages
+│       │   │   ├── wallets/  # Wallet pages
 │       │   │   └── api/proxy/  # Backend proxy
 │       │   ├── components/   # React components
 │       │   └── lib/          # API client

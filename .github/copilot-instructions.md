@@ -1,5 +1,18 @@
 # Relational Wallet - AI Coding Instructions
 
+## ⚠️ Development Tracking
+
+**IMPORTANT**: When implementing new features, always update `week_report.md` in the repo root with:
+- New features added (backend and frontend)
+- API endpoints created/modified
+- Bugs fixed
+- Documentation updates
+- Notes for next steps
+
+This file is gitignored and used for local progress tracking.
+
+---
+
 ## Architecture Overview
 
 This is a **TEE-backed custodial wallet service** monorepo using Intel SGX for secure key management, with Avalanche as the settlement layer.
@@ -54,6 +67,10 @@ relational-wallet/
 | **Full Balance** | `GET /v1/wallets/{id}/balance` — AVAX + ERC-20 tokens |
 | **USDC Support** | Fuji testnet USDC (`0x5425890298aed601595a70AB815c96711a31Bc65`) |
 | **Network Selection** | Query parameter `?network=fuji` or `?network=mainnet` |
+| **Gas Estimation** | `POST /v1/wallets/{id}/estimate` — EIP-1559 gas estimation with user override |
+| **Transaction Signing** | `POST /v1/wallets/{id}/send` — Sign with enclave-held keys, broadcast to network |
+| **Transaction History** | `GET /v1/wallets/{id}/transactions` — Sent + received transactions with direction |
+| **Transaction Status** | `GET /v1/wallets/{id}/transactions/{tx_hash}` — Polling for confirmation |
 
 ### 👤 Admin & Audit
 
@@ -74,6 +91,9 @@ relational-wallet/
 | **Wallet Dashboard** | List, create, view wallet details |
 | **Balance Display** | Real-time AVAX + USDC balances with refresh |
 | **Faucet Links** | Quick links to Avalanche and Circle testnet faucets |
+| **Send Transaction** | `/wallets/{id}/send` — Form with gas estimation, confirmation, and status polling |
+| **Transaction History** | `/wallets/{id}/transactions` — List with sent/received direction, explorer links |
+| **JWT Token Display** | `/account` — Copy JWT token for API testing |
 
 ### 📚 Additional Features
 
@@ -104,7 +124,7 @@ relational-wallet/
 | Task | Description | Files |
 |------|-------------|-------|
 | **Rate Limiting** | Limit auth failures to prevent brute force | New middleware using `tower::limit` or `governor` |
-| **Transaction History** | Store transaction records in `txs/` directory | `src/storage/repository/wallets.rs` |
+| ~~**Transaction History**~~ | ✅ DONE — Stored in `txs/` directory with sent/received direction | `src/storage/repository/transactions.rs` |
 | **Clerk Organizations** | Support organization claims for multi-tenant | `src/auth/claims.rs` |
 | **Validate WalletAddress** | Add 0x + 40 hex validation on deserialize | `src/models.rs` |
 | **Separate WalletId Type** | Create distinct type for UUID wallet IDs | `src/models.rs`, `src/api/bookmarks.rs` |
@@ -134,8 +154,8 @@ relational-wallet/
 
 | Task | Description | Files |
 |------|-------------|-------|
-| **Transaction Signing** | Sign transactions with enclave-held keys | `src/api/`, `src/blockchain/` |
-| **Transaction Broadcasting** | Submit to Avalanche network | New module |
+| ~~**Transaction Signing**~~ | ✅ DONE — `POST /v1/wallets/{id}/send` | `src/api/transactions.rs`, `src/blockchain/signing.rs` |
+| ~~**Transaction Broadcasting**~~ | ✅ DONE — EIP-1559 transactions to Avalanche | `src/blockchain/transactions.rs` |
 | **Smart Contract Calls** | Interact with deployed contracts | New module |
 | **Event Listening** | Monitor on-chain events | New module |
 | **WebSocket Support** | Real-time balance/tx updates | New module |
@@ -240,12 +260,23 @@ relational-wallet/
 apps/wallet-web/src/
 ├── app/
 │   ├── api/proxy/[...path]/route.ts  # Backend proxy (handles RA-TLS certs)
-│   ├── wallets/                       # Wallet pages (list, create, detail)
-│   └── account/                       # User account page
+│   ├── wallets/
+│   │   ├── page.tsx                  # Wallet list
+│   │   ├── new/page.tsx              # Create wallet
+│   │   └── [wallet_id]/
+│   │       ├── page.tsx              # Wallet detail + balance
+│   │       ├── send/                 # Send transaction (form, confirmation, polling)
+│   │       │   ├── page.tsx
+│   │       │   └── SendForm.tsx
+│   │       └── transactions/         # Transaction history
+│   │           ├── page.tsx
+│   │           └── TransactionList.tsx
+│   └── account/                      # User account page + JWT token display
 ├── components/
-│   └── WalletBalance.tsx             # Balance display with refresh
+│   ├── WalletBalance.tsx             # Balance display with refresh
+│   └── TokenDisplay.tsx              # JWT token copy for testing
 ├── lib/
-│   ├── api.ts                        # Typed API client (WalletApiClient)
+│   ├── api.ts                        # Typed API client (includes transaction methods)
 │   └── auth.ts                       # Clerk helpers
 └── types/api.ts                      # OpenAPI-generated types
 ```
@@ -329,7 +360,9 @@ cargo tarpaulin --ignore-tests                      # Coverage report
 /data/                    # Gramine encrypted mount
 ├── wallets/{id}/
 │   ├── metadata.json     # WalletMetadata
-│   └── private_key.pem   # NEVER exposed
+│   ├── private_key.pem   # NEVER exposed
+│   └── txs/              # Transaction history
+│       └── {tx_hash}.json
 ├── bookmarks/{id}.json
 ├── invites/{id}.json
 ├── recurring/{id}.json

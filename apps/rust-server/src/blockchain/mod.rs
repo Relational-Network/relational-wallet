@@ -6,12 +6,17 @@
 //!
 //! This module provides functionality for:
 //! - Querying native AVAX balances
-//! - Querying ERC-20 token balances (for euro stablecoin)
+//! - Querying ERC-20 token balances (USDC, etc.)
 //! - Transaction signing and broadcasting
+//! - Gas estimation
 
 pub mod client;
 pub mod erc20;
+pub mod signing;
+pub mod transactions;
 pub mod types;
 
 pub use client::{AvaxClient, AvaxClientError};
+pub use signing::{pem_to_hex, signer_from_pem, wallet_from_pem};
+pub use transactions::{format_amount, parse_amount, GasEstimate, SendResult, TxBuilder, TxReceipt};
 pub use types::*;

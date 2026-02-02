@@ -3126,6 +3126,7 @@ dependencies = [
  "chrono",
  "jsonwebtoken",
  "k256",
+ "pem",
  "reqwest",
  "rustls",
  "rustls-pemfile",

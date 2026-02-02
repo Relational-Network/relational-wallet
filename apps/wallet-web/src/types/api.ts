@@ -470,6 +470,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/wallets/{wallet_id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Estimate gas for a transaction.
+         * @description Returns estimated gas limit and cost before sending.
+         */
+        post: operations["estimate_gas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/wallets/{wallet_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a transaction from a wallet.
+         * @description Signs the transaction inside the SGX enclave and broadcasts to the network.
+         */
+        post: operations["send_transaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/wallets/{wallet_id}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List transactions for a wallet. */
+        get: operations["list_transactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/wallets/{wallet_id}/transactions/{tx_hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the status of a specific transaction.
+         * @description Used for polling after send. Updates stored status from blockchain if pending.
+         */
+        get: operations["get_transaction_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -557,29 +634,60 @@ export interface components {
             /** @description Wallet ID */
             wallet_id: string;
         };
+        /**
+         * @description A saved wallet address bookmark.
+         *
+         *     Bookmarks allow users to save frequently-used addresses with friendly names
+         *     for quick access when sending transactions.
+         */
         Bookmark: {
+            /** @description The bookmarked wallet address. */
             address: components["schemas"]["WalletAddress"];
+            /** @description Unique identifier for this bookmark. */
             id: string;
+            /** @description User-friendly name for the bookmarked address. */
             name: string;
+            /** @description The wallet this bookmark belongs to. */
             wallet_id: components["schemas"]["WalletAddress"];
         };
+        /** @description Request to create a new bookmark. */
         CreateBookmarkRequest: {
+            /** @description The wallet address to bookmark. */
             address: components["schemas"]["WalletAddress"];
+            /** @description User-friendly name for the bookmark. */
             name: string;
+            /** @description The wallet to add the bookmark to (must be owned by the user). */
             wallet_id: components["schemas"]["WalletAddress"];
         };
+        /** @description Request to create a recurring payment schedule. */
         CreateRecurringPaymentRequest: {
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Payment amount.
+             */
             amount: number;
+            /** @description Currency code (e.g., "AVAX", "USDC"). */
             currency_code: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Frequency in days between payments.
+             */
             frequency: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description End date (Unix timestamp in days, 0 = no end).
+             */
             payment_end_date: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Start date (Unix timestamp in days).
+             */
             payment_start_date: number;
+            /** @description Recipient address for payments. */
             recipient: components["schemas"]["WalletAddress"];
+            /** @description The source wallet (must be owned by the user). */
             wallet_id: components["schemas"]["WalletAddress"];
+            /** @description Public key for the wallet. */
             wallet_public_key: string;
         };
         /** @description Request to create a new wallet. */
@@ -614,6 +722,30 @@ export interface components {
             /** @description Server version. */
             version: string;
         };
+        /** @description Request to estimate gas for a transaction. */
+        EstimateGasRequest: {
+            /** @description Amount to send in human-readable format (e.g., "1.5") */
+            amount: string;
+            /** @description Network: "fuji" (default) or "mainnet" */
+            network?: string;
+            /** @description Recipient address (0x + 40 hex chars) */
+            to: string;
+            /** @description Token type: "native" for AVAX or contract address for ERC-20 */
+            token?: string;
+        };
+        /** @description Gas estimation response. */
+        EstimateGasResponse: {
+            /** @description Total estimated cost in AVAX */
+            estimated_cost: string;
+            /** @description Total estimated cost in wei */
+            estimated_cost_wei: string;
+            /** @description Estimated gas limit */
+            gas_limit: string;
+            /** @description Max fee per gas in wei */
+            max_fee_per_gas: string;
+            /** @description Max priority fee per gas in wei */
+            max_priority_fee_per_gas: string;
+        };
         /** @description Individual health check results. */
         HealthChecks: {
             /** @description Data directory availability (if configured). */
@@ -630,9 +762,18 @@ export interface components {
         HealthResponse: {
             status: string;
         };
+        /**
+         * @description An invitation code for new users.
+         *
+         *     Invites can be used to control access to the wallet service. Each invite
+         *     code can only be redeemed once.
+         */
         Invite: {
+            /** @description The invite code (shared with the invitee). */
             code: string;
+            /** @description Unique identifier for this invite. */
             id: string;
+            /** @description Whether this invite has been used. */
             redeemed: boolean;
         };
         /** @description Native token balance response (simpler version). */
@@ -655,24 +796,52 @@ export interface components {
             /** @description Overall health status ("ok" or "degraded"). */
             status: string;
         };
+        /**
+         * @description A scheduled recurring payment configuration.
+         *
+         *     Recurring payments allow automatic transfers on a schedule. The actual
+         *     execution logic is handled by a separate service.
+         */
         RecurringPayment: {
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Payment amount.
+             */
             amount: number;
+            /** @description Currency code (e.g., "AVAX", "USDC"). */
             currency_code: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Frequency in days between payments.
+             */
             frequency: number;
+            /** @description Unique identifier for this payment schedule. */
             id: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Last payment date (Unix timestamp in days).
+             */
             last_paid_date: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description End date (Unix timestamp in days, 0 = no end).
+             */
             payment_end_date: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Start date (Unix timestamp in days).
+             */
             payment_start_date: number;
+            /** @description The recipient address for payments. */
             recipient: components["schemas"]["WalletAddress"];
+            /** @description The source wallet for payments. */
             wallet_id: components["schemas"]["WalletAddress"];
+            /** @description Public key of the wallet (for verification). */
             wallet_public_key: string;
         };
+        /** @description Request to redeem an invite code. */
         RedeemInviteRequest: {
+            /** @description The invite ID to redeem. */
             invite_id: string;
         };
         /**
@@ -687,6 +856,30 @@ export interface components {
          * @enum {string}
          */
         Role: "admin" | "client" | "support" | "auditor";
+        /** @description Request to send a transaction. */
+        SendTransactionRequest: {
+            /** @description Amount to send in human-readable format (e.g., "1.5") */
+            amount: string;
+            /** @description Optional gas limit override */
+            gas_limit?: string | null;
+            /** @description Optional max priority fee per gas override (in wei) */
+            max_priority_fee_per_gas?: string | null;
+            /** @description Network: "fuji" (default) or "mainnet" */
+            network?: string;
+            /** @description Recipient address (0x + 40 hex chars) */
+            to: string;
+            /** @description Token type: "native" for AVAX or contract address for ERC-20 */
+            token?: string;
+        };
+        /** @description Transaction send response. */
+        SendTransactionResponse: {
+            /** @description Block explorer URL */
+            explorer_url: string;
+            /** @description Current status */
+            status: string;
+            /** @description Transaction hash */
+            tx_hash: string;
+        };
         /** @description Storage health details. */
         StorageHealth: {
             /** @description Data directory path. */
@@ -697,6 +890,47 @@ export interface components {
             total_files: number;
             /** @description Whether the data directory is writable. */
             writable: boolean;
+        };
+        /** @description Stored transaction record. */
+        StoredTransaction: {
+            /** @description Amount in human-readable format */
+            amount: string;
+            /**
+             * Format: int64
+             * @description Block number (if confirmed)
+             */
+            block_number?: number | null;
+            /**
+             * Format: date-time
+             * @description When the transaction was submitted
+             */
+            created_at: string;
+            /** @description Block explorer URL */
+            explorer_url: string;
+            /** @description Sender address */
+            from: string;
+            /**
+             * Format: int64
+             * @description Gas used (if confirmed)
+             */
+            gas_used?: number | null;
+            /** @description Network (fuji or mainnet) */
+            network: string;
+            /** @description Current transaction status */
+            status: components["schemas"]["TxStatus"];
+            /** @description Recipient address */
+            to: string;
+            /** @description Token type (native or ERC-20) */
+            token: components["schemas"]["TokenType"];
+            /** @description Transaction hash (0x prefixed) */
+            tx_hash: string;
+            /**
+             * Format: date-time
+             * @description When the status was last updated
+             */
+            updated_at: string;
+            /** @description Wallet ID that initiated the transaction */
+            wallet_id: string;
         };
         /** @description System statistics response. */
         SystemStatsResponse: {
@@ -742,24 +976,111 @@ export interface components {
             /** @description Token symbol (e.g., "AVAX", "EUROC") */
             symbol: string;
         };
+        /** @description Token type for a transaction. */
+        TokenType: "native" | {
+            /** @description ERC-20 token transfer (stores contract address) */
+            erc20: string;
+        };
+        /** @description Transaction list response. */
+        TransactionListResponse: {
+            /** @description List of transactions */
+            transactions: components["schemas"]["TransactionSummary"][];
+        };
+        /** @description Transaction status response. */
+        TransactionStatusResponse: {
+            /**
+             * Format: int64
+             * @description Block number (if confirmed)
+             */
+            block_number?: number | null;
+            /**
+             * Format: int64
+             * @description Number of confirmations
+             */
+            confirmations?: number | null;
+            /** @description Gas used (if confirmed) */
+            gas_used?: string | null;
+            /** @description Status: pending, confirmed, failed */
+            status: string;
+            /** @description Timestamp */
+            timestamp?: string | null;
+            /** @description Transaction hash */
+            tx_hash: string;
+        };
+        /** @description Transaction summary for list view. */
+        TransactionSummary: {
+            /** @description Amount sent */
+            amount: string;
+            /**
+             * Format: int64
+             * @description Block number (if confirmed)
+             */
+            block_number?: number | null;
+            /** @description Direction: "sent" or "received" */
+            direction: string;
+            /** @description Block explorer URL */
+            explorer_url: string;
+            /** @description Sender address */
+            from: string;
+            /** @description Network */
+            network: string;
+            /** @description Status: pending, confirmed, failed */
+            status: string;
+            /** @description Timestamp */
+            timestamp: string;
+            /** @description Recipient address */
+            to: string;
+            /** @description Token type */
+            token: string;
+            /** @description Transaction hash */
+            tx_hash: string;
+        };
+        /**
+         * @description Transaction status.
+         * @enum {string}
+         */
+        TxStatus: "pending" | "confirmed" | "failed";
+        /** @description Request to update the last paid date for a recurring payment. */
         UpdateLastPaidDateRequest: {
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description New last paid date (Unix timestamp in days).
+             */
             last_paid_date: number;
+            /** @description ID of the recurring payment. */
             recurring_payment_id: string;
         };
+        /** @description Request to update an existing recurring payment. */
         UpdateRecurringPaymentRequest: {
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Updated payment amount.
+             */
             amount: number;
+            /** @description Updated currency code. */
             currency_code: string;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Updated frequency.
+             */
             frequency: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Updated end date.
+             */
             payment_end_date: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @description Updated start date.
+             */
             payment_start_date: number;
+            /** @description Updated recipient address. */
             recipient: components["schemas"]["WalletAddress"];
+            /** @description ID of the recurring payment to update. */
             recurring_payment_id: string;
+            /** @description Updated source wallet. */
             wallet_id: components["schemas"]["WalletAddress"];
+            /** @description Updated public key. */
             wallet_public_key: string;
         };
         /** @description Response for GET /v1/users/me */
@@ -771,6 +1092,18 @@ export interface components {
             /** @description User's unique ID (from Clerk) */
             user_id: string;
         };
+        /**
+         * @description Ethereum-compatible wallet address wrapper.
+         *
+         *     Provides type safety for wallet addresses throughout the API.
+         *     Format: `0x` followed by 40 hexadecimal characters (20 bytes).
+         *
+         *     # Example
+         *
+         *     ```rust,ignore
+         *     let addr = WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12");
+         *     ```
+         */
         WalletAddress: string;
         /** @description Wallet balance response including native and token balances. */
         WalletBalanceResponse: {
@@ -1756,6 +2089,232 @@ export interface operations {
             };
             /** @description Blockchain network unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    estimate_gas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Wallet ID */
+                wallet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EstimateGasRequest"];
+            };
+        };
+        responses: {
+            /** @description Gas estimate calculated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimateGasResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - not wallet owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain network unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    send_transaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Wallet ID */
+                wallet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendTransactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Transaction submitted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendTransactionResponse"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - not wallet owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient balance */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Blockchain network unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_transactions: {
+        parameters: {
+            query?: {
+                /** @description Network filter: "fuji" or "mainnet" */
+                network?: string | null;
+                /** @description Maximum number of results (default: 50) */
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                /** @description Wallet ID */
+                wallet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transaction list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionListResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - not wallet owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_transaction_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Wallet ID */
+                wallet_id: string;
+                /** @description Transaction hash */
+                tx_hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Transaction status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - not wallet owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet or transaction not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

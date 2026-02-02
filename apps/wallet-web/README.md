@@ -92,7 +92,10 @@ src/
 │   └── wallets/
 │       ├── page.tsx            # Wallets list
 │       ├── new/page.tsx        # Create wallet
-│       └── [wallet_id]/        # Wallet detail with balance display
+│       └── [wallet_id]/        
+│           ├── page.tsx        # Wallet detail with balance display
+│           ├── send/           # Send transaction page
+│           └── transactions/   # Transaction history page
 ├── components/
 │   ├── WalletBalance.tsx       # Wallet balance display with refresh
 │   ├── WalletCard.tsx          # Single wallet display
@@ -178,6 +181,135 @@ The proxy route at `/api/proxy/[...path]` handles:
 
 For production, you would use properly signed certificates and may not need the proxy.
 
+## Clerk Authentication
+
+### Getting the Current User
+
+#### In Server Components
+
+```typescript
+import { auth, currentUser } from "@clerk/nextjs/server";
+
+export default async function MyPage() {
+  // Get user ID and auth state
+  const { userId } = await auth();
+  
+  // Get full user object with metadata
+  const user = await currentUser();
+  
+  return (
+    <div>
+      <p>User ID: {userId}</p>
+      <p>Email: {user?.emailAddresses[0]?.emailAddress}</p>
+      <p>Name: {user?.firstName} {user?.lastName}</p>
+    </div>
+  );
+}
+```
+
+#### In Client Components
+
+```typescript
+"use client";
+
+import { useUser, useAuth } from "@clerk/nextjs";
+
+function MyComponent() {
+  // Get user object
+  const { user, isLoaded, isSignedIn } = useUser();
+  
+  // Get auth utilities
+  const { userId, getToken } = useAuth();
+  
+  if (!isLoaded) return <div>Loading...</div>;
+  if (!isSignedIn) return <div>Not signed in</div>;
+  
+  return (
+    <div>
+      <p>Welcome, {user.firstName}!</p>
+      <p>Email: {user.emailAddresses[0]?.emailAddress}</p>
+    </div>
+  );
+}
+```
+
+### Getting the JWT Token
+
+#### For API Calls (Client Component)
+
+```typescript
+"use client";
+
+import { useAuth } from "@clerk/nextjs";
+
+function ApiCallComponent() {
+  const { getToken } = useAuth();
+  
+  const callApi = async () => {
+    const token = await getToken();
+    
+    // Token is automatically added by proxy, but for testing:
+    console.log("JWT Token:", token);
+    
+    // Copy to clipboard for curl testing
+    navigator.clipboard.writeText(token || "");
+  };
+  
+  return <button onClick={callApi}>Get Token</button>;
+}
+```
+
+#### For API Calls (Server Component)
+
+```typescript
+import { auth } from "@clerk/nextjs/server";
+
+export default async function MyServerComponent() {
+  const { getToken } = await auth();
+  const token = await getToken();
+  
+  // Use token for direct API calls
+  const response = await fetch("https://localhost:8080/v1/wallets", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+}
+```
+
+### User Metadata and Roles
+
+Access custom metadata set in Clerk dashboard:
+
+```typescript
+// Public metadata (visible to client)
+const role = user.publicMetadata.role; // "admin", "client", etc.
+
+// Private metadata (server-only)
+// Only accessible via Clerk Backend SDK
+```
+
+### UserButton Component
+
+Display a user avatar with account management:
+
+```typescript
+import { UserButton } from "@clerk/nextjs";
+
+function Header() {
+  return (
+    <header>
+      <UserButton 
+        afterSignOutUrl="/"
+        appearance={{
+          elements: { avatarBox: { width: 40, height: 40 } }
+        }}
+      />
+    </header>
+  );
+}
+```
+
+See the full [JWT Testing Guide](/docs/gh-pages/operations/jwt-testing.md) for more details on testing with curl.
+
 ## Routes
 
 | Route | Description | Auth Required |
@@ -187,7 +319,9 @@ For production, you would use properly signed certificates and may not need the 
 | `/sign-up` | Clerk sign-up | No |
 | `/wallets` | List all wallets | Yes |
 | `/wallets/new` | Create new wallet | Yes |
-| `/wallets/[id]` | Wallet details | Yes |
+| `/wallets/[id]` | Wallet details + balance | Yes |
+| `/wallets/[id]/send` | Send transaction | Yes |
+| `/wallets/[id]/transactions` | Transaction history | Yes |
 | `/account` | User account info | Yes |
 | `/api/proxy/*` | Backend proxy | Yes |
 

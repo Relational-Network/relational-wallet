@@ -53,8 +53,9 @@ pub use encrypted_fs::{EncryptedStorage, StorageError, StorageResult};
 pub use ownership::{OwnedResource, OwnershipEnforcer};
 pub use paths::StoragePaths;
 pub use repository::{
-    BookmarkRepository, InviteRepository, RecurringRepository, WalletRepository,
+    BookmarkRepository, InviteRepository, RecurringRepository, TransactionRepository, WalletRepository,
     WalletMetadata, WalletResponse, WalletStatus, StoredBookmark,
-    StoredInvite, StoredRecurringPayment, PaymentFrequency, PaymentStatus,
+    StoredInvite, StoredRecurringPayment, StoredTransaction, PaymentFrequency, PaymentStatus,
+    TokenType, TxStatus,
 };
 

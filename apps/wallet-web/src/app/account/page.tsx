@@ -7,6 +7,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { apiClient, type UserMeResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import { TokenDisplay } from "@/components/TokenDisplay";
 
 /**
  * Account page (authenticated).
@@ -57,6 +58,9 @@ export default async function AccountPage() {
         </div>
         <UserButton />
       </header>
+
+      {/* JWT Token Display for Testing */}
+      <TokenDisplay />
 
       <section
         style={{

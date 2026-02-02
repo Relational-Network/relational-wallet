@@ -188,6 +188,74 @@ curl -k -X DELETE -H "Authorization: Bearer $JWT" \
   https://localhost:8080/v1/wallets/{wallet_id}
 ```
 
+### Balance Endpoints (Client Role)
+
+```bash
+# Get native AVAX balance
+curl -k -H "Authorization: Bearer $JWT" \
+  "https://localhost:8080/v1/wallets/{wallet_id}/balance/native?network=fuji"
+
+# Get full balance (AVAX + tokens)
+curl -k -H "Authorization: Bearer $JWT" \
+  "https://localhost:8080/v1/wallets/{wallet_id}/balance?network=fuji"
+```
+
+### Transaction Endpoints (Client Role)
+
+```bash
+# Estimate gas for native AVAX transfer
+curl -k -X POST -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
+    "amount": "0.01",
+    "token": "native",
+    "network": "fuji"
+  }' \
+  https://localhost:8080/v1/wallets/{wallet_id}/estimate
+
+# Estimate gas for USDC transfer
+curl -k -X POST -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
+    "amount": "10.00",
+    "token": "0x5425890298aed601595a70AB815c96711a31Bc65",
+    "network": "fuji"
+  }' \
+  https://localhost:8080/v1/wallets/{wallet_id}/estimate
+
+# Send native AVAX transaction
+curl -k -X POST -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
+    "amount": "0.01",
+    "token": "native",
+    "network": "fuji"
+  }' \
+  https://localhost:8080/v1/wallets/{wallet_id}/send
+
+# Send USDC transaction
+curl -k -X POST -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
+    "amount": "10.00",
+    "token": "0x5425890298aed601595a70AB815c96711a31Bc65",
+    "network": "fuji"
+  }' \
+  https://localhost:8080/v1/wallets/{wallet_id}/send
+
+# List transaction history
+curl -k -H "Authorization: Bearer $JWT" \
+  "https://localhost:8080/v1/wallets/{wallet_id}/transactions?network=fuji"
+
+# Get transaction status (for polling)
+curl -k -H "Authorization: Bearer $JWT" \
+  "https://localhost:8080/v1/wallets/{wallet_id}/transactions/{tx_hash}"
+```
+
 ### Bookmark Endpoints (Client Role)
 
 ```bash

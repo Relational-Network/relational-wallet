@@ -13,6 +13,9 @@
 .DS_Store
 Thumbs.db
 
+# Development reports (local only)
+week_report.md
+
 # Rust
 apps/rust-server/target/
 apps/rust-server/data/
