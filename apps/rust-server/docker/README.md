@@ -7,11 +7,19 @@ This folder contains a Gramine SGX image that builds and runs the Rust server on
 - **DCAP Attestation**: Uses Intel DCAP (Data Center Attestation Primitives) for remote attestation
 - **RA-TLS**: TLS certificates are generated at runtime by `gramine-ratls` with attestation evidence embedded
 - **HTTPS Only**: The server only accepts HTTPS connections (no HTTP fallback)
+- **Deterministic Build**: Enclave is signed at build time — MRENCLAVE and MRSIGNER are fixed per image
 
 ## Build
 
 ```bash
 ./build.sh ubuntu20
+```
+
+The signing key defaults to `$HOME/.config/gramine/enclave-key.pem`.
+Override with the `SGX_SIGNING_KEY` environment variable:
+
+```bash
+SGX_SIGNING_KEY=/path/to/production-key.pem ./build.sh ubuntu20
 ```
 
 This builds the image as:
@@ -31,21 +39,35 @@ gramine-sgx-gen-private-key
 ```
 
 By default, the key is stored at `$HOME/.config/gramine/enclave-key.pem`.
-To use a different key path, mount it into the container and set `GRAMINE_SGX_SIGNING_KEY` to that path.
+
+**Important:** Use the same key for all production builds to preserve MRSIGNER.
+Store it securely (e.g., in a hardware security module or encrypted vault).
 
 ## Run
+
+The signing key is **NOT needed at runtime** — it is only used during `docker build`.
 
 ```bash
 docker run --rm -it \
   --device /dev/sgx/enclave \
   --device /dev/sgx/provision \
   -p 8080:8080 \
-  -v "$HOME/.config/gramine/enclave-key.pem:/keys/enclave-key.pem:ro" \
-  -e GRAMINE_SGX_SIGNING_KEY=/keys/enclave-key.pem \
   relationalnetwork/rust-server:focal
 ```
 
 If your host exposes legacy SGX device nodes, you may need to map `/dev/isgx` instead.
+
+## Deterministic Enclave Measurements
+
+| Measurement | What controls it | How to keep it stable |
+|-------------|-----------------|----------------------|
+| **MRSIGNER** | The RSA-3072 signing key | Use the same key for every build |
+| **MRENCLAVE** | Binary + manifest + trusted files | Pin Rust toolchain + Gramine versions |
+
+The following are pinned in the Dockerfile:
+- Rust toolchain version (via `RUST_TOOLCHAIN` build arg, matches `rust-toolchain.toml`)
+- Gramine package version (via `GRAMINE_VERSION` build arg)
+- SGX AESM package version (via `SGX_AESM_VERSION` build arg)
 
 ## DCAP Configuration
 
@@ -70,9 +92,9 @@ The certificate contains SGX attestation evidence that clients can verify using 
 - AESM is started in the container via `restart_aesm.sh`.
 - The container entrypoint runs `gramine-sgx rust-server` which invokes `gramine-ratls` first.
 - This image installs Gramine and Intel SGX AESM/DCAP packages from their official apt repos.
-- The container signs the manifest on startup using your host key.
+- The enclave is signed at **build time** — no signing key is needed at runtime.
 - The server binds to `0.0.0.0:8080` over **HTTPS** (set in the Gramine manifest).
-- `sgx.debug = true` in the manifest - change to `false` for production.
+- `sgx.debug = true` in the manifest — change to `false` for production.
 
 ## License
 

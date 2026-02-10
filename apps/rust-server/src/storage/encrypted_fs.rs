@@ -237,8 +237,12 @@ impl EncryptedStorage {
     }
 
     /// Check if a file exists.
+    ///
+    /// Uses `File::open()` instead of `Path::exists()` because Gramine's
+    /// encrypted filesystem can fail `stat()` calls on encrypted files
+    /// while `open()` + `read()` works correctly.
     pub fn exists(&self, path: impl AsRef<Path>) -> bool {
-        path.as_ref().exists()
+        File::open(path.as_ref()).is_ok()
     }
 
     /// Delete a file.

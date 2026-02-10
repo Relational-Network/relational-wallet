@@ -22,6 +22,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 use utoipa::ToSchema;
 
 use super::super::{EncryptedStorage, StorageError, StorageResult};
@@ -113,12 +114,18 @@ impl<'a> WalletRepository<'a> {
     }
 
     /// Get wallet metadata by ID.
+    ///
+    /// Reads the metadata file directly rather than checking `exists()` first,
+    /// because Gramine's encrypted filesystem can fail `stat()` on encrypted
+    /// files while `open()` + `read()` succeeds.
     pub fn get(&self, wallet_id: &str) -> StorageResult<WalletMetadata> {
         let path = self.storage.paths().wallet_meta(wallet_id);
-        if !self.storage.exists(&path) {
-            return Err(StorageError::NotFound(format!("Wallet {wallet_id}")));
-        }
-        self.storage.read_json(path)
+        self.storage.read_json(&path).map_err(|e| match e {
+            StorageError::NotFound(_) | StorageError::Io(_) => {
+                StorageError::NotFound(format!("Wallet {wallet_id}"))
+            }
+            other => other,
+        })
     }
 
     /// Create a new wallet.
@@ -173,12 +180,11 @@ impl<'a> WalletRepository<'a> {
     /// TODO: Use after retention period expires for soft-deleted wallets
     #[allow(dead_code)]
     pub fn delete(&self, wallet_id: &str) -> StorageResult<()> {
-        if !self.exists(wallet_id) {
+        let wallet_dir = self.storage.paths().wallet_dir(wallet_id);
+        if !wallet_dir.exists() {
             return Err(StorageError::NotFound(format!("Wallet {wallet_id}")));
         }
-
-        self.storage
-            .delete_dir(self.storage.paths().wallet_dir(wallet_id))
+        self.storage.delete_dir(wallet_dir)
     }
 
     /// Soft-delete a wallet (mark as deleted but retain files).
@@ -201,8 +207,13 @@ impl<'a> WalletRepository<'a> {
         let mut wallets = Vec::new();
 
         for wallet_id in &wallet_ids {
-            if let Ok(meta) = self.get(wallet_id) {
-                wallets.push(meta);
+            match self.get(wallet_id) {
+                Ok(meta) => wallets.push(meta),
+                Err(e) => warn!(
+                    wallet_id = %wallet_id,
+                    error = %e,
+                    "Failed to read wallet metadata — skipping"
+                ),
             }
         }
 
@@ -215,10 +226,18 @@ impl<'a> WalletRepository<'a> {
         let mut wallets = Vec::new();
 
         for wallet_id in &wallet_ids {
-            if let Ok(meta) = self.get(wallet_id) {
-                if meta.owner_user_id == owner_user_id && meta.status != WalletStatus::Deleted {
-                    wallets.push(meta);
+            match self.get(wallet_id) {
+                Ok(meta) => {
+                    if meta.owner_user_id == owner_user_id && meta.status != WalletStatus::Deleted {
+                        wallets.push(meta);
+                    }
                 }
+                Err(e) => warn!(
+                    wallet_id = %wallet_id,
+                    owner_user_id = %owner_user_id,
+                    error = %e,
+                    "Failed to read wallet metadata — skipping"
+                ),
             }
         }
 
@@ -232,12 +251,14 @@ impl<'a> WalletRepository<'a> {
     /// TODO: Use when implementing transaction signing
     #[allow(dead_code)]
     pub(crate) fn read_private_key(&self, wallet_id: &str) -> StorageResult<Vec<u8>> {
-        if !self.exists(wallet_id) {
-            return Err(StorageError::NotFound(format!("Wallet {wallet_id}")));
-        }
-
         self.storage
             .read_raw(self.storage.paths().wallet_key(wallet_id))
+            .map_err(|e| match e {
+                StorageError::NotFound(_) | StorageError::Io(_) => {
+                    StorageError::NotFound(format!("Wallet {wallet_id} private key"))
+                }
+                other => other,
+            })
     }
 
     /// Verify wallet ownership.

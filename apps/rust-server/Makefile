@@ -74,22 +74,36 @@ start-rust-server: all
 
 .PHONY: docker-build
 docker-build:
-	cd docker && sudo ./build.sh ubuntu20
+	cd docker && sudo SGX_SIGNING_KEY="$${SGX_SIGNING_KEY:-$$HOME/.config/gramine/enclave-key.pem}" ./build.sh ubuntu20
 
 .PHONY: docker-run
-docker-run:
-	sudo docker run --rm -it \
+docker-run: | $(DATA_DIR)
+	# Exit 137 (SIGKILL) is expected — Gramine SGX does not propagate
+	# SIGTERM to the enclave, so the container is always force-killed
+	# after the stop-timeout.  This is harmless: Gramine's encrypted
+	# filesystem flushes writes synchronously.
+	-sudo docker run --rm -it \
 		--name rust-server-sgx \
 		--device /dev/sgx/enclave \
 		--device /dev/sgx/provision \
+		--stop-timeout 30 \
 		-p 8080:8080 \
-		-v "$$HOME/.config/gramine/enclave-key.pem:/keys/enclave-key.pem:ro" \
-		-e GRAMINE_SGX_SIGNING_KEY=/keys/enclave-key.pem \
+		-v "$(DATA_DIR):/data" \
 		relationalnetwork/rust-server:focal
 
 .PHONY: docker-stop
 docker-stop:
-	sudo docker stop rust-server-sgx
+	sudo docker stop -t 30 rust-server-sgx
+
+.PHONY: docker-sigstruct
+docker-sigstruct:
+	@echo "Extracting SIGSTRUCT from Docker image..."
+	@sudo docker create --name rust-server-sigstruct relationalnetwork/rust-server:focal >/dev/null 2>&1
+	@sudo docker cp rust-server-sigstruct:/app/rust-server.sig /tmp/rust-server-docker.sig >/dev/null 2>&1
+	@sudo docker rm rust-server-sigstruct >/dev/null 2>&1
+	@echo "---"
+	@gramine-sgx-sigstruct-view --verbose --output-format=toml /tmp/rust-server-docker.sig
+	@sudo rm -f /tmp/rust-server-docker.sig
 
 .PHONY: clean
 clean:

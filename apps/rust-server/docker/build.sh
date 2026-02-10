@@ -11,12 +11,10 @@ if [ $# -ne 1 ]; then
     usage
 fi
 
-image=""
 codename=""
 
 case "$1" in
     ubuntu20)
-        image="ubuntu:20.04"
         codename="focal"
         ;;
     *)
@@ -24,9 +22,33 @@ case "$1" in
         ;;
 esac
 
-docker build \
-    --build-arg UBUNTU_IMAGE="${image}" \
+# The SGX signing key is injected as a BuildKit secret so it never
+# appears in any image layer.  Override with SGX_SIGNING_KEY env var.
+# When running under sudo, $HOME is /root — use SUDO_USER's home instead.
+if [ -z "${SGX_SIGNING_KEY}" ]; then
+    if [ -n "${SUDO_USER}" ]; then
+        _home=$(getent passwd "${SUDO_USER}" | cut -d: -f6)
+    else
+        _home="${HOME}"
+    fi
+    SGX_KEY="${_home}/.config/gramine/enclave-key.pem"
+else
+    SGX_KEY="${SGX_SIGNING_KEY}"
+fi
+
+if [ ! -f "${SGX_KEY}" ]; then
+    echo "error: SGX signing key not found at ${SGX_KEY}" >&2
+    echo "Generate one with: gramine-sgx-gen-private-key" >&2
+    echo "Or set SGX_SIGNING_KEY=/path/to/key" >&2
+    exit 1
+fi
+
+echo "Using SGX signing key: ${SGX_KEY}"
+echo "MRENCLAVE and MRSIGNER will be baked into the image."
+
+DOCKER_BUILDKIT=1 docker build \
     --build-arg UBUNTU_CODENAME="${codename}" \
+    --secret id=sgx-key,src="${SGX_KEY}" \
     -t relationalnetwork/rust-server:"${codename}" \
     -f Dockerfile \
     ..

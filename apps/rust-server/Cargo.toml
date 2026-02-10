@@ -61,7 +61,6 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
 # TLS
 # -----------------------------------------------------------------------------
 rustls = { version = "0.23.26", default-features = false, features = ["ring", "std"] }
-rustls-pemfile = "2.2.0"
 
 # -----------------------------------------------------------------------------
 # Authentication

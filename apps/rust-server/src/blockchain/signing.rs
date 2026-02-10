@@ -90,18 +90,26 @@ pub fn wallet_from_pem(pem_bytes: &[u8]) -> Result<EthereumWallet, AvaxClientErr
 mod tests {
     use super::*;
 
-    // Test PEM key generated the same way as in wallet creation
-    const TEST_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
-MIGEAgEAMBAGByqGSM49AgEGBSuBBAAKBG0wawIBAQQgxK7Fx7YPvb0O6HlNZjXL
-8LYqkLOTqPjSvBmPf1RzGhehRANCAATMiVOx5kXz7Np1tKhQU0qkRbRww/oGxjzM
-Q5rHgr5XmGlxwvwGRrr7XJO3YQRvJKy7wXPM8sS5BYw0JI0ZP6J4
------END PRIVATE KEY-----"#;
+    /// Generate a valid PKCS#8 PEM key for testing, using the same method as
+    /// wallet creation in `api::wallets::generate_secp256k1_keypair`.
+    fn generate_test_pem() -> String {
+        use k256::ecdsa::SigningKey;
+        use k256::elliptic_curve::rand_core::OsRng;
+        use k256::pkcs8::EncodePrivateKey;
+
+        let signing_key = SigningKey::random(&mut OsRng);
+        signing_key
+            .to_pkcs8_pem(k256::pkcs8::LineEnding::LF)
+            .expect("Failed to encode test key to PKCS#8 PEM")
+            .to_string()
+    }
 
     #[test]
     fn test_pem_to_hex() {
-        let result = pem_to_hex(TEST_PEM.as_bytes());
+        let test_pem = generate_test_pem();
+        let result = pem_to_hex(test_pem.as_bytes());
         assert!(result.is_ok(), "Failed to parse PEM: {:?}", result.err());
-        
+
         let hex = result.unwrap();
         assert_eq!(hex.len(), 64, "Hex key should be 64 characters");
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()), "Should be valid hex");
@@ -109,13 +117,15 @@ Q5rHgr5XmGlxwvwGRrr7XJO3YQRvJKy7wXPM8sS5BYw0JI0ZP6J4
 
     #[test]
     fn test_signer_from_pem() {
-        let result = signer_from_pem(TEST_PEM.as_bytes());
+        let test_pem = generate_test_pem();
+        let result = signer_from_pem(test_pem.as_bytes());
         assert!(result.is_ok(), "Failed to create signer: {:?}", result.err());
     }
 
     #[test]
     fn test_wallet_from_pem() {
-        let result = wallet_from_pem(TEST_PEM.as_bytes());
+        let test_pem = generate_test_pem();
+        let result = wallet_from_pem(test_pem.as_bytes());
         assert!(result.is_ok(), "Failed to create wallet: {:?}", result.err());
     }
 }
