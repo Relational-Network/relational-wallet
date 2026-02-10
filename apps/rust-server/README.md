@@ -142,7 +142,7 @@ At startup:
 
 Notes:
 - **No non-SGX mode** — DCAP attestation requires SGX hardware
-- `sgx.debug = true` in manifest = debug mode (change to `false` for production)
+- `sgx.debug` in manifest is parameterized: `true` for local dev (`make`), `false` for production (`docker-build`)
 - TLS is mandatory — server will not start without valid RA-TLS credentials
 - **Encrypted /data** — Sealed to enclave MRSIGNER, survives restarts
 

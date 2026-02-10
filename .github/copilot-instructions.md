@@ -35,7 +35,7 @@ relational-wallet/
 |---------|-------------|
 | **SGX Enclave Execution** | All sensitive operations run inside Intel SGX via Gramine |
 | **DCAP Remote Attestation** | RA-TLS certificates with embedded attestation evidence |
-| **Encrypted Storage** | Gramine sealed filesystem at `/data` (key: `_sgx_mrsigner`) |
+| **Encrypted Storage** | Gramine sealed filesystem at `/data`. Dev: persistent file-based key; Prod: `_sgx_mrsigner` |
 | **secp256k1 Key Generation** | Ethereum/Avalanche-compatible keypairs generated inside enclave |
 | **Private Key Isolation** | Keys never leave enclave unencrypted |
 
@@ -113,10 +113,11 @@ relational-wallet/
 
 | Task | Description | Files |
 |------|-------------|-------|
-| **SGX Debug Mode Off** | Set `sgx.debug = false` for production | `rust-server.manifest.template:68` |
-| **Remove Dev JWT Bypass** | Remove/guard `dangerous::insecure_decode` code path | `src/auth/extractor.rs:199-227` |
+| ~~**SGX Debug Mode Off**~~ | ✅ DONE — Parameterized via template variable; Docker enforces `false` | — |
+| ~~**Remove Dev JWT Bypass**~~ | ✅ DONE — Gated behind `#[cfg(feature = "dev")]`; production stub always rejects | — |
 | **JWKS Fail-Closed** | Change JWKS to fail-closed on fetch failures | `src/auth/jwks.rs:75-96` |
 | **Require CLERK_ISSUER** | Fail startup if JWKS URL set but issuer missing | `src/main.rs:initialize_auth_config()` |
+| **Clerk Env Vars for Docker** | `CLERK_JWKS_URL`, `CLERK_ISSUER`, `CLERK_AUDIENCE` must be passed to container at runtime. Without them the Docker build (which has no `dev` feature) rejects **all** authenticated requests. Need `.env` file or deployment config with these values. | `Makefile:docker-run`, Ops/deployment |
 | **Enclave Signing Key** | Secure production signing key | Ops/deployment |
 
 ### 🟠 P1 — High Priority
@@ -147,8 +148,8 @@ relational-wallet/
 | **Generic Auth Errors** | Return generic "authentication_failed" in production | `src/auth/error.rs` |
 | **Health Endpoint Minimal** | Move detailed health to admin-only endpoint | `src/api/health.rs` |
 | **Code Cleanup** | Remove unused code and `#[allow(dead_code)]` | Various (see Security Audit) |
-| **Fix Storage Path Comments** | Update `meta.json` comment to match `metadata.json` | `src/storage/paths.rs:49` |
-| **Update lib.rs Docs** | Remove outdated `sha3` reference | `src/lib.rs:55` |
+| ~~**Fix Storage Path Comments**~~ | ✅ DONE — Code uses `meta.json` and `key.pem` consistently; docs updated to match | — |
+| ~~**Update lib.rs Docs**~~ | ✅ DONE — Updated `sha3` → `alloy` | — |
 
 ### 🔵 P3 — Lower Priority (Future)
 
@@ -183,14 +184,14 @@ relational-wallet/
 - [x] JWT issuer validation enabled
 - [x] JWT audience validation (optional, configurable)
 - [x] Clock skew tolerance (60 seconds)
-- [ ] `sgx.debug = false` in manifest
+- [x] `sgx.debug = false` in manifest — parameterized; Docker builds enforce `false`
 - [ ] Rate limiting on auth endpoints
 - [x] Audit logging covers all sensitive operations
 - [ ] No plaintext secrets in logs (review pending)
 - [x] TLS certificate validation in JWKS fetch (rustls-tls)
 - [ ] Enclave signing key secured
 - [ ] Encrypted storage mount verified on host
-- [ ] Remove development mode JWT bypass (see Security Audit below)
+- [x] Remove development mode JWT bypass — gated behind `#[cfg(feature = "dev")]`
 - [ ] Change JWKS fail-open behavior to fail-closed
 
 ---
@@ -201,9 +202,9 @@ relational-wallet/
 
 | Issue | Location | Description | Remediation |
 |-------|----------|-------------|-------------|
-| **Development Mode JWT Bypass** | `src/auth/extractor.rs:199-227` | When `CLERK_JWKS_URL` is not set, JWT signature verification is **completely disabled** using `jsonwebtoken::dangerous::insecure_decode`. Tokens are accepted without cryptographic verification. | Remove this code path entirely OR add a compile-time feature flag (`#[cfg(feature = "dev")]`) so it cannot be accidentally enabled in production builds. |
+| ~~**Development Mode JWT Bypass**~~ | `src/auth/extractor.rs` | ✅ FIXED — `verify_jwt_development()` is now gated behind `#[cfg(feature = "dev")]`. Production builds without this feature flag get a stub that always rejects. | — |
 | **JWKS Fail-Open Behavior** | `src/auth/jwks.rs:10-11` | On JWKS fetch failure, stale cache is used ("fail-open for availability"). If cache has expired or was never populated, JWT verification may accept unauthenticated requests. | Change to fail-closed: if JWKS cannot be fetched and cache is stale/empty, reject all requests with 503 until JWKS is available. |
-| **SGX Debug Mode Enabled** | `rust-server.manifest.template:68` | `sgx.debug = true` allows debugging enclave memory. Private keys could be extracted. | Set `sgx.debug = false` before any production deployment. |
+| ~~**SGX Debug Mode Enabled**~~ | `rust-server.manifest.template` | ✅ FIXED — `sgx.debug` is now a template variable. Local `make` sets `true` for dev; Docker builds set `false` for production. | — |
 
 ### 🟠 High Priority Issues
 
@@ -234,7 +235,7 @@ relational-wallet/
 | **Private Keys Never Exposed** | `src/api/wallets.rs:139-146` | `CreateWalletResponse` explicitly excludes private key from API response. |
 | **Audit Logging** | `src/storage/audit.rs` | All sensitive operations are logged with timestamps and user IDs. |
 | **Request ID Tracing** | `src/main.rs:107-129` | `x-request-id` header propagated for distributed tracing. |
-| **Encrypted Storage** | `rust-server.manifest.template:59-63` | `/data` mounted as Gramine encrypted FS with `_sgx_mrsigner` key derivation. |
+| **Encrypted Storage** | `rust-server.manifest.template` | `/data` mounted as Gramine encrypted FS. Dev: file-based key; Prod: `_sgx_mrsigner` key derivation. |
 | **Pure Rust Crypto** | `Cargo.toml` | No C crypto dependencies; uses `k256`, `alloy`, `rustls`. |
 | **Minimal Dependencies** | `Cargo.toml` | Consolidated deps: `hex`→`alloy::hex`, `sha3`→`alloy::primitives::keccak256`, etc. |
 
@@ -245,8 +246,8 @@ relational-wallet/
 | **Dead Code Warnings** | `src/auth/error.rs:27-45` | Several `AuthError` variants marked `#[allow(dead_code)]` |
 | **Dead Code Warnings** | `src/auth/claims.rs:18-75` | `ClerkClaims`, `UserMetadata`, `OrgMembership` marked `#[allow(dead_code)]` |
 | **Unused RequireRole Extractor** | `src/auth/extractor.rs:232-267` | `RequireRole` generic extractor implemented but not used; marked `#[allow(dead_code)]` |
-| **lib.rs Comment Outdated** | `src/lib.rs:55` | Mentions `sha3` crate but it's now consolidated into `alloy` |
-| **File Storage Path Inconsistency** | `src/storage/paths.rs:49` vs actual | Paths say `meta.json` but repository uses `metadata.json` |
+| ~~**lib.rs Comment Outdated**~~ | `src/lib.rs` | ✅ FIXED — Updated to reference `alloy` instead of `sha3` |
+| ~~**File Storage Path Inconsistency**~~ | — | ✅ FIXED — Docs updated to match code (`meta.json`, `key.pem`) |
 
 ---
 
@@ -341,15 +342,16 @@ src/
 
 ```bash
 cd apps/rust-server
-cargo build --release    # Standard build
-make                     # Build for SGX + sign enclave
-make start-rust-server   # Run inside SGX enclave
+cargo build --features dev  # Local dev build (enables insecure JWT decode)
+make                        # Build for SGX + sign enclave (dev manifest)
+make start-rust-server      # Run inside SGX enclave
+make docker-build           # Production Docker build (release, sgx.debug=false)
 ```
 
 #### Testing
 
 ```bash
-cargo test                                          # Unit tests (101 passing)
+cargo test --features dev                            # Unit tests (113 passing)
 cargo test --test blockchain_integration -- --ignored  # Integration tests (10 passing)
 cargo tarpaulin --ignore-tests                      # Coverage report
 ```
@@ -359,8 +361,8 @@ cargo tarpaulin --ignore-tests                      # Coverage report
 ```
 /data/                    # Gramine encrypted mount
 ├── wallets/{id}/
-│   ├── metadata.json     # WalletMetadata
-│   ├── private_key.pem   # NEVER exposed
+│   ├── meta.json         # WalletMetadata
+│   ├── key.pem           # NEVER exposed
 │   └── txs/              # Transaction history
 │       └── {tx_hash}.json
 ├── bookmarks/{id}.json
@@ -465,11 +467,25 @@ curl -k -H "Authorization: Bearer $JWT" https://localhost:8080/v1/users/me
 
 ## Gramine/SGX Configuration
 
-Key manifest settings (`rust-server.manifest.template`):
-- `libos.entrypoint = "/gramine-ratls"` — RA-TLS generates certs before app
+Two separate manifest templates (no Jinja conditionals):
+
+| Template | Location | Purpose |
+|----------|----------|---------|
+| **Dev** | `rust-server.manifest.template` | Local `make` — `sgx.debug = true`, file-based dev key |
+| **Prod** | `docker/rust-server.manifest.template` | Docker builds — `sgx.debug = false`, `_sgx_mrsigner` key |
+
+Key settings (both templates):
+- `libos.entrypoint = gramine-ratls` — RA-TLS generates certs before app
 - `sgx.remote_attestation = "dcap"` — DCAP attestation
-- `/data` mounted as `encrypted` with `key_name = "_sgx_mrsigner"`
-- `sgx.debug = true` — **Change to `false` for production**
+- `/data` mounted as `type = "encrypted"`
+
+Dev-specific:
+- `key_name = "_dev_key"` with `fs.insecure__keys._dev_key` (persistent 16-byte key at `data/.dev_storage_key`)
+- DNS files as `sgx.allowed_files` (host `/etc/resolv.conf`, etc.)
+
+Prod-specific:
+- `key_name = "_sgx_mrsigner"` (derived from enclave signer identity)
+- Static DNS files baked into Docker image at `/app/dns/` as `sgx.trusted_files`
 
 Prerequisites:
 - SGX signing key: `~/.config/gramine/enclave-key.pem`

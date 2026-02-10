@@ -103,7 +103,7 @@ The certificate contains SGX attestation evidence that clients can verify using 
 - This image installs Gramine and Intel SGX AESM/DCAP packages from their official apt repos.
 - The enclave is signed at **build time** — no signing key is needed at runtime.
 - The server binds to `0.0.0.0:8080` over **HTTPS** (set in the Gramine manifest).
-- `sgx.debug = true` in the manifest — change to `false` for production.
+- `sgx.debug = false` is enforced in Docker builds — no action needed.
 
 ## License
 

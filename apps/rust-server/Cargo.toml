@@ -93,7 +93,17 @@ alloy = { version = "1.5.2", default-features = false, features = [
 # -----------------------------------------------------------------------------
 thiserror = "2.0.18"
 
+[features]
+# Enable development-only code paths (e.g., JWT decode without signature verification).
+# MUST NOT be enabled in production/Docker builds.
+dev = []
+
 [dev-dependencies]
 tempfile = "3.24.0"
 base64 = "0.22.1"
 
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

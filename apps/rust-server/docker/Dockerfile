@@ -176,7 +176,14 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY --from=builder /app/target/release/relational-rust-server /app/relational-rust-server
-COPY rust-server.manifest.template /app/rust-server.manifest.template
+COPY docker/rust-server.manifest.template /app/rust-server.manifest.template
+
+# Create static DNS config files so they can be trusted_files (no sgx.allowed_files needed).
+# Docker DNS (127.0.0.11) is the container-internal resolver; works with --dns overrides too.
+RUN mkdir -p /app/dns && \
+    printf 'nameserver 127.0.0.11\noptions ndots:0\n' > /app/dns/resolv.conf && \
+    printf '127.0.0.1 localhost\n' > /app/dns/hosts && \
+    printf 'hosts: files dns\n' > /app/dns/nsswitch.conf
 
 # Generate the Gramine manifest and rewrite sgx.trusted_files as an explicit
 # sorted list to avoid nondeterminism from recursive directory traversal order.

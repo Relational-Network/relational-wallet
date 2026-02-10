@@ -151,9 +151,8 @@ async fn verify_jwt_production(
     // Validate issuer if configured
     if let Some(ref issuer) = auth_config.issuer {
         validation.set_issuer(&[issuer]);
-    } else {
-        validation.validate_aud = false;
     }
+    // If no issuer configured, issuer validation is skipped (default)
 
     // Validate audience if configured
     if let Some(ref audience) = auth_config.audience {
@@ -195,6 +194,9 @@ async fn verify_jwt_production(
 /// Development JWT verification (no signature check).
 ///
 /// WARNING: This should only be used in development environments.
+/// This function is gated behind `#[cfg(feature = "dev")]` to prevent
+/// accidental use in production builds.
+#[cfg(feature = "dev")]
 fn verify_jwt_development(token: &str) -> Result<AuthenticatedUser, AuthError> {
     // Use the dangerous decode API to skip signature verification
     let token_data = jsonwebtoken::dangerous::insecure_decode::<JwtClaims>(token)
@@ -227,6 +229,13 @@ fn verify_jwt_development(token: &str) -> Result<AuthenticatedUser, AuthError> {
         issuer: claims.iss,
         expires_at: claims.exp,
     })
+}
+
+/// Production-only stub: when `dev` feature is disabled, development mode
+/// is not available. This ensures `insecure_decode` cannot exist in release builds.
+#[cfg(not(feature = "dev"))]
+fn verify_jwt_development(_token: &str) -> Result<AuthenticatedUser, AuthError> {
+    Err(AuthError::MissingAuthHeader)
 }
 
 /// Extractor that requires a specific role.

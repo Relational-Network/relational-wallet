@@ -238,9 +238,17 @@ async fn initialize_auth_config() -> AuthConfig {
             audience,
         }
     } else {
-        warn!("CLERK_JWKS_URL not set - running in DEVELOPMENT MODE");
-        warn!("JWT signature verification is DISABLED");
-        warn!("Set CLERK_JWKS_URL for production use");
+        #[cfg(feature = "dev")]
+        {
+            warn!("CLERK_JWKS_URL not set - running in DEVELOPMENT MODE");
+            warn!("JWT signature verification is DISABLED");
+            warn!("Set CLERK_JWKS_URL for production use");
+        }
+        #[cfg(not(feature = "dev"))]
+        {
+            warn!("CLERK_JWKS_URL not set - all authenticated requests will be REJECTED");
+            warn!("Set CLERK_JWKS_URL to enable JWT verification");
+        }
 
         AuthConfig::default()
     }

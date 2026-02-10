@@ -53,7 +53,7 @@
 //!
 //! This crate is optimized for enclave execution:
 //! - Minimal dependencies (no `lazy_static`, uses `std::sync::OnceLock`)
-//! - Pure Rust crypto (`k256`, `sha3`) - no C dependencies
+//! - Pure Rust crypto (`k256`, `alloy`) - no C dependencies
 //! - Async-first with Tokio for efficient I/O
 
 pub mod api;

@@ -10,7 +10,8 @@ ARCH_LIBDIR ?= /lib/$(shell $(CC) -dumpmachine)
 # Find gramine-ratls binary (required for RA-TLS)
 ENTRYPOINT ?= $(firstword $(wildcard /usr/bin/gramine-ratls /usr/local/bin/gramine-ratls /bin/gramine-ratls))
 
-SELF_EXE = target/release/relational-rust-server
+# SELF_EXE = target/release/relational-rust-server # For production release builds (see Dockerfile)
+SELF_EXE = target/debug/relational-rust-server
 SRCS = $(shell find src -type f)
 APP_DIR = $(abspath $(patsubst %/,%,$(dir $(SELF_EXE))))
 
@@ -31,16 +32,28 @@ else
 GRAMINE_LOG_LEVEL = error
 endif
 
-.PHONY: all
-all: $(SELF_EXE) rust-server.manifest rust-server.manifest.sgx rust-server.sig
+# Persistent dev storage key (survives enclave rebuilds unlike _sgx_mrsigner)
+# Generate once: python3 -c "import os; open('data/.dev_storage_key','wb').write(os.urandom(16))"
+DEV_KEY_FILE = $(DATA_DIR)/.dev_storage_key
 
-# Note that we're compiling in release mode regardless of the DEBUG setting passed
-# to Make, as compiling in debug mode results in an order of magnitude's difference in
-# performance that makes testing by running a benchmark with ab painful. The primary goal
-# of the DEBUG setting is to control Gramine's loglevel.
+# Read the dev key as hex for the manifest template
+DEV_STORAGE_KEY = $(shell xxd -p -c 16 $(DEV_KEY_FILE) 2>/dev/null || echo "")
+
+.PHONY: all
+all: $(SELF_EXE) $(DEV_KEY_FILE) rust-server.manifest rust-server.manifest.sgx rust-server.sig
+
+# Generate a persistent 16-byte dev storage key if it doesn't exist
+$(DEV_KEY_FILE): | $(DATA_DIR)
+	@if [ ! -f "$(DEV_KEY_FILE)" ]; then \
+		python3 -c "import os; open('$(DEV_KEY_FILE)', 'wb').write(os.urandom(16))"; \
+		echo "Generated persistent dev storage key at $(DEV_KEY_FILE)"; \
+	fi
+
+# Dev builds for faster iteration. The DEBUG setting controls Gramine's loglevel only.
+# Production release builds are handled by Docker (see docker/build.sh).
 -include $(SELF_EXE).d # See also: .cargo/config.toml
 $(SELF_EXE): Cargo.toml Cargo.lock $(SRCS)
-	cargo build --release
+	cargo build --features dev
 
 # Create data directory for encrypted storage
 $(DATA_DIR):
@@ -61,6 +74,7 @@ rust-server.manifest: rust-server.manifest.template $(SELF_EXE) | $(DATA_DIR)
 		-Disvprodid=$(ISVPRODID) \
 		-Disvsvn=$(ISVSVN) \
 		-Ddata_dir=$(DATA_DIR) \
+		-Ddev_storage_key=$(DEV_STORAGE_KEY) \
 		$< $@
 
 rust-server.manifest.sgx rust-server.sig &: rust-server.manifest
@@ -82,6 +96,11 @@ docker-run: | $(DATA_DIR)
 	# SIGTERM to the enclave, so the container is always force-killed
 	# after the stop-timeout.  This is harmless: Gramine's encrypted
 	# filesystem flushes writes synchronously.
+	#
+	# REQUIRED env vars for production auth (without these, all requests are REJECTED):
+	#   CLERK_JWKS_URL   — e.g. https://<your-clerk>.clerk.accounts.dev/.well-known/jwks.json
+	#   CLERK_ISSUER     — e.g. https://<your-clerk>.clerk.accounts.dev
+	#   CLERK_AUDIENCE   — (optional) expected aud claim
 	-sudo docker run --rm -it \
 		--name rust-server-sgx \
 		--device /dev/sgx/enclave \
@@ -89,6 +108,9 @@ docker-run: | $(DATA_DIR)
 		--stop-timeout 30 \
 		-p 8080:8080 \
 		-v "$(DATA_DIR):/data" \
+		-e CLERK_JWKS_URL \
+		-e CLERK_ISSUER \
+		-e CLERK_AUDIENCE \
 		relationalnetwork/rust-server:focal
 
 .PHONY: docker-stop
