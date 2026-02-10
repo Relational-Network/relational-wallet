@@ -45,9 +45,20 @@ fi
 
 echo "Using SGX signing key: ${SGX_KEY}"
 echo "MRENCLAVE and MRSIGNER will be baked into the image."
+echo "Building for platform: linux/amd64"
+if [ -n "${UBUNTU_SNAPSHOT:-}" ]; then
+    echo "Using Ubuntu snapshot: ${UBUNTU_SNAPSHOT}"
+fi
+
+extra_build_args=()
+if [ -n "${UBUNTU_SNAPSHOT:-}" ]; then
+    extra_build_args+=(--build-arg "UBUNTU_SNAPSHOT=${UBUNTU_SNAPSHOT}")
+fi
 
 DOCKER_BUILDKIT=1 docker build \
+    --platform linux/amd64 \
     --build-arg UBUNTU_CODENAME="${codename}" \
+    "${extra_build_args[@]}" \
     --secret id=sgx-key,src="${SGX_KEY}" \
     -t relationalnetwork/rust-server:"${codename}" \
     -f Dockerfile \

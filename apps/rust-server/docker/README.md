@@ -22,6 +22,12 @@ Override with the `SGX_SIGNING_KEY` environment variable:
 SGX_SIGNING_KEY=/path/to/production-key.pem ./build.sh ubuntu20
 ```
 
+To override the pinned Ubuntu snapshot timestamp:
+
+```bash
+UBUNTU_SNAPSHOT=20260210T000000Z ./build.sh ubuntu20
+```
+
 This builds the image as:
 
 ```
@@ -68,6 +74,9 @@ The following are pinned in the Dockerfile:
 - Rust toolchain version (via `RUST_TOOLCHAIN` build arg, matches `rust-toolchain.toml`)
 - Gramine package version (via `GRAMINE_VERSION` build arg)
 - SGX AESM package version (via `SGX_AESM_VERSION` build arg)
+- Ubuntu apt snapshot timestamp (via `UBUNTU_SNAPSHOT` build arg)
+- Build target platform (`linux/amd64`, enforced in `build.sh`)
+- Rust reproducibility env (`SOURCE_DATE_EPOCH`, single codegen unit/job, fixed `RUSTFLAGS`)
 
 ## DCAP Configuration
 

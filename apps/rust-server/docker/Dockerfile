@@ -13,21 +13,42 @@
 #   - Gramine + SGX packages pinned to exact versions
 
 ARG UBUNTU_IMAGE=ubuntu:20.04@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214
+ARG UBUNTU_SNAPSHOT=20260210T000000Z
+ARG CA_CERTS_VERSION=20240203~20.04.1
 
 # ---------------------------------------------------------------------------
 # Stage 1 — Rust build (pinned toolchain for reproducibility)
 # ---------------------------------------------------------------------------
 FROM ${UBUNTU_IMAGE} AS builder
 
+ARG UBUNTU_SNAPSHOT
+ARG CA_CERTS_VERSION
+ARG TARGETPLATFORM
+
+RUN test "${TARGETPLATFORM}" = "linux/amd64" || \
+    (echo "error: SGX image must be built for linux/amd64 (got ${TARGETPLATFORM})" >&2; exit 1)
+
+# Install CA roots before switching to snapshot mirrors (which redirect to HTTPS).
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates=${CA_CERTS_VERSION} && \
+    rm -rf /var/lib/apt/lists/*
+
+# Freeze Ubuntu package resolution to a timestamped snapshot so transitive
+# dependency versions cannot drift over time.
+RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+
 # Pin all builder packages for reproducibility.
 # To update: run the base image and check apt-cache policy <pkg>
 ARG BUILD_ESSENTIAL_VERSION=12.8ubuntu1.1
 ARG CLANG_VERSION=1:10.0-50~exp1
 ARG CURL_VERSION=7.68.0-1ubuntu2.25
-ARG CA_CERTS_VERSION=20240203~20.04.1
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl=${CURL_VERSION} \
     ca-certificates=${CA_CERTS_VERSION} \
     build-essential=${BUILD_ESSENTIAL_VERSION} \
@@ -45,6 +66,19 @@ ARG RUSTUP_SHA256=17247e4bcacf6027ec2e11c79a72c494c9af69ac8d1abcc1b271fa4375a106
 ENV CARGO_HOME=/opt/cargo
 ENV RUSTUP_HOME=/opt/rustup
 ENV PATH=/opt/cargo/bin:${PATH}
+ENV SOURCE_DATE_EPOCH=1704067200
+ENV TZ=UTC
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV CARGO_INCREMENTAL=0
+ENV CARGO_BUILD_JOBS=1
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+ENV CARGO_PROFILE_RELEASE_DEBUG=0
+ENV CARGO_PROFILE_RELEASE_STRIP=symbols
+ENV ZERO_AR_DATE=1
+ENV RUSTFLAGS="-Ccodegen-units=1 -Cdebuginfo=0 -Cstrip=symbols -Clink-arg=-Wl,--build-id=none -Cllvm-args=-rng-seed=0 --remap-path-prefix=/app=."
+ENV CFLAGS="-g0 -frandom-seed=relational-wallet -Wno-builtin-macro-redefined -D__DATE__=\"redacted\" -D__TIME__=\"redacted\" -D__TIMESTAMP__=\"redacted\""
+ENV CXXFLAGS="-g0 -frandom-seed=relational-wallet -Wno-builtin-macro-redefined -D__DATE__=\"redacted\" -D__TIME__=\"redacted\" -D__TIMESTAMP__=\"redacted\""
 
 RUN curl -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh && \
     echo "${RUSTUP_SHA256}  /tmp/rustup-init.sh" | sha256sum -c - && \
@@ -56,8 +90,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
 COPY src ./src
-RUN cargo fetch
-RUN cargo build --release
+RUN cargo fetch --locked
+RUN CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
 
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime image + enclave signing
@@ -68,6 +102,29 @@ FROM ${UBUNTU_IMAGE}
 
 # ARGs are reset after each FROM
 ARG UBUNTU_CODENAME=focal
+ARG UBUNTU_SNAPSHOT
+ARG CA_CERTS_VERSION
+ARG TARGETPLATFORM
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV TZ=UTC
+ENV PYTHONHASHSEED=0
+
+RUN test "${TARGETPLATFORM}" = "linux/amd64" || \
+    (echo "error: SGX image must be built for linux/amd64 (got ${TARGETPLATFORM})" >&2; exit 1)
+
+# Install CA roots before switching to snapshot mirrors (which redirect to HTTPS).
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates=${CA_CERTS_VERSION} && \
+    rm -rf /var/lib/apt/lists/*
+
+# Freeze Ubuntu package resolution to a timestamped snapshot so transitive
+# dependency versions cannot drift over time.
+RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
 
 # Pin runtime utility packages.
 ARG RT_CURL_VERSION=7.68.0-1ubuntu2.25
@@ -75,10 +132,11 @@ ARG GNUPG2_VERSION=2.2.19-3ubuntu2.5
 ARG BINUTILS_VERSION=2.34-6ubuntu1.11
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl=${RT_CURL_VERSION} \
     gnupg2=${GNUPG2_VERSION} \
-    binutils=${BINUTILS_VERSION}
+    binutils=${BINUTILS_VERSION} && \
+    rm -rf /var/lib/apt/lists/*
 
 # Pin GPG keyrings by SHA256 so builds don't break on key rotation
 # and we verify we're trusting the same keys every time.
@@ -103,7 +161,7 @@ ARG SGX_DCAP_QV_VERSION=1.22.100.3-focal1
 ARG PSMISC_VERSION=23.3-1
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     gramine=${GRAMINE_VERSION} \
     gramine-ratls-dcap=${GRAMINE_VERSION} \
     sgx-aesm-service=${SGX_AESM_VERSION} \
@@ -120,7 +178,8 @@ WORKDIR /app
 COPY --from=builder /app/target/release/relational-rust-server /app/relational-rust-server
 COPY rust-server.manifest.template /app/rust-server.manifest.template
 
-# Generate the Gramine manifest
+# Generate the Gramine manifest and rewrite sgx.trusted_files as an explicit
+# sorted list to avoid nondeterminism from recursive directory traversal order.
 RUN ENTRYPOINT=$(which gramine-ratls) && \
     gramine-manifest \
     -Dentrypoint=${ENTRYPOINT} \
@@ -132,7 +191,34 @@ RUN ENTRYPOINT=$(which gramine-ratls) && \
     -Ddata_dir=/data \
     -Disvprodid=0 \
     -Disvsvn=0 \
-    /app/rust-server.manifest.template /app/rust-server.manifest
+    /app/rust-server.manifest.template /app/rust-server.manifest && \
+    GRAMINE_RUNTIME_DIR=$(gramine-runtimedir 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/gramine/runtime/glibc) && \
+    { \
+      echo 'sgx.trusted_files = ['; \
+      echo '    "file:/app/relational-rust-server",'; \
+      echo "    \"file:${ENTRYPOINT}\","; \
+      find "${GRAMINE_RUNTIME_DIR}" /lib/x86_64-linux-gnu \
+        -mindepth 1 \( -type f -o -type l \) -printf '%p\n' \
+        | LC_ALL=C sort -u \
+        | sed 's#^#    "file:#; s#$#",#'; \
+      echo ']'; \
+    } > /tmp/trusted_files.toml && \
+    awk ' \
+      BEGIN { in_block=0; replaced=0 } \
+      /^sgx\.trusted_files[[:space:]]*=[[:space:]]*\[/ { \
+        if (!replaced) { \
+          while ((getline line < "/tmp/trusted_files.toml") > 0) print line; \
+          close("/tmp/trusted_files.toml"); \
+          replaced=1; \
+        } \
+        in_block=1; \
+        next; \
+      } \
+      in_block && /^\]/ { in_block=0; next } \
+      !in_block { print } \
+    ' /app/rust-server.manifest > /app/rust-server.manifest.det && \
+    mv /app/rust-server.manifest.det /app/rust-server.manifest && \
+    rm -f /tmp/trusted_files.toml
 
 # ---------- SIGN THE ENCLAVE AT BUILD TIME ----------
 # The signing key is injected via Docker build secret so it never

@@ -3,6 +3,7 @@
 
 # Rust build outputs
 /target
+/data
 
 # Gramine outputs
 /*.manifest
