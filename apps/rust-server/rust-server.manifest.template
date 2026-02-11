@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Relational Network
 
-# Rust server manifest with DCAP RA-TLS attestation
-# This manifest configures the server to run inside an SGX enclave with
-# remote attestation using DCAP (Data Center Attestation Primitives).
+# =====================================================================
+# LOCAL DEV Gramine manifest — used by `make` only.
+# sgx.debug = true; encryption uses a persistent file-based key.
+# For production (Docker), see docker/rust-server.manifest.template.
+# =====================================================================
 
 # Use gramine-ratls as the entrypoint to generate RA-TLS credentials before
 # launching the actual application. The -P flag writes the private key
@@ -12,12 +14,6 @@ libos.entrypoint = "{{ entrypoint }}"
 
 loader.log_level = "{{ log_level }}"
 
-# Arguments for gramine-ratls:
-# -P: Write private key in plain (unencrypted) PEM format
-# /tmp/ra-tls.crt.pem: Output path for the certificate
-# /tmp/ra-tls.key.pem: Output path for the private key
-# --: Separator before the actual application command
-# {{ self_exe }}: The Rust server binary to execute after TLS setup
 loader.argv = [
     "gramine-ratls", "-P",
     "/tmp/ra-tls.crt.pem",
@@ -44,7 +40,22 @@ fs.mounts = [
     { path = "/tmp", type = "tmpfs" },
     # gramine-ratls binary location (passed via -Dentrypoint)
     { path = "{{ entrypoint }}", uri = "file:{{ entrypoint }}" },
+
+    # ========== DNS RESOLUTION FOR NETWORK ACCESS ==========
+    # Required for connecting to external RPC endpoints (Avalanche, etc.)
+    { path = "/etc/resolv.conf", uri = "file:/etc/resolv.conf" },
+    { path = "/etc/hosts", uri = "file:/etc/hosts" },
+    { path = "/etc/nsswitch.conf", uri = "file:/etc/nsswitch.conf" },
+
+    # ========== ENCRYPTED PERSISTENT STORAGE ==========
+    # Persistent file-based key so /data survives enclave rebuilds during dev.
+    # Production uses _sgx_mrsigner (see docker/rust-server.manifest.template).
+    { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted", key_name = "_dev_key" },
 ]
+
+# Dev storage key — a static 16-byte hex secret read from data/.dev_storage_key.
+# NOT derived from enclave identity, so data persists across rebuilds.
+fs.insecure__keys._dev_key = "{{ dev_storage_key }}"
 
 # SGX configuration - DCAP attestation is mandatory
 sgx.debug = true
@@ -53,23 +64,21 @@ sgx.isvprodid = {{ isvprodid }}
 sgx.isvsvn = {{ isvsvn }}
 sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 
-# `use_exinfo = true` is needed because the application may trigger lazy allocation of pages
-# (through exception handling) when EDMM is enabled
 sgx.use_exinfo = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
 
 sgx.trusted_files = [
     "file:{{ self_exe }}",
     "file:{{ gramine.runtimedir() }}/",
     "file:{{ arch_libdir }}/",
-    "file:{{ app_dir }}/",
     "file:{{ entrypoint }}",
 ]
 
+# Allow reading DNS configuration files (network access)
+sgx.allowed_files = [
+    "file:/etc/resolv.conf",
+    "file:/etc/hosts",
+    "file:/etc/nsswitch.conf",
+]
+
 # The maximum number of threads in a single process needs to be declared in advance.
-# You need to account for:
-# - one main thread
-# - the tokio worker threads
-# - any threads and threadpools you might be starting
-# - helper threads internal to Gramine — see:
-#   https://gramine.readthedocs.io/en/stable/manifest-syntax.html#number-of-threads
 sgx.max_threads = {{ '1' if env.get('EDMM', '0') == '1' else '8' }}

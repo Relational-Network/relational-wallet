@@ -8,8 +8,49 @@ permalink: /installation/
 
 # Installation
 
-1. **Web Enclave (`wallet-enclave`)** — Trusted execution environment (TEE) workload responsible for custodial logic, signing, and secure key storage.
-2. **Wallet Web (`wallet-web`)** — Client-side UI + SDK bundle that communicates with the enclave and Avalanche.
-3. **Rust Server (`rust-server`)** — SGX-enabled Axum backend running under Gramine (Docker on Ubuntu 20.04).
+The Relational Wallet consists of two main components:
 
-Each sub-page below outlines prerequisites, environment configuration, build/test steps, and deployment notes.
+## Components
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **rust-server** | Axum + Gramine SGX | Backend running in SGX enclave with DCAP RA-TLS |
+| **wallet-web** | Next.js 16 + Clerk | Frontend with authentication and API proxy |
+
+## Quick Start
+
+### Prerequisites
+
+1. Intel SGX hardware with `/dev/sgx/enclave` and `/dev/sgx/provision`
+2. [Gramine](https://gramine.readthedocs.io/) installed
+3. Node.js 18+ and pnpm
+4. [Clerk](https://clerk.dev) account
+
+### Start the System
+
+```bash
+# Terminal 1: Start the enclave backend
+cd apps/rust-server
+make                    # Build for SGX
+gramine-sgx rust-server # Start server (https://localhost:8080)
+
+# Terminal 2: Start the frontend
+cd apps/wallet-web
+pnpm install
+cp .env.local.example .env.local  # Configure Clerk keys
+pnpm dev                # Start dev server (http://localhost:3000)
+```
+
+### Verify Setup
+
+1. Open [http://localhost:3000](http://localhost:3000)
+2. Sign in with Clerk
+3. Navigate to "Create Wallet"
+4. Verify wallet appears in your list
+
+## Sub-pages
+
+Each sub-page provides detailed setup instructions:
+
+- **Rust Server** — SGX build, Docker deployment, environment variables
+- **Wallet Web** — Next.js setup, Clerk configuration, proxy architecture

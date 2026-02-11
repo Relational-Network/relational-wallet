@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Relational Network
+
+# =====================================================================
+# PRODUCTION Gramine manifest — used by Docker builds only.
+# sgx.debug = false is hardcoded; encryption uses _sgx_mrsigner.
+# For local development, see ../rust-server.manifest.template instead.
+# =====================================================================
+
+libos.entrypoint = "{{ entrypoint }}"
+
+loader.log_level = "{{ log_level }}"
+
+loader.argv = [
+    "gramine-ratls", "-P",
+    "/tmp/ra-tls.crt.pem",
+    "/tmp/ra-tls.key.pem",
+    "--",
+    "{{ self_exe }}"
+]
+
+loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}"
+loader.env.HOST = "0.0.0.0"
+loader.env.PORT = "8080"
+
+# See https://gramine.readthedocs.io/en/stable/performance.html#glibc-malloc-tuning
+loader.env.MALLOC_ARENA_MAX = "1"
+
+loader.env.RUST_BACKTRACE = "full"
+
+fs.mounts = [
+    { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+    { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
+    { path = "{{ app_dir }}", uri = "file:{{ app_dir }}" },
+    { path = "/tmp", type = "tmpfs" },
+    { path = "{{ entrypoint }}", uri = "file:{{ entrypoint }}" },
+
+    # DNS resolution — static files baked into the image (deterministic, no allowed_files needed)
+    { path = "/etc/resolv.conf", uri = "file:/app/dns/resolv.conf" },
+    { path = "/etc/hosts", uri = "file:/app/dns/hosts" },
+    { path = "/etc/nsswitch.conf", uri = "file:/app/dns/nsswitch.conf" },
+
+    # Encrypted persistent storage — key derived from enclave signer identity
+    # Upgrade-safe: same RSA signing key → same MRSIGNER → same encryption key
+    { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted", key_name = "_sgx_mrsigner" },
+]
+
+# SGX configuration — production hardened
+sgx.debug = false
+sgx.remote_attestation = "{{ ra_type }}"
+sgx.isvprodid = {{ isvprodid }}
+sgx.isvsvn = {{ isvsvn }}
+sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
+sgx.use_exinfo = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
+
+sgx.trusted_files = [
+    "file:{{ self_exe }}",
+    "file:{{ gramine.runtimedir() }}/",
+    "file:{{ arch_libdir }}/",
+    "file:{{ entrypoint }}",
+    "file:/app/dns/resolv.conf",
+    "file:/app/dns/hosts",
+    "file:/app/dns/nsswitch.conf",
+]
+
+sgx.max_threads = {{ '1' if env.get('EDMM', '0') == '1' else '8' }}

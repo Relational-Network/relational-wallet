@@ -9,15 +9,17 @@
 //!
 //! This module normalizes such PEM files so that rustls can parse them correctly.
 
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::fs;
-use std::io::{BufReader, Cursor};
 use std::path::Path;
 
 /// Default path where gramine-ratls writes the TLS certificate.
+#[allow(dead_code)]
 pub const RA_TLS_CERT_PATH: &str = "/tmp/ra-tls.crt.pem";
 
 /// Default path where gramine-ratls writes the TLS private key.
+#[allow(dead_code)]
 pub const RA_TLS_KEY_PATH: &str = "/tmp/ra-tls.key.pem";
 
 /// Errors that can occur when loading TLS credentials.
@@ -92,11 +94,11 @@ pub fn load_ratls_certificate<P: AsRef<Path>>(
     // Normalize RA-TLS PEM labels
     let normalized = normalize_ratls_pem(&pem_content);
 
-    // Parse certificates from normalized PEM
-    let mut reader = BufReader::new(Cursor::new(normalized));
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| TlsError::CertificateParseError(e.to_string()))?;
+    // Parse certificates from normalized PEM using rustls built-in PEM support
+    let certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_slice_iter(normalized.as_bytes())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| TlsError::CertificateParseError(e.to_string()))?;
 
     if certs.is_empty() {
         // Try parsing as DER if PEM parsing yielded no certs
@@ -120,40 +122,14 @@ pub fn load_ratls_private_key<P: AsRef<Path>>(
     let content = fs::read(path)
         .map_err(|_| TlsError::PrivateKeyNotFound(path.display().to_string()))?;
 
-    // Try parsing as PEM first
-    let mut reader = BufReader::new(Cursor::new(&content));
-
-    // Try PKCS#8 format
-    if let Some(key) = rustls_pemfile::pkcs8_private_keys(&mut reader)
-        .next()
-        .and_then(|r| r.ok())
-    {
-        return Ok(PrivateKeyDer::Pkcs8(key));
+    // Parse private key using rustls built-in PEM support
+    // PrivateKeyDer::from_pem_slice automatically tries PKCS#8, PKCS#1 (RSA), and SEC1 (EC) formats
+    match PrivateKeyDer::from_pem_slice(&content) {
+        Ok(key) => Ok(key),
+        Err(_) => Err(TlsError::PrivateKeyParseError(
+            "Could not parse private key in any supported format (PKCS#8, RSA, EC)".to_string(),
+        )),
     }
-
-    // Reset reader and try RSA format
-    let mut reader = BufReader::new(Cursor::new(&content));
-    if let Some(key) = rustls_pemfile::rsa_private_keys(&mut reader)
-        .next()
-        .and_then(|r| r.ok())
-    {
-        return Ok(PrivateKeyDer::Pkcs1(key));
-    }
-
-    // Reset reader and try EC format
-    let mut reader = BufReader::new(Cursor::new(&content));
-    if let Some(key) = rustls_pemfile::ec_private_keys(&mut reader)
-        .next()
-        .and_then(|r| r.ok())
-    {
-        return Ok(PrivateKeyDer::Sec1(key));
-    }
-
-    // If all PEM parsing failed, try as raw DER (PKCS#8)
-    // This is a fallback for non-PEM encoded keys
-    Err(TlsError::PrivateKeyParseError(
-        "Could not parse private key in any supported format (PKCS#8, RSA, EC)".to_string(),
-    ))
 }
 
 /// Load both certificate and private key from the default RA-TLS paths.
@@ -166,6 +142,7 @@ pub fn load_ratls_private_key<P: AsRef<Path>>(
 ///
 /// Panics if either file is missing or cannot be parsed. This is intentional
 /// as the server cannot operate securely without valid TLS credentials.
+#[allow(dead_code)]
 pub fn load_ratls_credentials() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
     let certs = load_ratls_certificate(RA_TLS_CERT_PATH).unwrap_or_else(|e| {
         panic!(
