@@ -27,3 +27,10 @@ apps/wallet-web/out/
 
 # Documentation build
 docs/_site/
+
+# Foundry / Solidity
+apps/contracts/.env
+apps/contracts/lib/
+apps/contracts/out/
+apps/contracts/cache/
+apps/contracts/broadcast/

@@ -51,6 +51,7 @@ This section covers the system design, security model, and operational aspects o
 | **Clerk Auth** | Third-party authentication with JWT tokens verified via JWKS |
 | **API Proxy** | Server-side route that bridges browser and enclave |
 | **Encrypted FS** | Gramine-managed encrypted filesystem sealed to enclave identity |
+| **Contracts Workspace** | Foundry-based `apps/contracts` for rEUR deployment and tests |
 
 ## Sub-pages
 

@@ -15,6 +15,7 @@ Welcome to the documentation hub for the Relational Wallet—a secure wallet sys
 |-----------|--------|-------------|
 | **rust-server** | ✅ Complete | Axum REST API running in Gramine SGX with DCAP RA-TLS |
 | **wallet-web** | ✅ Complete | Next.js 16 frontend with Clerk authentication |
+| **contracts** | ✅ Active | Foundry workspace with managed `rEUR` smart contract |
 | **Integration** | ✅ Working | Frontend proxies API calls to enclave backend |
 
 ## Key Features
@@ -23,12 +24,14 @@ Welcome to the documentation hub for the Relational Wallet—a secure wallet sys
 - **DCAP Attestation**: Remote attestation with DCAP RA-TLS certificates
 - **Clerk Authentication**: JWT-based auth with JWKS signature verification
 - **P256 Key Management**: Cryptographic keys generated and stored securely in enclave
+- **Euro Stablecoin Contract**: `rEUR` managed ERC-20 (mint, burn, pause, roles)
 - **Structured Logging**: Request tracing with correlation IDs
 
 ## What's Inside
 
 - **Installation** — Environment setup guides for the trusted execution environment [`(wallet-enclave)`](/installation/wallet-enclave) and the user-facing client [`(wallet-web)`](/installation/wallet-web).
 - **API Documentation** — Component-level REST references with OpenAPI specs.
+- **Contracts** — `apps/contracts` deployment and verification workflow for `rEUR`.
 - **Architecture** — System overview, security model, and sequence diagrams.
 - **Operations** — CI/CD, GitHub Pages publishing guidance, and operational runbooks.
 - **Legal** — Privacy Policy and Terms of Service _placeholders_.
@@ -68,3 +71,9 @@ pnpm dev
 - Keep pages in Markdown with front matter defining `title`, `nav_order`, and parent metadata.
 - Diagram source files live under `../architecture/` and `../sequence/`.
 - Update them with PlantUML and regenerate assets via `../render.sh`.
+
+## Contract Deployment Snapshot
+
+- **Network**: Avalanche Fuji (chain `43113`)
+- **rEUR Address**: `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`
+- **Deploy Tx**: `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14`

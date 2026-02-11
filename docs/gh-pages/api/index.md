@@ -16,6 +16,7 @@ This section documents the REST APIs for interacting with the Relational Wallet.
 |-----|----------|------|-------------|
 | **Wallet Enclave** | `https://localhost:8080` | Clerk JWT | SGX backend with DCAP RA-TLS |
 | **Wallet Web Proxy** | `http://localhost:3000/api/proxy` | Clerk Session | Proxies to enclave |
+| **rEUR Contract (Fuji)** | `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63` | On-chain roles | Managed ERC-20 stablecoin |
 
 ## Sub-pages
 
@@ -39,6 +40,12 @@ curl -X POST http://localhost:3000/api/proxy/v1/wallets \
 ```bash
 curl http://localhost:3000/api/proxy/v1/wallets \
   -H "Cookie: __session=..."
+```
+
+### Query rEUR Symbol (Fuji)
+```bash
+cast call 0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63 "symbol()(string)" \
+  --rpc-url https://api.avax-test.network/ext/bc/C/rpc
 ```
 
 ## OpenAPI Documentation

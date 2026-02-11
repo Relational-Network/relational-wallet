@@ -8,6 +8,7 @@ This monorepo contains:
 
 - **[Rust Server](apps/rust-server/)** — Axum REST API running inside SGX with DCAP RA-TLS
 - **[Wallet Web](apps/wallet-web/)** — Next.js frontend with Clerk authentication
+- **[Contracts](apps/contracts/)** — Foundry workspace for `Relational Euro (rEUR)` smart contracts
 
 ## Security Model
 
@@ -35,6 +36,11 @@ This monorepo contains:
 - Swagger UI: `https://localhost:8080/docs`
 - OpenAPI JSON: `https://localhost:8080/api-doc/openapi.json`
 
+### Smart Contracts
+- **Relational Euro (`rEUR`)** managed ERC-20 contract (mint, burn, pause, role-based access)
+- **Fuji Deployment**: `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`
+- **Deployment Tx**: `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14`
+
 ## Quick Start
 
 ### Prerequisites
@@ -57,9 +63,16 @@ pnpm install
 pnpm dev
 ```
 
+### Run Contract Tests
+```bash
+cd apps/contracts
+forge test -vv
+```
+
 ## Documentation
 
 - [Rust Server README](apps/rust-server/README.md) — Detailed API documentation
+- [Contracts README](apps/contracts/README.md) — Contract design, testing, and deployment
 - [Copilot Instructions](.github/copilot-instructions.md) — AI coding guidelines
 - [API Docs](docs/gh-pages/) — GitHub Pages documentation
 
@@ -85,5 +98,4 @@ REQUIRED_YEAR=2026 ./scripts/check_headers.sh # Require specific year
 ```bash
 cd apps/rust-server && cargo test             # Run unit tests
 ```
-
 
