@@ -34,9 +34,9 @@ pub async fn get_invite(
     Query(params): Query<InviteQuery>,
 ) -> Result<Json<Invite>, ApiError> {
     let repo = InviteRepository::new(&state.storage);
-    let stored = repo.get_by_code(&params.invite_code).map_err(|_| {
-        ApiError::not_found("Invite not found")
-    })?;
+    let stored = repo
+        .get_by_code(&params.invite_code)
+        .map_err(|_| ApiError::not_found("Invite not found"))?;
 
     if stored.redeemed {
         return Err(ApiError::unprocessable(
@@ -64,28 +64,27 @@ pub async fn redeem_invite(
     Json(request): Json<RedeemInviteRequest>,
 ) -> Result<(), ApiError> {
     let repo = InviteRepository::new(&state.storage);
-    repo.redeem(&request.invite_id, &user.user_id).map_err(|e| {
-        match e {
+    repo.redeem(&request.invite_id, &user.user_id)
+        .map_err(|e| match e {
             crate::storage::StorageError::NotFound(_) => ApiError::not_found("Invite not found"),
             crate::storage::StorageError::AlreadyExists(_) => {
                 ApiError::unprocessable("This invite code has already been redeemed.")
             }
             _ => ApiError::internal(format!("Failed to redeem invite: {e}")),
-        }
-    })?;
+        })?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthenticatedUser;
+    use crate::storage::repository::invites::StoredInvite;
     use axum::{
         extract::{Query, State},
         http::StatusCode,
     };
     use chrono::Utc;
-    use crate::auth::AuthenticatedUser;
-    use crate::storage::repository::invites::StoredInvite;
 
     fn create_test_invite(repo: &InviteRepository, code: &str) -> StoredInvite {
         let invite = StoredInvite {
@@ -137,7 +136,7 @@ mod tests {
         let state = AppState::default();
         let repo = InviteRepository::new(&state.storage);
         let mut invite = create_test_invite(&repo, "REDEEMED1");
-        
+
         // Mark as redeemed
         invite.redeemed = true;
         repo.update(&invite).expect("update invite");

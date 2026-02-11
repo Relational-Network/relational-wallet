@@ -5,8 +5,8 @@
 //! User endpoints.
 
 use axum::Json;
-use utoipa::ToSchema;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::auth::{Auth, AuthenticatedUser, Role};
 

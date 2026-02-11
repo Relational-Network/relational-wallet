@@ -96,7 +96,8 @@ impl<'a> BookmarkRepository<'a> {
             return Err(StorageError::NotFound(format!("Bookmark {bookmark_id}")));
         }
 
-        self.storage.delete(self.storage.paths().bookmark(bookmark_id))
+        self.storage
+            .delete(self.storage.paths().bookmark(bookmark_id))
     }
 
     /// List all bookmarks (admin view).

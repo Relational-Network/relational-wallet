@@ -54,12 +54,12 @@ pub struct AuthConfig {
     /// - `Some`: Production mode - JWT signatures are verified
     /// - `None`: Development mode - JWT signatures are NOT verified
     pub jwks: Option<Arc<JwksManager>>,
-    
+
     /// Expected JWT issuer (Clerk instance URL).
     ///
     /// Example: `https://your-app.clerk.accounts.dev`
     pub issuer: Option<String>,
-    
+
     /// Expected JWT audience claim (optional).
     ///
     /// Set via `CLERK_AUDIENCE` environment variable.
@@ -105,7 +105,7 @@ pub struct AppState {
     /// All persistent data (wallets, bookmarks, invites, audit logs) is
     /// stored here. The underlying filesystem is encrypted by Gramine.
     pub storage: Arc<EncryptedStorage>,
-    
+
     /// Authentication configuration for JWT verification.
     pub auth_config: AuthConfig,
 }
@@ -175,10 +175,13 @@ impl Default for AppState {
         #[cfg(test)]
         {
             use crate::storage::StoragePaths;
-            let temp_dir = std::env::temp_dir().join(format!("test-state-{}", uuid::Uuid::new_v4()));
+            let temp_dir =
+                std::env::temp_dir().join(format!("test-state-{}", uuid::Uuid::new_v4()));
             let paths = StoragePaths::new(&temp_dir);
             let mut storage = EncryptedStorage::new(paths);
-            storage.initialize().expect("Failed to initialize test storage");
+            storage
+                .initialize()
+                .expect("Failed to initialize test storage");
             Self::new(storage)
         }
         #[cfg(not(test))]
@@ -204,4 +207,3 @@ mod tests {
         assert!(state.storage().is_initialized());
     }
 }
-

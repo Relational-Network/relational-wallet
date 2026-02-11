@@ -83,9 +83,9 @@ async fn main() {
     // Seed invite if configured
     if let Ok(code) = env::var("SEED_INVITE_CODE") {
         use chrono::Utc;
-        use storage::repository::InviteRepository;
         use storage::repository::invites::StoredInvite;
-        
+        use storage::repository::InviteRepository;
+
         let repo = InviteRepository::new(&encrypted_storage);
         // Only create if it doesn't exist
         if repo.get_by_code(&code).is_err() {
@@ -107,9 +107,8 @@ async fn main() {
         }
     }
 
-    let state = AppState::new(encrypted_storage)
-        .with_auth_config(auth_config);
-    
+    let state = AppState::new(encrypted_storage).with_auth_config(auth_config);
+
     // Build router with tracing middleware for request IDs
     let app = router(state)
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -130,7 +129,9 @@ async fn main() {
                     )
                 })
                 .on_response(
-                    |response: &axum::http::Response<_>, latency: Duration, _span: &tracing::Span| {
+                    |response: &axum::http::Response<_>,
+                     latency: Duration,
+                     _span: &tracing::Span| {
                         tracing::info!(
                             status = %response.status().as_u16(),
                             latency_ms = %latency.as_millis(),
@@ -157,7 +158,10 @@ async fn main() {
         "Relational Wallet server starting"
     );
     info!("Running with DCAP RA-TLS attestation");
-    info!(path = "/data", "Persistent storage: Gramine encrypted filesystem");
+    info!(
+        path = "/data",
+        "Persistent storage: Gramine encrypted filesystem"
+    );
 
     // Start HTTPS server (TLS is mandatory - no HTTP fallback)
     axum_server::bind_rustls(addr, tls_config)
@@ -209,9 +213,9 @@ async fn initialize_auth_config() -> AuthConfig {
     if let Some(url) = jwks_url {
         info!("Initializing JWKS authentication...");
         info!(jwks_url = %url, "JWKS endpoint configured");
-        
+
         let jwks_manager = JwksManager::new(&url);
-        
+
         // Pre-fetch JWKS with retry — DNS may not be ready immediately
         // in containerized environments (Docker DNS at 127.0.0.11).
         let max_retries = 5u32;
@@ -251,8 +255,10 @@ async fn initialize_auth_config() -> AuthConfig {
         if let Some(ref iss) = issuer {
             info!(issuer = %iss, "Issuer validation enabled");
         } else {
-            panic!("CLERK_ISSUER must be set when CLERK_JWKS_URL is configured. \
-                    Without issuer validation, JWT verification is insecure.");
+            panic!(
+                "CLERK_ISSUER must be set when CLERK_JWKS_URL is configured. \
+                    Without issuer validation, JWT verification is insecure."
+            );
         }
 
         if let Some(ref aud) = audience {

@@ -19,7 +19,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use jsonwebtoken::jwk::{JwkSet, Jwk, AlgorithmParameters};
+use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet};
 use jsonwebtoken::{Algorithm, DecodingKey};
 use tokio::sync::RwLock;
 
@@ -199,16 +199,6 @@ impl JwksManager {
         });
         Ok(())
     }
-
-    /// Check if JWKS is currently cached and valid.
-    pub async fn is_cached(&self) -> bool {
-        let cache = self.cache.read().await;
-        if let Some(entry) = &*cache {
-            entry.fetched_at.elapsed() < self.cache_ttl
-        } else {
-            false
-        }
-    }
 }
 
 /// Convert a JWK to a DecodingKey.
@@ -217,7 +207,7 @@ fn jwk_to_decoding_key(jwk: &Jwk) -> Result<(DecodingKey, Algorithm), AuthError>
         AlgorithmParameters::RSA(rsa) => {
             let key = DecodingKey::from_rsa_components(&rsa.n, &rsa.e)
                 .map_err(|e| AuthError::InternalError(format!("Failed to create RSA key: {e}")))?;
-            
+
             // Determine algorithm from JWK
             let alg = jwk
                 .common
@@ -272,11 +262,5 @@ mod tests {
         let manager = JwksManager::new("https://example.com/.well-known/jwks.json")
             .with_cache_ttl(Duration::from_secs(60));
         assert_eq!(manager.cache_ttl, Duration::from_secs(60));
-    }
-
-    #[tokio::test]
-    async fn cache_initially_empty() {
-        let manager = JwksManager::new("https://example.com/.well-known/jwks.json");
-        assert!(!manager.is_cached().await);
     }
 }

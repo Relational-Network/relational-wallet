@@ -70,6 +70,8 @@ pub struct WalletBalanceResponse {
 }
 
 /// Known ERC-20 tokens on Avalanche.
+/// TODO: Configure metadata and addresses for actual euro stablecoins when available.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Erc20Token {
     pub symbol: &'static str,
@@ -83,6 +85,8 @@ pub struct Erc20Token {
 
 /// Euro stablecoin configuration.
 /// Note: Replace with actual euro stablecoin contract addresses when deployed.
+/// TODO: Deploy a test euro stablecoin on Fuji and add the address here.
+#[allow(dead_code)]
 pub const EUROC_TOKEN: Erc20Token = Erc20Token {
     symbol: "EUROC",
     name: "Euro Coin",
@@ -103,39 +107,3 @@ pub const USDC_TOKEN: Erc20Token = Erc20Token {
     // Fuji testnet USDC (Circle's test token)
     fuji_address: Some("0x5425890298aed601595a70AB815c96711a31Bc65"),
 };
-
-/// Transaction status.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum TransactionStatus {
-    Pending,
-    Confirmed,
-    Failed,
-}
-
-/// Transaction result.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TransactionResult {
-    /// Transaction hash
-    pub tx_hash: String,
-    /// Transaction status
-    pub status: TransactionStatus,
-    /// Block number (if confirmed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<u64>,
-    /// Error message (if failed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Token transfer request.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TransferRequest {
-    /// Recipient address
-    pub to: String,
-    /// Amount in smallest unit (wei or token decimals)
-    pub amount: String,
-    /// Token contract address (None for native AVAX)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_address: Option<String>,
-}

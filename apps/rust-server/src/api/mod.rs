@@ -6,7 +6,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tower_http::cors::{CorsLayer, AllowOrigin};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -14,9 +14,9 @@ use crate::{
     auth::Role,
     blockchain::{TokenBalance, WalletBalanceResponse},
     models::{
-        Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite,
-        RecurringPayment, RedeemInviteRequest, UpdateLastPaidDateRequest,
-        UpdateRecurringPaymentRequest, WalletAddress,
+        Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite, RecurringPayment,
+        RedeemInviteRequest, UpdateLastPaidDateRequest, UpdateRecurringPaymentRequest,
+        WalletAddress,
     },
     state::AppState,
     storage::{StoredTransaction, TokenType, TxStatus},

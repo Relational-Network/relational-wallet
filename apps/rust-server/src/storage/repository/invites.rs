@@ -113,6 +113,8 @@ impl<'a> InviteRepository<'a> {
     }
 
     /// Delete an invite.
+    /// TODO: Invite management endpoints.
+    #[allow(dead_code)]
     pub fn delete(&self, invite_id: &str) -> StorageResult<()> {
         if !self.exists(invite_id) {
             return Err(StorageError::NotFound(format!("Invite {invite_id}")));
@@ -149,6 +151,8 @@ impl<'a> InviteRepository<'a> {
     }
 
     /// List all invites created by a user.
+    /// TODO: Invite management endpoints.
+    #[allow(dead_code)]
     pub fn list_by_creator(&self, user_id: &str) -> StorageResult<Vec<StoredInvite>> {
         let invite_ids = self
             .storage
@@ -185,6 +189,8 @@ impl<'a> InviteRepository<'a> {
     }
 
     /// List all valid (not redeemed, not expired) invites.
+    /// TODO: Invite management endpoints.
+    #[allow(dead_code)]
     pub fn list_valid(&self) -> StorageResult<Vec<StoredInvite>> {
         let invite_ids = self
             .storage

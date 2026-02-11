@@ -180,7 +180,7 @@ use std::time::Instant;
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
 
 /// Get the server start time, initializing it on first call.
-/// 
+///
 /// This function returns the instant when the server was first accessed,
 /// which is used for uptime calculations in system stats.
 fn get_server_start() -> &'static Instant {
@@ -188,7 +188,7 @@ fn get_server_start() -> &'static Instant {
 }
 
 /// Initialize the server start time. Call this at startup.
-/// 
+///
 /// This is optional since `get_server_start()` will initialize on first use,
 /// but calling it explicitly at startup ensures consistent uptime reporting.
 #[allow(dead_code)]
@@ -306,7 +306,10 @@ pub async fn list_all_wallets(
     // Audit log
     audit_log!(&storage, AuditEventType::AdminAccess, &user);
 
-    Ok(Json(AdminWalletListResponse { wallets: items, total }))
+    Ok(Json(AdminWalletListResponse {
+        wallets: items,
+        total,
+    }))
 }
 
 /// List all unique users with their resource counts.
@@ -505,7 +508,12 @@ pub async fn get_detailed_health(
     let auth_configured = std::env::var("CLERK_JWKS_URL").is_ok();
 
     Ok(Json(DetailedHealthResponse {
-        status: if exists && writable { "healthy" } else { "degraded" }.to_string(),
+        status: if exists && writable {
+            "healthy"
+        } else {
+            "degraded"
+        }
+        .to_string(),
         storage: StorageHealth {
             data_dir,
             exists,
@@ -674,12 +682,14 @@ mod tests {
 
     #[test]
     fn audit_query_params_deserializes() {
-        let params: AuditQueryParams = serde_json::from_str(r#"{
+        let params: AuditQueryParams = serde_json::from_str(
+            r#"{
             "start_date": "2026-01-01",
             "end_date": "2026-01-31",
             "user_id": "user_123",
             "limit": 50
-        }"#)
+        }"#,
+        )
         .unwrap();
 
         assert_eq!(params.start_date, Some("2026-01-01".to_string()));

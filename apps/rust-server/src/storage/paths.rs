@@ -148,10 +148,7 @@ mod tests {
     fn wallet_paths_are_correct() {
         let paths = StoragePaths::default();
         assert_eq!(paths.wallets_dir(), PathBuf::from("/data/wallets"));
-        assert_eq!(
-            paths.wallet_dir("w1"),
-            PathBuf::from("/data/wallets/w1")
-        );
+        assert_eq!(paths.wallet_dir("w1"), PathBuf::from("/data/wallets/w1"));
         assert_eq!(
             paths.wallet_meta("w1"),
             PathBuf::from("/data/wallets/w1/meta.json")

@@ -62,7 +62,7 @@ fn check_data_dir() -> Option<String> {
 )]
 pub async fn health(State(_state): State<AppState>) -> (StatusCode, Json<ReadyResponse>) {
     let data_dir = check_data_dir();
-    
+
     let data_ok = data_dir.as_ref().map(|s| s == "ok").unwrap_or(true);
 
     let response = ReadyResponse {

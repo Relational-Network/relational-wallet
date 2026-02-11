@@ -14,7 +14,7 @@ pub mod transactions;
 pub mod wallets;
 
 pub use bookmarks::{BookmarkRepository, StoredBookmark};
-pub use invites::{InviteRepository, StoredInvite};
-pub use recurring::{PaymentFrequency, PaymentStatus, RecurringRepository, StoredRecurringPayment};
+pub use invites::InviteRepository;
+pub use recurring::RecurringRepository;
 pub use transactions::{StoredTransaction, TokenType, TransactionRepository, TxStatus};
 pub use wallets::{WalletMetadata, WalletRepository, WalletResponse, WalletStatus};

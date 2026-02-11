@@ -105,9 +105,10 @@ pub async fn create_bookmark(
     let wallet_id = request.wallet_id.to_string();
 
     // Validate the bookmarked address is a valid Ethereum address
-    request.address.validate_eth_address().map_err(|e| {
-        ApiError::bad_request(&e)
-    })?;
+    request
+        .address
+        .validate_eth_address()
+        .map_err(|e| ApiError::bad_request(&e))?;
 
     // Verify wallet ownership
     let wallet_repo = WalletRepository::new(&storage);
@@ -184,9 +185,9 @@ pub async fn delete_bookmark(
         .get(&bookmark_id)
         .map_err(|_| ApiError::not_found(&format!("Bookmark {} not found", bookmark_id)))?;
 
-    bookmark.verify_ownership(&user).map_err(|_| {
-        ApiError::forbidden("You don't have permission to delete this bookmark")
-    })?;
+    bookmark
+        .verify_ownership(&user)
+        .map_err(|_| ApiError::forbidden("You don't have permission to delete this bookmark"))?;
 
     // Delete bookmark
     repo.delete(&bookmark_id)

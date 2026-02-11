@@ -50,21 +50,33 @@ impl<P: Provider + Clone> Erc20Contract<P> {
 
     /// Get the token name.
     pub async fn name(&self) -> Result<String, AvaxClientError> {
-        let result = self.contract.name().call().await
+        let result = self
+            .contract
+            .name()
+            .call()
+            .await
             .map_err(|e| AvaxClientError::ContractError(e.to_string()))?;
         Ok(result.to_string())
     }
 
     /// Get the token symbol.
     pub async fn symbol(&self) -> Result<String, AvaxClientError> {
-        let result = self.contract.symbol().call().await
+        let result = self
+            .contract
+            .symbol()
+            .call()
+            .await
             .map_err(|e| AvaxClientError::ContractError(e.to_string()))?;
         Ok(result.to_string())
     }
 
     /// Get the token decimals.
     pub async fn decimals(&self) -> Result<u8, AvaxClientError> {
-        let result = self.contract.decimals().call().await
+        let result = self
+            .contract
+            .decimals()
+            .call()
+            .await
             .map_err(|e| AvaxClientError::ContractError(e.to_string()))?;
         Ok(result)
     }
@@ -78,8 +90,12 @@ impl<P: Provider + Clone> Erc20Contract<P> {
         let name: String = self.name().await.unwrap_or_else(|_| "Unknown".to_string());
         let symbol: String = self.symbol().await.unwrap_or_else(|_| "???".to_string());
         let decimals: u8 = self.decimals().await.unwrap_or(18);
-        
-        let balance: U256 = self.contract.balanceOf(addr).call().await
+
+        let balance: U256 = self
+            .contract
+            .balanceOf(addr)
+            .call()
+            .await
             .map_err(|e| AvaxClientError::ContractError(e.to_string()))?;
 
         Ok(TokenBalance {
@@ -90,11 +106,6 @@ impl<P: Provider + Clone> Erc20Contract<P> {
             decimals,
             contract_address: Some(format!("{:?}", self.address)),
         })
-    }
-
-    /// Get the contract address.
-    pub fn address(&self) -> Address {
-        self.address
     }
 }
 

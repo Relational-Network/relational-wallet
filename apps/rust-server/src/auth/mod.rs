@@ -33,6 +33,6 @@ pub mod roles;
 
 pub use claims::AuthenticatedUser;
 pub use error::AuthError;
-pub use extractor::{Auth, AdminOnly};
+pub use extractor::{AdminOnly, Auth};
 pub use jwks::JwksManager;
 pub use roles::Role;

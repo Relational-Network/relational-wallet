@@ -16,7 +16,10 @@ use super::roles::Role;
 ///
 /// Note: The actual JWT verification uses JwtClaims in extractor.rs.
 /// This struct provides a full representation for reference.
+/// Fields must exist for serde JWT deserialization
+/// even though they're not read
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ClerkClaims {
     /// Subject (user ID) - the canonical Clerk user identifier
     pub sub: String,
@@ -66,6 +69,8 @@ pub struct UserMetadata {
     pub role: Option<String>,
 
     /// Additional custom fields
+    /// TODO: Define specific fields as needed or keep as a flexible map for future use.
+    #[allow(dead_code)]
     #[serde(flatten)]
     pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -73,6 +78,8 @@ pub struct UserMetadata {
 /// Organization membership from Clerk.
 ///
 /// Note: Multi-tenant support is planned for future releases.
+/// TODO: Implement organization membership handling when multi-tenancy is added.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrgMembership {
     /// Organization ID
@@ -85,6 +92,8 @@ pub struct OrgMembership {
 ///
 /// This is the primary type used throughout the application to represent
 /// the authenticated user making a request.
+/// TODO (issuer, expires_at): Set in constructor; available for logging/middleware
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuthenticatedUser {
     /// Canonical user ID (Clerk `sub` claim)
@@ -127,6 +136,8 @@ impl AuthenticatedUser {
     }
 
     /// Check if the user has the required role.
+    /// TODO: role-specific endpoints and permissions can be implemented using this method.
+    #[allow(dead_code)]
     pub fn has_role(&self, required: Role) -> bool {
         self.role.has_privilege(required)
     }

@@ -47,6 +47,7 @@ pub struct SendResult {
 #[derive(Debug, Clone)]
 pub struct TxReceipt {
     /// Transaction hash
+    #[allow(dead_code)]
     pub tx_hash: String,
     /// Block number where transaction was included
     pub block_number: u64,
@@ -86,13 +87,12 @@ impl TxBuilder {
         network: NetworkConfig,
         wallet: EthereumWallet,
     ) -> Result<Self, AvaxClientError> {
-        let url: url::Url = network.rpc_url.parse().map_err(|e: url::ParseError| {
-            AvaxClientError::InvalidRpcUrl(e.to_string())
-        })?;
+        let url: url::Url = network
+            .rpc_url
+            .parse()
+            .map_err(|e: url::ParseError| AvaxClientError::InvalidRpcUrl(e.to_string()))?;
 
-        let provider = ProviderBuilder::new()
-            .wallet(wallet)
-            .connect_http(url);
+        let provider = ProviderBuilder::new().wallet(wallet).connect_http(url);
 
         Ok(Self { network, provider })
     }
@@ -129,8 +129,9 @@ impl TxBuilder {
             .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid from address: {}", e)))?;
         let to_addr = Address::from_str(to)
             .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid to address: {}", e)))?;
-        let token_addr = Address::from_str(token_address)
-            .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid token address: {}", e)))?;
+        let token_addr = Address::from_str(token_address).map_err(|e| {
+            AvaxClientError::InvalidAddress(format!("Invalid token address: {}", e))
+        })?;
 
         // Encode the transfer(to, amount) call
         let call = IERC20::transferCall {
@@ -148,9 +149,15 @@ impl TxBuilder {
     }
 
     /// Internal gas estimation helper.
-    async fn estimate_gas_for_tx(&self, tx: TransactionRequest) -> Result<GasEstimate, AvaxClientError> {
+    async fn estimate_gas_for_tx(
+        &self,
+        tx: TransactionRequest,
+    ) -> Result<GasEstimate, AvaxClientError> {
         // Get gas estimate
-        let gas_limit = self.provider.estimate_gas(tx.clone()).await
+        let gas_limit = self
+            .provider
+            .estimate_gas(tx.clone())
+            .await
             .map_err(|e| AvaxClientError::RpcError(format!("Gas estimation failed: {}", e)))?;
 
         // Get current gas prices
@@ -170,12 +177,16 @@ impl TxBuilder {
     /// Get current gas prices from the network.
     async fn get_gas_prices(&self) -> Result<(u128, u128), AvaxClientError> {
         // Get base fee from latest block
-        let block = self.provider.get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
+        let block = self
+            .provider
+            .get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
             .await
             .map_err(|e| AvaxClientError::RpcError(format!("Failed to get block: {}", e)))?
             .ok_or_else(|| AvaxClientError::RpcError("No latest block".to_string()))?;
 
-        let base_fee: u128 = block.header.base_fee_per_gas
+        let base_fee: u128 = block
+            .header
+            .base_fee_per_gas
             .map(|f| f as u128)
             .unwrap_or(25_000_000_000u128); // 25 gwei default
 
@@ -239,8 +250,9 @@ impl TxBuilder {
     ) -> Result<SendResult, AvaxClientError> {
         let to_addr = Address::from_str(to)
             .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid to address: {}", e)))?;
-        let token_addr = Address::from_str(token_address)
-            .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid token address: {}", e)))?;
+        let token_addr = Address::from_str(token_address).map_err(|e| {
+            AvaxClientError::InvalidAddress(format!("Invalid token address: {}", e))
+        })?;
 
         // Encode the transfer(to, amount) call
         let call = IERC20::transferCall {
@@ -266,9 +278,14 @@ impl TxBuilder {
     }
 
     /// Internal helper to send a transaction and return the hash.
-    async fn send_transaction(&self, tx: TransactionRequest) -> Result<SendResult, AvaxClientError> {
-        let pending = self.provider.send_transaction(tx).await
-            .map_err(|e| AvaxClientError::TransactionFailed(format!("Failed to send: {}", e)))?;
+    async fn send_transaction(
+        &self,
+        tx: TransactionRequest,
+    ) -> Result<SendResult, AvaxClientError> {
+        let pending =
+            self.provider.send_transaction(tx).await.map_err(|e| {
+                AvaxClientError::TransactionFailed(format!("Failed to send: {}", e))
+            })?;
 
         let tx_hash = format!("{:?}", pending.tx_hash());
         let explorer_url = format!("{}/tx/{}", self.network.explorer_url, tx_hash);
@@ -280,14 +297,17 @@ impl TxBuilder {
     }
 
     /// Wait for a transaction to be confirmed and return the receipt.
-    pub async fn wait_for_confirmation(
-        &self,
-        tx_hash: &str,
-    ) -> Result<TxReceipt, AvaxClientError> {
-        let hash = tx_hash.parse()
+    /// TODO: Transaction status polling
+    #[allow(dead_code)]
+    pub async fn wait_for_confirmation(&self, tx_hash: &str) -> Result<TxReceipt, AvaxClientError> {
+        let hash = tx_hash
+            .parse()
             .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid tx hash: {}", e)))?;
 
-        let receipt = self.provider.get_transaction_receipt(hash).await
+        let receipt = self
+            .provider
+            .get_transaction_receipt(hash)
+            .await
             .map_err(|e| AvaxClientError::RpcError(format!("Failed to get receipt: {}", e)))?
             .ok_or_else(|| AvaxClientError::RpcError("Transaction not found".to_string()))?;
 
@@ -304,10 +324,14 @@ impl TxBuilder {
         &self,
         tx_hash: &str,
     ) -> Result<Option<TxReceipt>, AvaxClientError> {
-        let hash = tx_hash.parse()
+        let hash = tx_hash
+            .parse()
             .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid tx hash: {}", e)))?;
 
-        let receipt = self.provider.get_transaction_receipt(hash).await
+        let receipt = self
+            .provider
+            .get_transaction_receipt(hash)
+            .await
             .map_err(|e| AvaxClientError::RpcError(format!("Failed to get receipt: {}", e)))?;
 
         Ok(receipt.map(|r| TxReceipt {
@@ -319,6 +343,8 @@ impl TxBuilder {
     }
 
     /// Get the network configuration.
+    /// TODO: Transaction polling
+    #[allow(dead_code)]
     pub fn network(&self) -> &NetworkConfig {
         &self.network
     }
@@ -335,31 +361,37 @@ impl TxBuilder {
 /// * `Err` - If parsing fails
 pub fn parse_amount(amount: &str, decimals: u8) -> Result<U256, AvaxClientError> {
     let parts: Vec<&str> = amount.split('.').collect();
-    
+
     if parts.len() > 2 {
-        return Err(AvaxClientError::InvalidAddress("Invalid amount format".to_string()));
+        return Err(AvaxClientError::InvalidAddress(
+            "Invalid amount format".to_string(),
+        ));
     }
 
-    let whole = parts[0].parse::<u128>()
+    let whole = parts[0]
+        .parse::<u128>()
         .map_err(|_| AvaxClientError::InvalidAddress("Invalid whole number".to_string()))?;
 
     let decimal_part = if parts.len() == 2 {
         let dec_str = parts[1];
         if dec_str.len() > decimals as usize {
-            return Err(AvaxClientError::InvalidAddress(
-                format!("Too many decimal places (max {})", decimals)
-            ));
+            return Err(AvaxClientError::InvalidAddress(format!(
+                "Too many decimal places (max {})",
+                decimals
+            )));
         }
         // Pad with zeros to match decimals
         let padded = format!("{:0<width$}", dec_str, width = decimals as usize);
-        padded.parse::<u128>()
+        padded
+            .parse::<u128>()
             .map_err(|_| AvaxClientError::InvalidAddress("Invalid decimal".to_string()))?
     } else {
         0u128
     };
 
     let multiplier = 10u128.pow(decimals as u32);
-    let total = whole.checked_mul(multiplier)
+    let total = whole
+        .checked_mul(multiplier)
         .and_then(|w| w.checked_add(decimal_part))
         .ok_or_else(|| AvaxClientError::InvalidAddress("Amount overflow".to_string()))?;
 

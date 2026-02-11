@@ -30,8 +30,8 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Validation};
 
-use super::{claims::ClerkClaims, AuthenticatedUser, AuthError};
 use super::jwks::JwksManager;
+use super::{claims::ClerkClaims, AuthError, AuthenticatedUser};
 
 /// Clock skew tolerance (60 seconds).
 const CLOCK_SKEW_LEEWAY: u64 = 60;
@@ -160,8 +160,8 @@ async fn validate_token(token: &str, config: &AuthConfig) -> Result<Authenticate
     }
 
     // Decode and validate token
-    let token_data = decode::<ClerkClaims>(token, &decoding_key, &validation)
-        .map_err(|e| match e.kind() {
+    let token_data =
+        decode::<ClerkClaims>(token, &decoding_key, &validation).map_err(|e| match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
             jsonwebtoken::errors::ErrorKind::InvalidSignature => AuthError::InvalidSignature,
             jsonwebtoken::errors::ErrorKind::InvalidIssuer => AuthError::InvalidIssuer,
@@ -176,13 +176,9 @@ async fn validate_token(token: &str, config: &AuthConfig) -> Result<Authenticate
 /// Middleware that skips authentication for certain paths.
 ///
 /// Use this for health check endpoints that should be accessible without auth.
-pub async fn skip_auth_for_paths(
-    request: Request,
-    next: Next,
-    skip_paths: &[&str],
-) -> Response {
+pub async fn skip_auth_for_paths(request: Request, next: Next, skip_paths: &[&str]) -> Response {
     let path = request.uri().path();
-    
+
     for skip_path in skip_paths {
         if path.starts_with(skip_path) {
             return next.run(request).await;

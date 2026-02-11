@@ -7,10 +7,7 @@
 //! This module handles conversion of stored PEM private keys to signers
 //! and provides transaction signing capabilities within the SGX enclave.
 
-use alloy::{
-    network::EthereumWallet,
-    signers::local::PrivateKeySigner,
-};
+use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
 use k256::SecretKey;
 
 use super::client::AvaxClientError;
@@ -53,8 +50,7 @@ fn parse_pkcs8_to_secret_key(der: &[u8]) -> Result<SecretKey, String> {
     // For secp256k1, the raw key is typically at offset 36 (after headers)
     // We use k256's built-in parsing
     use k256::pkcs8::DecodePrivateKey;
-    SecretKey::from_pkcs8_der(der)
-        .map_err(|e| e.to_string())
+    SecretKey::from_pkcs8_der(der).map_err(|e| e.to_string())
 }
 
 /// Create a signer from PEM-encoded private key.
@@ -112,20 +108,31 @@ mod tests {
 
         let hex = result.unwrap();
         assert_eq!(hex.len(), 64, "Hex key should be 64 characters");
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()), "Should be valid hex");
+        assert!(
+            hex.chars().all(|c| c.is_ascii_hexdigit()),
+            "Should be valid hex"
+        );
     }
 
     #[test]
     fn test_signer_from_pem() {
         let test_pem = generate_test_pem();
         let result = signer_from_pem(test_pem.as_bytes());
-        assert!(result.is_ok(), "Failed to create signer: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create signer: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_wallet_from_pem() {
         let test_pem = generate_test_pem();
         let result = wallet_from_pem(test_pem.as_bytes());
-        assert!(result.is_ok(), "Failed to create wallet: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to create wallet: {:?}",
+            result.err()
+        );
     }
 }

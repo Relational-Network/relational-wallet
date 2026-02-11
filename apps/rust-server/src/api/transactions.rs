@@ -20,8 +20,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, StoredTransaction, TokenType, TransactionRepository,
-        TxStatus, WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, StoredTransaction, TokenType,
+        TransactionRepository, TxStatus, WalletRepository, WalletStatus,
     },
 };
 
@@ -180,7 +180,9 @@ fn validate_address(address: &str) -> Result<(), ApiError> {
         ));
     }
     if !address[2..].chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(ApiError::bad_request("Address must contain only hex characters"));
+        return Err(ApiError::bad_request(
+            "Address must contain only hex characters",
+        ));
     }
     Ok(())
 }
@@ -280,9 +282,9 @@ pub async fn estimate_gas(
     }
 
     // Get private key and create wallet
-    let private_key_pem = wallet_repo.read_private_key(&wallet_id).map_err(|e| {
-        ApiError::internal(&format!("Failed to read private key: {}", e))
-    })?;
+    let private_key_pem = wallet_repo
+        .read_private_key(&wallet_id)
+        .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
 
     let eth_wallet = wallet_from_pem(&private_key_pem)
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
@@ -310,7 +312,12 @@ pub async fn estimate_gas(
             .await
     } else {
         tx_builder
-            .estimate_token_transfer(&wallet.public_address, &request.to, &request.token, amount_wei)
+            .estimate_token_transfer(
+                &wallet.public_address,
+                &request.to,
+                &request.token,
+                amount_wei,
+            )
             .await
     }
     .map_err(|e| ApiError::service_unavailable(&format!("Gas estimation failed: {}", e)))?;
@@ -377,9 +384,9 @@ pub async fn send_transaction(
     }
 
     // Get private key and create wallet
-    let private_key_pem = wallet_repo.read_private_key(&wallet_id).map_err(|e| {
-        ApiError::internal(&format!("Failed to read private key: {}", e))
-    })?;
+    let private_key_pem = wallet_repo
+        .read_private_key(&wallet_id)
+        .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
 
     let eth_wallet = wallet_from_pem(&private_key_pem)
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
@@ -422,7 +429,13 @@ pub async fn send_transaction(
             .await
     } else {
         tx_builder
-            .send_token(&request.to, &request.token, amount_wei, gas_limit, max_priority_fee)
+            .send_token(
+                &request.to,
+                &request.token,
+                amount_wei,
+                gas_limit,
+                max_priority_fee,
+            )
             .await
     }
     .map_err(|e| {
@@ -518,9 +531,9 @@ pub async fn list_transactions(
     let mut summaries: Vec<TransactionSummary> = Vec::new();
 
     // Get OUTGOING transactions (sent from this wallet)
-    let outgoing = tx_repo.list_by_wallet(&wallet_id).map_err(|e| {
-        ApiError::internal(&format!("Failed to list transactions: {}", e))
-    })?;
+    let outgoing = tx_repo
+        .list_by_wallet(&wallet_id)
+        .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
 
     for tx in &outgoing {
         summaries.push(to_summary_with_direction(tx, "sent"));
@@ -536,7 +549,9 @@ pub async fn list_transactions(
             continue; // Skip current wallet (already processed as outgoing)
         }
 
-        let other_txs = tx_repo.list_by_wallet(&other_wallet.wallet_id).unwrap_or_default();
+        let other_txs = tx_repo
+            .list_by_wallet(&other_wallet.wallet_id)
+            .unwrap_or_default();
         for tx in &other_txs {
             // Check if this transaction was sent TO the current wallet
             if tx.to.to_lowercase() == wallet_address {
@@ -619,9 +634,9 @@ pub async fn get_transaction_status(
         let current_block = client.get_block_number().await.unwrap_or(0);
 
         // Create a signing provider to check receipt (we need the wallet for this)
-        let private_key_pem = wallet_repo.read_private_key(&wallet_id).map_err(|e| {
-            ApiError::internal(&format!("Failed to read private key: {}", e))
-        })?;
+        let private_key_pem = wallet_repo
+            .read_private_key(&wallet_id)
+            .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
 
         let eth_wallet = wallet_from_pem(&private_key_pem)
             .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
@@ -670,9 +685,13 @@ pub async fn get_transaction_status(
             "mainnet" => AvaxClient::mainnet().await,
             _ => AvaxClient::fuji().await,
         };
-        
+
         if let (Ok(client), Some(block)) = (client, tx.block_number) {
-            client.get_block_number().await.ok().map(|current| current.saturating_sub(block))
+            client
+                .get_block_number()
+                .await
+                .ok()
+                .map(|current| current.saturating_sub(block))
         } else {
             None
         }

@@ -110,7 +110,8 @@ impl<'a> WalletRepository<'a> {
 
     /// Check if a wallet exists.
     pub fn exists(&self, wallet_id: &str) -> bool {
-        self.storage.exists(self.storage.paths().wallet_meta(wallet_id))
+        self.storage
+            .exists(self.storage.paths().wallet_meta(wallet_id))
     }
 
     /// Get wallet metadata by ID.
@@ -147,7 +148,8 @@ impl<'a> WalletRepository<'a> {
         // Create wallet directory structure
         let wallet_dir = self.storage.paths().wallet_dir(wallet_id);
         self.storage.create_dir(&wallet_dir)?;
-        self.storage.create_dir(self.storage.paths().wallet_txs_dir(wallet_id))?;
+        self.storage
+            .create_dir(self.storage.paths().wallet_txs_dir(wallet_id))?;
 
         // Write metadata
         self.storage

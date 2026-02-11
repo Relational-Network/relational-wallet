@@ -94,7 +94,10 @@ impl std::fmt::Display for AuthError {
         match self {
             AuthError::MissingAuthHeader => write!(f, "Authorization header is required"),
             AuthError::InvalidAuthHeader => {
-                write!(f, "Invalid authorization header format (expected 'Bearer <token>')")
+                write!(
+                    f,
+                    "Invalid authorization header format (expected 'Bearer <token>')"
+                )
             }
             AuthError::MalformedToken => write!(f, "Token is malformed"),
             AuthError::InvalidSignature => write!(f, "Token signature is invalid"),

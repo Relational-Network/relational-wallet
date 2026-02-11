@@ -16,7 +16,7 @@ pub mod signing;
 pub mod transactions;
 pub mod types;
 
-pub use client::{AvaxClient, AvaxClientError};
-pub use signing::{pem_to_hex, signer_from_pem, wallet_from_pem};
-pub use transactions::{format_amount, parse_amount, GasEstimate, SendResult, TxBuilder, TxReceipt};
+pub use client::AvaxClient;
+pub use signing::wallet_from_pem;
+pub use transactions::{format_amount, parse_amount, TxBuilder};
 pub use types::*;

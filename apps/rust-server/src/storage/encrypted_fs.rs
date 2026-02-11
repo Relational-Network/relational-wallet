@@ -61,7 +61,10 @@ impl std::fmt::Display for StorageError {
             StorageError::NotInitialized => write!(f, "Storage not initialized"),
             StorageError::IntegrityViolation(msg) => write!(f, "Integrity violation: {msg}"),
             StorageError::PermissionDenied { user_id, resource } => {
-                write!(f, "Permission denied: user {user_id} cannot access {resource}")
+                write!(
+                    f,
+                    "Permission denied: user {user_id} cannot access {resource}"
+                )
             }
             StorageError::SerializationError(msg) => write!(f, "Serialization error: {msg}"),
             StorageError::NotFoundResource { resource, id } => {
@@ -375,7 +378,9 @@ mod tests {
         let test_dir = env::temp_dir().join(format!("test-storage-{}", uuid::Uuid::new_v4()));
         let paths = StoragePaths::new(&test_dir);
         let mut storage = EncryptedStorage::new(paths);
-        storage.initialize().expect("Failed to initialize test storage");
+        storage
+            .initialize()
+            .expect("Failed to initialize test storage");
         storage
     }
 
@@ -424,7 +429,11 @@ mod tests {
         let storage = test_storage();
         let data = b"raw test data with\nnewlines\nand bytes: \x00\x01\x02";
 
-        let path = storage.paths().wallets_dir().join("test-wallet").join("key.pem");
+        let path = storage
+            .paths()
+            .wallets_dir()
+            .join("test-wallet")
+            .join("key.pem");
         storage.write_raw(&path, data).unwrap();
 
         let read = storage.read_raw(&path).unwrap();
@@ -448,14 +457,19 @@ mod tests {
         for i in 1..=3 {
             let path = storage.paths().bookmarks_dir().join(format!("bm-{i}.json"));
             storage
-                .write_json(&path, &TestData {
-                    id: format!("bm-{i}"),
-                    value: i,
-                })
+                .write_json(
+                    &path,
+                    &TestData {
+                        id: format!("bm-{i}"),
+                        value: i,
+                    },
+                )
                 .unwrap();
         }
 
-        let ids = storage.list_files(storage.paths().bookmarks_dir(), "json").unwrap();
+        let ids = storage
+            .list_files(storage.paths().bookmarks_dir(), "json")
+            .unwrap();
         assert_eq!(ids.len(), 3);
         assert!(ids.contains(&"bm-1".to_string()));
         assert!(ids.contains(&"bm-2".to_string()));
@@ -490,10 +504,13 @@ mod tests {
 
         let path = storage.paths().bookmarks_dir().join("to-delete.json");
         storage
-            .write_json(&path, &TestData {
-                id: "del".to_string(),
-                value: 0,
-            })
+            .write_json(
+                &path,
+                &TestData {
+                    id: "del".to_string(),
+                    value: 0,
+                },
+            )
             .unwrap();
 
         assert!(storage.exists(&path));
@@ -510,10 +527,13 @@ mod tests {
         let wallet_dir = storage.paths().wallet_dir("to-delete");
         storage.create_dir(&wallet_dir).unwrap();
         storage
-            .write_json(storage.paths().wallet_meta("to-delete"), &TestData {
-                id: "w".to_string(),
-                value: 1,
-            })
+            .write_json(
+                storage.paths().wallet_meta("to-delete"),
+                &TestData {
+                    id: "w".to_string(),
+                    value: 1,
+                },
+            )
             .unwrap();
 
         assert!(wallet_dir.exists());

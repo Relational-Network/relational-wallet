@@ -245,10 +245,12 @@ mod tests {
         let from_str: WalletAddress = "0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12".into();
         assert_eq!(from_str.0, "0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12");
 
-        let from_string: WalletAddress = String::from("0xABCDEF1234567890abcdef1234567890ABCDEF12").into();
+        let from_string: WalletAddress =
+            String::from("0xABCDEF1234567890abcdef1234567890ABCDEF12").into();
         assert_eq!(from_string.0, "0xABCDEF1234567890abcdef1234567890ABCDEF12");
 
-        let to_string: String = WalletAddress("0x0000000000000000000000000000000000000001".into()).into();
+        let to_string: String =
+            WalletAddress("0x0000000000000000000000000000000000000001".into()).into();
         assert_eq!(to_string, "0x0000000000000000000000000000000000000001");
     }
 

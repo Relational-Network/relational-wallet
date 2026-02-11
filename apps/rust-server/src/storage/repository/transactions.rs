@@ -146,11 +146,6 @@ impl<'a> TransactionRepository<'a> {
             .join(format!("{}.json", hash))
     }
 
-    /// Check if a transaction record exists.
-    pub fn exists(&self, wallet_id: &str, tx_hash: &str) -> bool {
-        self.storage.exists(self.tx_path(wallet_id, tx_hash))
-    }
-
     /// Store a new transaction record.
     pub fn create(&self, tx: &StoredTransaction) -> StorageResult<()> {
         let path = self.tx_path(&tx.wallet_id, &tx.tx_hash);
@@ -225,6 +220,8 @@ impl<'a> TransactionRepository<'a> {
     }
 
     /// List pending transactions for a wallet (for status polling).
+    /// TODO: Batch transaction status polling
+    #[allow(dead_code)]
     pub fn list_pending(&self, wallet_id: &str) -> StorageResult<Vec<StoredTransaction>> {
         let all = self.list_by_wallet(wallet_id)?;
         Ok(all

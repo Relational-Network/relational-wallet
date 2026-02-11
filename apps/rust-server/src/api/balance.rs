@@ -68,12 +68,10 @@ pub async fn get_wallet_balance(
     // Get wallet from storage
     let storage = state.storage();
     let wallet_repo = WalletRepository::new(&storage);
-    let wallet = wallet_repo
-        .get(&wallet_id)
-        .map_err(|e| match e {
-            crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-            _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
-        })?;
+    let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
+        crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
+        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+    })?;
 
     // Verify ownership
     if wallet.owner_user_id != user.user_id {
@@ -95,7 +93,9 @@ pub async fn get_wallet_balance(
         "mainnet" => AvaxClient::mainnet().await,
         "fuji" | _ => AvaxClient::fuji().await,
     }
-    .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e)))?;
+    .map_err(|e| {
+        ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
+    })?;
 
     // Build list of token addresses to query
     let mut token_addresses: Vec<&str> = Vec::new();
@@ -132,7 +132,10 @@ pub async fn get_wallet_balance(
     let mut final_balance = balance;
     for token_addr in custom_tokens {
         if token_addr.starts_with("0x") {
-            match client.get_token_balance(&wallet.public_address, &token_addr).await {
+            match client
+                .get_token_balance(&wallet.public_address, &token_addr)
+                .await
+            {
                 Ok(token_balance) => {
                     final_balance.token_balances.push(token_balance);
                 }
@@ -192,12 +195,10 @@ pub async fn get_native_balance(
     // Get wallet from storage
     let storage = state.storage();
     let wallet_repo = WalletRepository::new(&storage);
-    let wallet = wallet_repo
-        .get(&wallet_id)
-        .map_err(|e| match e {
-            crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-            _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
-        })?;
+    let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
+        crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
+        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+    })?;
 
     // Verify ownership
     if wallet.owner_user_id != user.user_id {
@@ -215,7 +216,9 @@ pub async fn get_native_balance(
         "mainnet" => AvaxClient::mainnet().await,
         "fuji" | _ => AvaxClient::fuji().await,
     }
-    .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e)))?;
+    .map_err(|e| {
+        ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
+    })?;
 
     // Query native balance
     let balance = client

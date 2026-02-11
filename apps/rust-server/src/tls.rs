@@ -74,8 +74,14 @@ impl std::error::Error for TlsError {}
 /// `CERTIFICATE` labels.
 fn normalize_ratls_pem(pem_content: &str) -> String {
     pem_content
-        .replace("-----BEGIN TRUSTED CERTIFICATE-----", "-----BEGIN CERTIFICATE-----")
-        .replace("-----END TRUSTED CERTIFICATE-----", "-----END CERTIFICATE-----")
+        .replace(
+            "-----BEGIN TRUSTED CERTIFICATE-----",
+            "-----BEGIN CERTIFICATE-----",
+        )
+        .replace(
+            "-----END TRUSTED CERTIFICATE-----",
+            "-----END CERTIFICATE-----",
+        )
 }
 
 /// Load and parse the RA-TLS certificate from the given path.
@@ -95,10 +101,9 @@ pub fn load_ratls_certificate<P: AsRef<Path>>(
     let normalized = normalize_ratls_pem(&pem_content);
 
     // Parse certificates from normalized PEM using rustls built-in PEM support
-    let certs: Vec<CertificateDer<'static>> =
-        CertificateDer::pem_slice_iter(normalized.as_bytes())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| TlsError::CertificateParseError(e.to_string()))?;
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(normalized.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| TlsError::CertificateParseError(e.to_string()))?;
 
     if certs.is_empty() {
         // Try parsing as DER if PEM parsing yielded no certs
@@ -113,14 +118,12 @@ pub fn load_ratls_certificate<P: AsRef<Path>>(
 /// Load and parse the RA-TLS private key from the given path.
 ///
 /// Supports PKCS#8, RSA, and EC private key formats.
-pub fn load_ratls_private_key<P: AsRef<Path>>(
-    path: P,
-) -> Result<PrivateKeyDer<'static>, TlsError> {
+pub fn load_ratls_private_key<P: AsRef<Path>>(path: P) -> Result<PrivateKeyDer<'static>, TlsError> {
     let path = path.as_ref();
 
     // Read the raw content
-    let content = fs::read(path)
-        .map_err(|_| TlsError::PrivateKeyNotFound(path.display().to_string()))?;
+    let content =
+        fs::read(path).map_err(|_| TlsError::PrivateKeyNotFound(path.display().to_string()))?;
 
     // Parse private key using rustls built-in PEM support
     // PrivateKeyDer::from_pem_slice automatically tries PKCS#8, PKCS#1 (RSA), and SEC1 (EC) formats
@@ -167,7 +170,8 @@ mod tests {
 
     #[test]
     fn test_normalize_ratls_pem() {
-        let input = "-----BEGIN TRUSTED CERTIFICATE-----\nMIIB...\n-----END TRUSTED CERTIFICATE-----";
+        let input =
+            "-----BEGIN TRUSTED CERTIFICATE-----\nMIIB...\n-----END TRUSTED CERTIFICATE-----";
         let expected = "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----";
         assert_eq!(normalize_ratls_pem(input), expected);
     }

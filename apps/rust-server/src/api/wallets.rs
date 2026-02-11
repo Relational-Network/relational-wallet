@@ -22,8 +22,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEventType, AuditRepository, OwnershipEnforcer,
-        WalletRepository, WalletMetadata, WalletResponse, WalletStatus,
+        AuditEventType, AuditRepository, OwnershipEnforcer, WalletMetadata, WalletRepository,
+        WalletResponse, WalletStatus,
     },
 };
 
@@ -186,9 +186,9 @@ pub async fn get_wallet(
         .map_err(|_| ApiError::not_found(&format!("Wallet {wallet_id} not found")))?;
 
     // Verify ownership
-    metadata.verify_ownership(&user).map_err(|_| {
-        ApiError::forbidden("You don't have permission to access this wallet")
-    })?;
+    metadata
+        .verify_ownership(&user)
+        .map_err(|_| ApiError::forbidden("You don't have permission to access this wallet"))?;
 
     // Audit access
     let audit_repo = AuditRepository::new(&storage);
@@ -233,9 +233,9 @@ pub async fn delete_wallet(
         .get(&wallet_id)
         .map_err(|_| ApiError::not_found(&format!("Wallet {wallet_id} not found")))?;
 
-    metadata.verify_ownership(&user).map_err(|_| {
-        ApiError::forbidden("You don't have permission to delete this wallet")
-    })?;
+    metadata
+        .verify_ownership(&user)
+        .map_err(|_| ApiError::forbidden("You don't have permission to delete this wallet"))?;
 
     // Soft delete
     repo.soft_delete(&wallet_id)
@@ -269,7 +269,8 @@ pub async fn delete_wallet(
 /// A tuple of (private_key_pem, public_address) where:
 /// - `private_key_pem`: PKCS#8 PEM-encoded private key for encrypted storage
 /// - `public_address`: Ethereum-format address (0x + 40 hex chars)
-fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>>
+{
     use alloy::primitives::keccak256;
     use k256::ecdsa::SigningKey;
     use k256::elliptic_curve::rand_core::OsRng;
@@ -289,13 +290,13 @@ fn generate_secp256k1_keypair() -> Result<(String, String), Box<dyn std::error::
     // Get uncompressed public key bytes (65 bytes: 0x04 prefix + 64 bytes of x,y coordinates)
     let public_key_uncompressed = verifying_key.to_encoded_point(false);
     let public_key_bytes = public_key_uncompressed.as_bytes();
-    
+
     // Hash the public key coordinates (skip 0x04 prefix) using alloy's keccak256
     let hash = keccak256(&public_key_bytes[1..]);
 
     // Take the last 20 bytes of the hash as the address
     let address_bytes = &hash[12..]; // hash is 32 bytes, take last 20
-    
+
     // Format as Ethereum address using alloy's hex encoding
     let public_address = format!("0x{}", alloy::hex::encode(address_bytes));
 
@@ -317,11 +318,18 @@ mod tests {
         // Public address should be valid Ethereum format:
         // 0x prefix + 40 hex characters = 42 total
         assert!(public_address.starts_with("0x"));
-        assert_eq!(public_address.len(), 42, "Ethereum address must be 42 characters");
-        
+        assert_eq!(
+            public_address.len(),
+            42,
+            "Ethereum address must be 42 characters"
+        );
+
         // All characters after 0x should be valid hex
         let hex_part = &public_address[2..];
-        assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()), "Address must be valid hex");
+        assert!(
+            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "Address must be valid hex"
+        );
     }
 
     #[test]

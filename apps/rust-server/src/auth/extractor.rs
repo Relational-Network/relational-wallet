@@ -19,7 +19,7 @@ use axum::{
 use jsonwebtoken::{decode, decode_header, Validation};
 use serde::Deserialize;
 
-use super::{AuthenticatedUser, AuthError, Role};
+use super::{AuthError, AuthenticatedUser, Role};
 use crate::state::AppState;
 
 /// Clock skew tolerance (60 seconds).
@@ -86,7 +86,10 @@ pub struct Auth(pub AuthenticatedUser);
 impl FromRequestParts<AppState> for Auth {
     type Rejection = AuthError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         // First check if middleware already set the user
         if let Some(user) = parts.extensions.get::<AuthenticatedUser>().cloned() {
             return Ok(Auth(user));
@@ -116,7 +119,10 @@ impl FromRequestParts<AppState> for Auth {
 ///
 /// In production mode (JWKS configured), verifies signature against Clerk JWKS.
 /// In development mode, only validates structure (no signature verification).
-async fn verify_jwt(token: &str, auth_config: &crate::state::AuthConfig) -> Result<AuthenticatedUser, AuthError> {
+async fn verify_jwt(
+    token: &str,
+    auth_config: &crate::state::AuthConfig,
+) -> Result<AuthenticatedUser, AuthError> {
     // Check if production mode is enabled
     if let Some(ref jwks) = auth_config.jwks {
         // Production mode: full JWKS verification
@@ -162,8 +168,8 @@ async fn verify_jwt_production(
     }
 
     // Decode and validate token
-    let token_data = decode::<JwtClaims>(token, &decoding_key, &validation)
-        .map_err(|e| match e.kind() {
+    let token_data =
+        decode::<JwtClaims>(token, &decoding_key, &validation).map_err(|e| match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
             jsonwebtoken::errors::ErrorKind::InvalidSignature => AuthError::InvalidSignature,
             jsonwebtoken::errors::ErrorKind::InvalidIssuer => AuthError::InvalidIssuer,
@@ -257,7 +263,10 @@ pub struct RequireRole<const R: u8>(pub AuthenticatedUser);
 impl<const R: u8> FromRequestParts<AppState> for RequireRole<R> {
     type Rejection = AuthError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let Auth(user) = Auth::from_request_parts(parts, state).await?;
 
         // Convert const to Role
@@ -283,7 +292,10 @@ pub struct AdminOnly(pub AuthenticatedUser);
 impl FromRequestParts<AppState> for AdminOnly {
     type Rejection = AuthError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let Auth(user) = Auth::from_request_parts(parts, state).await?;
 
         if !user.is_admin() {
@@ -304,7 +316,10 @@ pub struct OptionalAuth(pub Option<AuthenticatedUser>);
 impl FromRequestParts<AppState> for OptionalAuth {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         // Try to authenticate, but don't fail if it doesn't work
         match Auth::from_request_parts(parts, state).await {
             Ok(Auth(user)) => Ok(OptionalAuth(Some(user))),
@@ -327,29 +342,28 @@ mod tests {
         let paths = StoragePaths::new(temp_dir.path());
         let mut storage = EncryptedStorage::new(paths);
         storage.initialize().expect("Failed to initialize storage");
-        
-        let state = AppState::new(storage)
-            .with_auth_config(AuthConfig {
-                jwks: None,
-                issuer: Some("test".to_string()),
-                audience: None,
-            });
+
+        let state = AppState::new(storage).with_auth_config(AuthConfig {
+            jwks: None,
+            issuer: Some("test".to_string()),
+            audience: None,
+        });
         (state, temp_dir)
     }
 
     /// Helper to create a test JWT token (unsigned, for testing only)
     fn create_test_jwt(user_id: &str) -> String {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-        
+
         let header = r#"{"alg":"RS256","typ":"JWT"}"#;
         let claims = format!(
             r#"{{"sub":"{}","iat":1609459200,"exp":9999999999,"iss":"test","sid":"sess_123"}}"#,
             user_id
         );
-        
+
         let header_b64 = URL_SAFE_NO_PAD.encode(header.as_bytes());
         let claims_b64 = URL_SAFE_NO_PAD.encode(claims.as_bytes());
-        
+
         // For testing, signature doesn't matter since we use development mode
         format!("{}.{}.fake_signature", header_b64, claims_b64)
     }

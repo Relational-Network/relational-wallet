@@ -19,7 +19,9 @@ use crate::{
         UpdateRecurringPaymentRequest, WalletAddress,
     },
     state::AppState,
-    storage::repository::recurring::{PaymentFrequency, PaymentStatus, RecurringRepository, StoredRecurringPayment},
+    storage::repository::recurring::{
+        PaymentFrequency, PaymentStatus, RecurringRepository, StoredRecurringPayment,
+    },
 };
 
 #[derive(Deserialize, IntoParams)]
@@ -82,9 +84,9 @@ pub async fn list_recurring_payments(
     Query(params): Query<RecurringQuery>,
 ) -> Result<Json<Vec<RecurringPayment>>, ApiError> {
     let repo = RecurringRepository::new(&state.storage);
-    let payments = repo.list_by_owner(&user.user_id).map_err(|e| {
-        ApiError::internal(format!("Failed to list payments: {e}"))
-    })?;
+    let payments = repo
+        .list_by_owner(&user.user_id)
+        .map_err(|e| ApiError::internal(format!("Failed to list payments: {e}")))?;
 
     // Filter by wallet_id if specified
     let filtered: Vec<RecurringPayment> = payments
@@ -133,9 +135,8 @@ pub async fn create_recurring_payment(
     };
 
     let repo = RecurringRepository::new(&state.storage);
-    repo.create(&payment).map_err(|e| {
-        ApiError::internal(format!("Failed to create payment: {e}"))
-    })?;
+    repo.create(&payment)
+        .map_err(|e| ApiError::internal(format!("Failed to create payment: {e}")))?;
 
     Ok(StatusCode::CREATED)
 }
@@ -167,11 +168,11 @@ pub async fn update_recurring_payment(
     )?;
 
     let repo = RecurringRepository::new(&state.storage);
-    
+
     // Verify ownership
-    let mut payment = repo.verify_ownership(&recurring_payment_id, &user.user_id).map_err(|_| {
-        ApiError::not_found("Recurring payment not found")
-    })?;
+    let mut payment = repo
+        .verify_ownership(&recurring_payment_id, &user.user_id)
+        .map_err(|_| ApiError::not_found("Recurring payment not found"))?;
 
     payment.wallet_id = request.wallet_id.0;
     payment.wallet_public_key = request.wallet_public_key;
@@ -183,9 +184,8 @@ pub async fn update_recurring_payment(
     payment.payment_end_date = request.payment_end_date;
     payment.updated_at = Utc::now();
 
-    repo.update(&payment).map_err(|e| {
-        ApiError::internal(format!("Failed to update payment: {e}"))
-    })?;
+    repo.update(&payment)
+        .map_err(|e| ApiError::internal(format!("Failed to update payment: {e}")))?;
 
     Ok(StatusCode::OK)
 }
@@ -209,15 +209,13 @@ pub async fn delete_recurring_payment(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let repo = RecurringRepository::new(&state.storage);
-    
-    // Verify ownership before deleting
-    repo.verify_ownership(&recurring_payment_id, &user.user_id).map_err(|_| {
-        ApiError::not_found("Recurring payment not found")
-    })?;
 
-    repo.delete(&recurring_payment_id).map_err(|e| {
-        ApiError::internal(format!("Failed to delete payment: {e}"))
-    })?;
+    // Verify ownership before deleting
+    repo.verify_ownership(&recurring_payment_id, &user.user_id)
+        .map_err(|_| ApiError::not_found("Recurring payment not found"))?;
+
+    repo.delete(&recurring_payment_id)
+        .map_err(|e| ApiError::internal(format!("Failed to delete payment: {e}")))?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -234,11 +232,11 @@ pub async fn recurring_payments_today(
 ) -> Result<Json<Vec<RecurringPayment>>, ApiError> {
     let today = Utc::now().date_naive().num_days_from_ce();
     let repo = RecurringRepository::new(&state.storage);
-    
+
     // Get all payments due today for this user
-    let payments = repo.list_by_owner(&user.user_id).map_err(|e| {
-        ApiError::internal(format!("Failed to list payments: {e}"))
-    })?;
+    let payments = repo
+        .list_by_owner(&user.user_id)
+        .map_err(|e| ApiError::internal(format!("Failed to list payments: {e}")))?;
 
     let due: Vec<RecurringPayment> = payments
         .iter()
@@ -246,8 +244,7 @@ pub async fn recurring_payments_today(
             p.status == PaymentStatus::Active
                 && p.payment_start_date <= today
                 && today <= p.payment_end_date
-                && (p.last_paid_date == -1
-                    || today - p.last_paid_date >= i32::from(p.frequency))
+                && (p.last_paid_date == -1 || today - p.last_paid_date >= i32::from(p.frequency))
         })
         .map(to_api_model)
         .collect();
@@ -282,15 +279,13 @@ pub async fn update_last_paid_date(
     }
 
     let repo = RecurringRepository::new(&state.storage);
-    
-    // Verify ownership
-    repo.verify_ownership(&recurring_payment_id, &user.user_id).map_err(|_| {
-        ApiError::not_found("Recurring payment not found")
-    })?;
 
-    repo.update_last_paid_date(&recurring_payment_id, request.last_paid_date).map_err(|e| {
-        ApiError::internal(format!("Failed to update last paid date: {e}"))
-    })?;
+    // Verify ownership
+    repo.verify_ownership(&recurring_payment_id, &user.user_id)
+        .map_err(|_| ApiError::not_found("Recurring payment not found"))?;
+
+    repo.update_last_paid_date(&recurring_payment_id, request.last_paid_date)
+        .map_err(|e| ApiError::internal(format!("Failed to update last paid date: {e}")))?;
 
     Ok(StatusCode::OK)
 }
@@ -298,12 +293,12 @@ pub async fn update_last_paid_date(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthenticatedUser;
     use axum::{
         extract::{Path, Query, State},
         http::StatusCode,
         Json,
     };
-    use crate::auth::AuthenticatedUser;
 
     fn today() -> i32 {
         Utc::now().date_naive().num_days_from_ce()
@@ -348,7 +343,7 @@ mod tests {
         .expect("create recurring payment succeeds");
 
         assert_eq!(status, StatusCode::CREATED);
-        
+
         // Verify it was stored
         let repo = RecurringRepository::new(&state.storage);
         let payments = repo.list_by_owner(user_id).expect("list payments");
@@ -470,12 +465,13 @@ mod tests {
         let payments = repo.list_by_owner(user_id).expect("list payments");
         let payment_id = payments[0].id.clone();
 
-        let status = delete_recurring_payment(Path(payment_id), mock_auth(user_id), State(state.clone()))
-            .await
-            .expect("delete recurring succeeds");
+        let status =
+            delete_recurring_payment(Path(payment_id), mock_auth(user_id), State(state.clone()))
+                .await
+                .expect("delete recurring succeeds");
 
         assert_eq!(status, StatusCode::NO_CONTENT);
-        
+
         let remaining = repo.list_by_owner(user_id).expect("list payments");
         assert!(remaining.is_empty());
     }
@@ -592,20 +588,23 @@ mod tests {
         // Test start date = 0
         let mut req = sample_create_request(wallet_id.clone());
         req.payment_start_date = 0;
-        let result = create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
+        let result =
+            create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
         assert!(matches!(result, Err(e) if e.status == StatusCode::BAD_REQUEST));
 
         // Test frequency = 0
         let mut req = sample_create_request(wallet_id.clone());
         req.frequency = 0;
-        let result = create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
+        let result =
+            create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
         assert!(matches!(result, Err(e) if e.status == StatusCode::BAD_REQUEST));
 
         // Test start > end
         let mut req = sample_create_request(wallet_id);
         req.payment_start_date = 30;
         req.payment_end_date = 20;
-        let result = create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
+        let result =
+            create_recurring_payment(mock_auth(user_id), State(state.clone()), Json(req)).await;
         assert!(matches!(result, Err(e) if e.status == StatusCode::BAD_REQUEST));
     }
 }

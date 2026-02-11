@@ -157,7 +157,10 @@ impl<'a> AuditRepository<'a> {
 
         // Append new event as JSONL (one JSON object per line)
         let event_json = serde_json::to_string(event).map_err(|e| {
-            super::StorageError::SerializationError(format!("Failed to serialize audit event: {}", e))
+            super::StorageError::SerializationError(format!(
+                "Failed to serialize audit event: {}",
+                e
+            ))
         })?;
 
         if !content.is_empty() && !content.ends_with(b"\n") {
@@ -219,9 +222,9 @@ impl<'a> AuditRepository<'a> {
             if let Ok(events) = self.read_events(&date_str) {
                 all_events.extend(events);
             }
-            current = current
-                .succ_opt()
-                .ok_or_else(|| super::StorageError::SerializationError("Date overflow".to_string()))?;
+            current = current.succ_opt().ok_or_else(|| {
+                super::StorageError::SerializationError("Date overflow".to_string())
+            })?;
         }
 
         Ok(all_events)
@@ -263,8 +266,7 @@ impl<'a> AuditRepository<'a> {
 macro_rules! audit_log {
     ($storage:expr, $event_type:expr, $user:expr) => {{
         let repo = $crate::storage::AuditRepository::new($storage);
-        let event = $crate::storage::AuditEvent::new($event_type)
-            .with_user(&$user.user_id);
+        let event = $crate::storage::AuditEvent::new($event_type).with_user(&$user.user_id);
         let _ = repo.log(&event);
     }};
     ($storage:expr, $event_type:expr, $user:expr, $resource_type:expr, $resource_id:expr) => {{
@@ -391,7 +393,9 @@ mod tests {
         .unwrap();
 
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let events = repo.search_by_resource("wallet", "target_wallet", &today).unwrap();
+        let events = repo
+            .search_by_resource("wallet", "target_wallet", &today)
+            .unwrap();
 
         assert_eq!(events.len(), 2);
     }

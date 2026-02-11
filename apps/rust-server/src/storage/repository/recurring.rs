@@ -180,6 +180,8 @@ impl<'a> RecurringRepository<'a> {
     }
 
     /// List all recurring payments for a wallet.
+    /// TODO: Recurring payment execution
+    #[allow(dead_code)]
     pub fn list_by_wallet(&self, wallet_id: &str) -> StorageResult<Vec<StoredRecurringPayment>> {
         let payment_ids = self
             .storage
@@ -261,7 +263,11 @@ impl<'a> RecurringRepository<'a> {
     /// - last_paid_date < today (or never paid)
     ///
     /// TODO: Actual payment execution is not implemented.
-    pub fn list_due_today(&self, today_day_of_year: i32) -> StorageResult<Vec<StoredRecurringPayment>> {
+    #[allow(dead_code)]
+    pub fn list_due_today(
+        &self,
+        today_day_of_year: i32,
+    ) -> StorageResult<Vec<StoredRecurringPayment>> {
         let payment_ids = self
             .storage
             .list_files(self.storage.paths().recurring_dir(), "json")?;
@@ -297,6 +303,8 @@ impl<'a> RecurringRepository<'a> {
     }
 
     /// Cancel a recurring payment.
+    /// TODO: Recurring payment cancellation
+    #[allow(dead_code)]
     pub fn cancel(&self, payment_id: &str) -> StorageResult<StoredRecurringPayment> {
         let mut payment = self.get(payment_id)?;
         payment.status = PaymentStatus::Cancelled;
@@ -306,6 +314,8 @@ impl<'a> RecurringRepository<'a> {
     }
 
     /// Pause a recurring payment.
+    /// TODO: Recurring payment pausing
+    #[allow(dead_code)]
     pub fn pause(&self, payment_id: &str) -> StorageResult<StoredRecurringPayment> {
         let mut payment = self.get(payment_id)?;
         payment.status = PaymentStatus::Paused;
@@ -315,12 +325,12 @@ impl<'a> RecurringRepository<'a> {
     }
 
     /// Resume a paused recurring payment.
+    /// TODO: Recurring payment resuming
+    #[allow(dead_code)]
     pub fn resume(&self, payment_id: &str) -> StorageResult<StoredRecurringPayment> {
         let mut payment = self.get(payment_id)?;
         if payment.status != PaymentStatus::Paused {
-            return Err(StorageError::NotFound(
-                "Payment is not paused".to_string(),
-            ));
+            return Err(StorageError::NotFound("Payment is not paused".to_string()));
         }
         payment.status = PaymentStatus::Active;
         payment.updated_at = Utc::now();

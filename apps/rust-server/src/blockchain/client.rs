@@ -39,17 +39,14 @@ pub struct AvaxClient {
 impl AvaxClient {
     /// Create a new client for the specified network.
     pub async fn new(network: NetworkConfig) -> Result<Self, AvaxClientError> {
-        let url: url::Url = network.rpc_url.parse().map_err(|e: url::ParseError| {
-            AvaxClientError::InvalidRpcUrl(e.to_string())
-        })?;
-        
-        let provider = ProviderBuilder::new()
-            .connect_http(url);
+        let url: url::Url = network
+            .rpc_url
+            .parse()
+            .map_err(|e: url::ParseError| AvaxClientError::InvalidRpcUrl(e.to_string()))?;
 
-        Ok(Self { 
-            network, 
-            provider,
-        })
+        let provider = ProviderBuilder::new().connect_http(url);
+
+        Ok(Self { network, provider })
     }
 
     /// Create a client for Avalanche Fuji testnet.
@@ -67,7 +64,10 @@ impl AvaxClient {
         let addr = Address::from_str(address)
             .map_err(|e| AvaxClientError::InvalidAddress(e.to_string()))?;
 
-        let balance = self.provider.get_balance(addr).await
+        let balance = self
+            .provider
+            .get_balance(addr)
+            .await
             .map_err(|e| AvaxClientError::RpcError(e.to_string()))?;
 
         Ok(TokenBalance {
@@ -105,11 +105,7 @@ impl AvaxClient {
             match self.get_token_balance(wallet_address, token_addr).await {
                 Ok(balance) => token_balances.push(balance),
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to get balance for token {}: {}",
-                        token_addr,
-                        e
-                    );
+                    tracing::warn!("Failed to get balance for token {}: {}", token_addr, e);
                     // Continue with other tokens
                 }
             }
@@ -126,7 +122,9 @@ impl AvaxClient {
 
     /// Get the current block number.
     pub async fn get_block_number(&self) -> Result<u64, AvaxClientError> {
-        self.provider.get_block_number().await
+        self.provider
+            .get_block_number()
+            .await
             .map_err(|e| AvaxClientError::RpcError(e.to_string()))
     }
 
