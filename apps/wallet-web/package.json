@@ -12,6 +12,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.36.10",
     "next": "16.1.6",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

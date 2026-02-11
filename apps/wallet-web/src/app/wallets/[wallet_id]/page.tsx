@@ -9,6 +9,8 @@ import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
 import { WalletActions } from "@/components/WalletActions";
 import { WalletBalance } from "@/components/WalletBalance";
+import { CopyAddress } from "@/components/CopyAddress";
+import { AddressQRCode } from "@/components/AddressQRCode";
 
 interface WalletDetailPageProps {
   params: Promise<{
@@ -123,6 +125,10 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
               >
                 {wallet.public_address}
               </dd>
+              <dd style={{ margin: "0.5rem 0 0 0", display: "flex", alignItems: "flex-start", gap: "1rem" }}>
+                <CopyAddress address={wallet.public_address} />
+                <AddressQRCode address={wallet.public_address} size={120} />
+              </dd>
 
               <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
                 Label
@@ -185,7 +191,25 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
                 pointerEvents: wallet.status === "active" ? "auto" : "none",
               }}
             >
-              ↗ Send Transaction
+              ↗ Send
+            </Link>
+            <Link
+              href={`/wallets/${wallet.wallet_id}/receive`}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1rem",
+                backgroundColor: wallet.status === "active" ? "#28a745" : "#aaa",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "4px",
+                fontWeight: "bold",
+                pointerEvents: wallet.status === "active" ? "auto" : "none",
+              }}
+            >
+              ↙ Receive
             </Link>
             <Link
               href={`/wallets/${wallet.wallet_id}/transactions`}

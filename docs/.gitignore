@@ -27,6 +27,7 @@ gh-pages/.bundle/
 gh-pages/.jekyll-cache/
 gh-pages/.sass-cache/
 gh-pages/vendor/
+sequence/STATUS.md
 
 # System files
 .DS_Store
