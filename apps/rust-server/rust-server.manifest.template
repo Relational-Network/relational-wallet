@@ -32,6 +32,14 @@ loader.env.MALLOC_ARENA_MAX = "1"
 # For easier debugging — not strictly required to run this workload
 loader.env.RUST_BACKTRACE = "full"
 
+# ========== AUTH & CORS (passthrough from host) ==========
+# Source .env before running: `set -a; . ./.env; set +a`
+# Or use `make start-rust-server` which auto-sources .env.
+loader.env.CLERK_JWKS_URL  = { passthrough = true }
+loader.env.CLERK_ISSUER    = { passthrough = true }
+loader.env.CLERK_AUDIENCE  = { passthrough = true }
+loader.env.CORS_ALLOWED_ORIGINS = { passthrough = true }
+
 fs.mounts = [
     { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
     { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },

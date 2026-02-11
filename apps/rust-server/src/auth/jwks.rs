@@ -7,8 +7,9 @@
 //! ## Security
 //!
 //! - JWKS is fetched via HTTPS only
-//! - Keys are cached with a configurable TTL
-//! - Stale cache is used on fetch failure (fail-open for availability)
+//! - Keys are cached with a configurable TTL (60s default)
+//! - On fetch failure: stale cache used within 2x TTL grace period
+//! - Beyond grace period: fail-closed (reject all auth requests)
 //!
 //! ## Usage
 //!
@@ -24,8 +25,11 @@ use tokio::sync::RwLock;
 
 use super::error::AuthError;
 
-/// Default JWKS cache TTL (5 minutes).
-const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(300);
+/// Default JWKS cache TTL (60 seconds).
+///
+/// Shorter TTL allows faster response to emergency key rotations.
+/// Stale cache is used with a 2x grace period if fetch fails.
+const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// JWKS cache entry.
 struct CacheEntry {
@@ -79,6 +83,12 @@ impl JwksManager {
     }
 
     /// Fetch JWKS (with caching).
+    ///
+    /// ## Security: Fail-Closed
+    ///
+    /// If JWKS cannot be fetched and the cache is empty or stale,
+    /// this returns an error. This prevents accepting unauthenticated
+    /// requests when the identity provider is unreachable.
     async fn get_jwks(&self) -> Result<JwkSet, AuthError> {
         // Check cache first
         {
@@ -90,19 +100,39 @@ impl JwksManager {
             }
         }
 
-        // Fetch fresh JWKS
-        let jwks = self.fetch_jwks().await?;
-
-        // Update cache
-        {
-            let mut cache = self.cache.write().await;
-            *cache = Some(CacheEntry {
-                jwks: jwks.clone(),
-                fetched_at: Instant::now(),
-            });
+        // Cache is missing or stale — fetch fresh JWKS
+        match self.fetch_jwks().await {
+            Ok(jwks) => {
+                // Update cache with fresh keys
+                let mut cache = self.cache.write().await;
+                *cache = Some(CacheEntry {
+                    jwks: jwks.clone(),
+                    fetched_at: Instant::now(),
+                });
+                Ok(jwks)
+            }
+            Err(fetch_err) => {
+                // Fetch failed — check if we have a stale cache to fall back on
+                let cache = self.cache.read().await;
+                if let Some(entry) = &*cache {
+                    // Allow stale cache for a grace period (2x TTL)
+                    if entry.fetched_at.elapsed() < self.cache_ttl * 2 {
+                        tracing::warn!(
+                            "JWKS fetch failed, using stale cache (age: {:?}): {}",
+                            entry.fetched_at.elapsed(),
+                            fetch_err
+                        );
+                        return Ok(entry.jwks.clone());
+                    }
+                }
+                // No cache or cache too old — fail closed
+                tracing::error!(
+                    "JWKS fetch failed and no valid cache available — rejecting all auth: {}",
+                    fetch_err
+                );
+                Err(fetch_err)
+            }
         }
-
-        Ok(jwks)
     }
 
     /// Fetch JWKS from the endpoint.

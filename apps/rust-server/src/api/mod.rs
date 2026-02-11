@@ -6,7 +6,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, AllowOrigin};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -125,8 +125,30 @@ pub fn router(state: AppState) -> Router {
         .nest("/v1", v1_routes)
         // Swagger UI
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
-        .layer(CorsLayer::permissive())
+        .layer(build_cors_layer())
         .with_state(state)
+}
+
+/// Build CORS layer from environment configuration.
+///
+/// - If `CORS_ALLOWED_ORIGINS` is set, only those origins are allowed.
+///   Multiple origins can be comma-separated (e.g., `https://app.example.com,https://staging.example.com`).
+/// - If not set, falls back to permissive CORS (development only).
+fn build_cors_layer() -> CorsLayer {
+    if let Ok(origins) = std::env::var("CORS_ALLOWED_ORIGINS") {
+        let allowed: Vec<_> = origins
+            .split(',')
+            .map(|s| s.trim().parse().expect("Invalid CORS origin"))
+            .collect();
+        tracing::info!(origins = %origins, "CORS: restricting to configured origins");
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(allowed))
+            .allow_methods(tower_http::cors::Any)
+            .allow_headers(tower_http::cors::Any)
+    } else {
+        tracing::warn!("CORS_ALLOWED_ORIGINS not set - using permissive CORS (development only)");
+        CorsLayer::permissive()
+    }
 }
 
 #[derive(OpenApi)]

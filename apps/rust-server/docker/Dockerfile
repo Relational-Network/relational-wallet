@@ -179,9 +179,12 @@ COPY --from=builder /app/target/release/relational-rust-server /app/relational-r
 COPY docker/rust-server.manifest.template /app/rust-server.manifest.template
 
 # Create static DNS config files so they can be trusted_files (no sgx.allowed_files needed).
-# Docker DNS (127.0.0.11) is the container-internal resolver; works with --dns overrides too.
+# Uses public resolvers (Cloudflare + Google) because Docker's internal DNS
+# at 127.0.0.11 is a userspace proxy that is NOT reachable from inside the
+# Gramine SGX enclave. The enclave requires direct internet access for
+# Clerk JWKS, Avalanche RPCs, etc., so public DNS is the correct choice.
 RUN mkdir -p /app/dns && \
-    printf 'nameserver 127.0.0.11\noptions ndots:0\n' > /app/dns/resolv.conf && \
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\noptions ndots:0\n' > /app/dns/resolv.conf && \
     printf '127.0.0.1 localhost\n' > /app/dns/hosts && \
     printf 'hosts: files dns\n' > /app/dns/nsswitch.conf
 

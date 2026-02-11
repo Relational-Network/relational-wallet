@@ -84,6 +84,10 @@ rust-server.manifest.sgx rust-server.sig &: rust-server.manifest
 
 .PHONY: start-rust-server
 start-rust-server: all
+	@if [ -f .env ]; then \
+		echo "Loading environment from .env"; \
+		set -a; . ./.env; set +a; \
+	fi; \
 	gramine-sgx rust-server
 
 .PHONY: docker-build
@@ -97,10 +101,13 @@ docker-run: | $(DATA_DIR)
 	# after the stop-timeout.  This is harmless: Gramine's encrypted
 	# filesystem flushes writes synchronously.
 	#
-	# REQUIRED env vars for production auth (without these, all requests are REJECTED):
-	#   CLERK_JWKS_URL   — e.g. https://<your-clerk>.clerk.accounts.dev/.well-known/jwks.json
-	#   CLERK_ISSUER     — e.g. https://<your-clerk>.clerk.accounts.dev
-	#   CLERK_AUDIENCE   — (optional) expected aud claim
+	# Auth & CORS env vars are loaded from .env via --env-file.
+	# This avoids the problem of `sudo` stripping the user's environment.
+	# Create .env from .env.example if you haven't already.
+	@if [ ! -f .env ]; then \
+		echo "error: .env file not found. Copy .env.example to .env and fill in the values."; \
+		exit 1; \
+	fi
 	-sudo docker run --rm -it \
 		--name rust-server-sgx \
 		--device /dev/sgx/enclave \
@@ -108,9 +115,7 @@ docker-run: | $(DATA_DIR)
 		--stop-timeout 30 \
 		-p 8080:8080 \
 		-v "$(DATA_DIR):/data" \
-		-e CLERK_JWKS_URL \
-		-e CLERK_ISSUER \
-		-e CLERK_AUDIENCE \
+		--env-file .env \
 		relationalnetwork/rust-server:focal
 
 .PHONY: docker-stop

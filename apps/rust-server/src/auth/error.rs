@@ -25,26 +25,20 @@ pub enum AuthError {
     /// Token is malformed
     MalformedToken,
     /// Token signature is invalid
-    #[allow(dead_code)]
     InvalidSignature,
     /// Token has expired
-    #[allow(dead_code)]
     TokenExpired,
     /// Token issuer is invalid
-    #[allow(dead_code)]
     InvalidIssuer,
     /// Token audience is invalid
-    #[allow(dead_code)]
     InvalidAudience,
     /// Token is not yet valid
-    #[allow(dead_code)]
     TokenNotYetValid,
     /// JWKS fetch failed
     JwksFetchError(String),
     /// No matching key in JWKS
     NoMatchingKey,
     /// Internal error
-    #[allow(dead_code)]
     InternalError(String),
     /// Insufficient permissions
     InsufficientPermissions,

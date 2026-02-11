@@ -17,6 +17,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
+// Security: Prevent TLS bypass in production
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
+) {
+  throw new Error(
+    "NODE_TLS_REJECT_UNAUTHORIZED=0 is forbidden in production. " +
+      "Configure proper CA certificates instead."
+  );
+}
+
 const BACKEND_URL = process.env.WALLET_API_BASE_URL || "https://localhost:8080";
 
 /**

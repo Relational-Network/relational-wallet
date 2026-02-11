@@ -16,7 +16,6 @@ use super::roles::Role;
 ///
 /// Note: The actual JWT verification uses JwtClaims in extractor.rs.
 /// This struct provides a full representation for reference.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClerkClaims {
     /// Subject (user ID) - the canonical Clerk user identifier
@@ -60,7 +59,6 @@ pub struct ClerkClaims {
 ///
 /// Note: Role extraction is implemented in extractor.rs via PublicMetadata.
 /// This struct is kept for documentation and future expansion.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct UserMetadata {
     /// User's role (set in Clerk public metadata)
@@ -75,7 +73,6 @@ pub struct UserMetadata {
 /// Organization membership from Clerk.
 ///
 /// Note: Multi-tenant support is planned for future releases.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct OrgMembership {
     /// Organization ID
@@ -101,22 +98,16 @@ pub struct AuthenticatedUser {
     pub session_id: Option<String>,
 
     /// Original issuer (used for validation, not serialized)
-    /// TODO: Use for issuer validation when JWKS is connected
     #[serde(skip)]
-    #[allow(dead_code)]
     pub issuer: String,
 
     /// Token expiration (Unix timestamp, used for validation, not serialized)
-    /// TODO: Use for token refresh/expiry warnings
     #[serde(skip)]
-    #[allow(dead_code)]
     pub expires_at: i64,
 }
 
 impl AuthenticatedUser {
     /// Create from Clerk claims.
-    /// TODO: Wire this to actual JWKS verification in extractor.rs
-    #[allow(dead_code)]
     pub fn from_claims(claims: ClerkClaims) -> Self {
         // Extract role from metadata or default to Client
         let role = claims
@@ -136,8 +127,6 @@ impl AuthenticatedUser {
     }
 
     /// Check if the user has the required role.
-    /// TODO: Currently unused - will be used when role-based endpoints are implemented
-    #[allow(dead_code)]
     pub fn has_role(&self, required: Role) -> bool {
         self.role.has_privilege(required)
     }

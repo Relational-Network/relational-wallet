@@ -113,11 +113,6 @@ relational-wallet/
 
 | Task | Description | Files |
 |------|-------------|-------|
-| ~~**SGX Debug Mode Off**~~ | ✅ DONE — Parameterized via template variable; Docker enforces `false` | — |
-| ~~**Remove Dev JWT Bypass**~~ | ✅ DONE — Gated behind `#[cfg(feature = "dev")]`; production stub always rejects | — |
-| **JWKS Fail-Closed** | Change JWKS to fail-closed on fetch failures | `src/auth/jwks.rs:75-96` |
-| **Require CLERK_ISSUER** | Fail startup if JWKS URL set but issuer missing | `src/main.rs:initialize_auth_config()` |
-| **Clerk Env Vars for Docker** | `CLERK_JWKS_URL`, `CLERK_ISSUER`, `CLERK_AUDIENCE` must be passed to container at runtime. Without them the Docker build (which has no `dev` feature) rejects **all** authenticated requests. Need `.env` file or deployment config with these values. | `Makefile:docker-run`, Ops/deployment |
 | **Enclave Signing Key** | Secure production signing key | Ops/deployment |
 
 ### 🟠 P1 — High Priority
@@ -125,11 +120,8 @@ relational-wallet/
 | Task | Description | Files |
 |------|-------------|-------|
 | **Rate Limiting** | Limit auth failures to prevent brute force | New middleware using `tower::limit` or `governor` |
-| ~~**Transaction History**~~ | ✅ DONE — Stored in `txs/` directory with sent/received direction | `src/storage/repository/transactions.rs` |
 | **Clerk Organizations** | Support organization claims for multi-tenant | `src/auth/claims.rs` |
-| **Validate WalletAddress** | Add 0x + 40 hex validation on deserialize | `src/models.rs` |
 | **Separate WalletId Type** | Create distinct type for UUID wallet IDs | `src/models.rs`, `src/api/bookmarks.rs` |
-| **CORS Origin Validation** | Restrict allowed origins in production | `src/api/mod.rs` |
 
 ### 🟡 P2 — Medium Priority
 
@@ -144,19 +136,12 @@ relational-wallet/
 | **Auditor Role Endpoints** | Read-only audit access endpoints | `src/api/` |
 | **Balance Caching** | Cache balance queries to avoid RPC rate limits | `src/api/balance.rs` |
 | **Wallet List Balances** | Show balance summary in wallet list | `src/api/wallets.rs` |
-| **Shorter JWKS TTL** | Reduce cache TTL from 5min to 60s for faster key rotation | `src/auth/jwks.rs:26` |
 | **Generic Auth Errors** | Return generic "authentication_failed" in production | `src/auth/error.rs` |
-| **Health Endpoint Minimal** | Move detailed health to admin-only endpoint | `src/api/health.rs` |
-| **Code Cleanup** | Remove unused code and `#[allow(dead_code)]` | Various (see Security Audit) |
-| ~~**Fix Storage Path Comments**~~ | ✅ DONE — Code uses `meta.json` and `key.pem` consistently; docs updated to match | — |
-| ~~**Update lib.rs Docs**~~ | ✅ DONE — Updated `sha3` → `alloy` | — |
 
 ### 🔵 P3 — Lower Priority (Future)
 
 | Task | Description | Files |
 |------|-------------|-------|
-| ~~**Transaction Signing**~~ | ✅ DONE — `POST /v1/wallets/{id}/send` | `src/api/transactions.rs`, `src/blockchain/signing.rs` |
-| ~~**Transaction Broadcasting**~~ | ✅ DONE — EIP-1559 transactions to Avalanche | `src/blockchain/transactions.rs` |
 | **Smart Contract Calls** | Interact with deployed contracts | New module |
 | **Event Listening** | Monitor on-chain events | New module |
 | **WebSocket Support** | Real-time balance/tx updates | New module |
@@ -165,7 +150,6 @@ relational-wallet/
 | **OpenTelemetry** | Distributed tracing headers | Middleware |
 | **Backup/Export** | Export encrypted archives | New module |
 | **Multi-sig Wallets** | Multi-signature wallet support | New module |
-| **Frontend TLS Prod Check** | Prevent TLS bypass flag in production | `apps/wallet-web/` |
 
 ### 📋 Documentation TODO
 
@@ -181,18 +165,22 @@ relational-wallet/
 ## Security Checklist (Pre-Production)
 
 - [x] JWKS signature verification enabled
-- [x] JWT issuer validation enabled
+- [x] JWT issuer validation enabled (required when JWKS URL is set)
 - [x] JWT audience validation (optional, configurable)
 - [x] Clock skew tolerance (60 seconds)
-- [x] `sgx.debug = false` in manifest — parameterized; Docker builds enforce `false`
+- [x] `sgx.debug = false` in production Docker builds
 - [ ] Rate limiting on auth endpoints
 - [x] Audit logging covers all sensitive operations
 - [ ] No plaintext secrets in logs (review pending)
 - [x] TLS certificate validation in JWKS fetch (rustls-tls)
 - [ ] Enclave signing key secured
 - [ ] Encrypted storage mount verified on host
-- [x] Remove development mode JWT bypass — gated behind `#[cfg(feature = "dev")]`
-- [ ] Change JWKS fail-open behavior to fail-closed
+- [x] Development mode JWT bypass gated behind `#[cfg(feature = "dev")]`
+- [x] JWKS fail-closed with 2× TTL grace period
+- [x] CORS origin restriction via `CORS_ALLOWED_ORIGINS`
+- [x] Frontend TLS bypass guard (production)
+- [x] Gramine env var passthrough for Clerk + CORS
+- [x] Docker DNS uses public resolvers (not `127.0.0.11`)
 
 ---
 
@@ -200,31 +188,21 @@ relational-wallet/
 
 ### 🔴 Critical Issues
 
-| Issue | Location | Description | Remediation |
-|-------|----------|-------------|-------------|
-| ~~**Development Mode JWT Bypass**~~ | `src/auth/extractor.rs` | ✅ FIXED — `verify_jwt_development()` is now gated behind `#[cfg(feature = "dev")]`. Production builds without this feature flag get a stub that always rejects. | — |
-| **JWKS Fail-Open Behavior** | `src/auth/jwks.rs:10-11` | On JWKS fetch failure, stale cache is used ("fail-open for availability"). If cache has expired or was never populated, JWT verification may accept unauthenticated requests. | Change to fail-closed: if JWKS cannot be fetched and cache is stale/empty, reject all requests with 503 until JWKS is available. |
-| ~~**SGX Debug Mode Enabled**~~ | `rust-server.manifest.template` | ✅ FIXED — `sgx.debug` is now a template variable. Local `make` sets `true` for dev; Docker builds set `false` for production. | — |
+All critical issues have been resolved.
 
 ### 🟠 High Priority Issues
 
 | Issue | Location | Description | Remediation |
 |-------|----------|-------------|-------------|
 | **No Rate Limiting** | Missing | No protection against brute-force attacks on JWT endpoints or wallet operations. | Add `tower::limit::RateLimitLayer` or `governor` crate with per-IP/per-user limits on auth failures. |
-| **Issuer Validation Not Enforced** | `src/auth/extractor.rs:152-156` | If `CLERK_ISSUER` is not configured, issuer validation is disabled entirely (only a warning logged). | Make `CLERK_ISSUER` required for production; fail startup if not set when `CLERK_JWKS_URL` is set. |
 | **Audience Validation Silently Disabled** | `src/auth/extractor.rs:159-163` | Missing `CLERK_AUDIENCE` disables audience validation with no visible indication. | Add startup warning; consider requiring audience in production. |
-| **Health Endpoint Exposes Debug Mode** | `src/api/health.rs:55-68` | `/health` endpoint returns JWKS status which reveals whether production auth is enabled. | Consider making detailed health info admin-only (`/v1/admin/health`), keep `/health` minimal for probes. |
 
 ### 🟡 Medium Priority Issues
 
 | Issue | Location | Description | Remediation |
 |-------|----------|-------------|-------------|
-| **Frontend TLS Bypass in Dev** | `apps/wallet-web/src/app/api/proxy/[...path]/route.ts` | Comment mentions `NODE_TLS_REJECT_UNAUTHORIZED` can be used to skip cert validation. | Add runtime check to prevent this flag in production builds. |
-| **Stale JWKS Cache TTL** | `src/auth/jwks.rs:26` | 5-minute TTL may be too long if a key needs emergency rotation. | Consider shorter TTL (60s) or implement JWKS webhook for instant key rotation. |
 | **Error Messages May Leak Info** | `src/auth/error.rs` | Detailed error codes like `no_matching_key` could help attackers probe the auth system. | In production, consider generic "authentication_failed" for all auth errors. |
-| **Wallet Address Not Validated** | `src/models.rs:27-44` | `WalletAddress` newtype accepts any string without validation. | Add validation for `0x` prefix + 40 hex chars on deserialization. |
 | **Bookmark wallet_id Uses WalletAddress Type** | `src/models.rs:75` | `wallet_id` field is typed as `WalletAddress` but stores UUID wallet IDs, causing type confusion. | Create separate `WalletId` newtype for UUIDs vs `WalletAddress` for Ethereum addresses. |
-| **No CORS Origin Validation** | `src/api/mod.rs` | Uses `CorsLayer` but not visible whether origins are restricted. | Explicitly configure allowed origins for production. |
 
 ### 🟢 Good Practices Found
 
@@ -243,11 +221,7 @@ relational-wallet/
 
 | Issue | Location | Description |
 |-------|----------|-------------|
-| **Dead Code Warnings** | `src/auth/error.rs:27-45` | Several `AuthError` variants marked `#[allow(dead_code)]` |
-| **Dead Code Warnings** | `src/auth/claims.rs:18-75` | `ClerkClaims`, `UserMetadata`, `OrgMembership` marked `#[allow(dead_code)]` |
 | **Unused RequireRole Extractor** | `src/auth/extractor.rs:232-267` | `RequireRole` generic extractor implemented but not used; marked `#[allow(dead_code)]` |
-| ~~**lib.rs Comment Outdated**~~ | `src/lib.rs` | ✅ FIXED — Updated to reference `alloy` instead of `sha3` |
-| ~~**File Storage Path Inconsistency**~~ | — | ✅ FIXED — Docs updated to match code (`meta.json`, `key.pem`) |
 
 ---
 
@@ -334,6 +308,7 @@ src/
 | `CLERK_JWKS_URL` | Clerk JWKS endpoint | **Required for production** |
 | `CLERK_ISSUER` | Clerk issuer URL | **Required for production** |
 | `CLERK_AUDIENCE` | Expected JWT audience | — |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed CORS origins | Permissive (dev) |
 | `DATA_DIR` | Encrypted data directory | `/data` |
 | `LOG_FORMAT` | Logging format (`json`/`pretty`) | `pretty` |
 | `RUST_LOG` | Log level filter | `info,tower_http=debug` |
@@ -344,14 +319,15 @@ src/
 cd apps/rust-server
 cargo build --features dev  # Local dev build (enables insecure JWT decode)
 make                        # Build for SGX + sign enclave (dev manifest)
-make start-rust-server      # Run inside SGX enclave
+make start-rust-server      # Run inside SGX enclave (auto-sources .env)
 make docker-build           # Production Docker build (release, sgx.debug=false)
+make docker-run             # Run Docker container (reads .env via --env-file)
 ```
 
 #### Testing
 
 ```bash
-cargo test --features dev                            # Unit tests (113 passing)
+cargo test --features dev                            # Unit tests (117 passing)
 cargo test --test blockchain_integration -- --ignored  # Integration tests (10 passing)
 cargo tarpaulin --ignore-tests                      # Coverage report
 ```
@@ -478,6 +454,7 @@ Key settings (both templates):
 - `libos.entrypoint = gramine-ratls` — RA-TLS generates certs before app
 - `sgx.remote_attestation = "dcap"` — DCAP attestation
 - `/data` mounted as `type = "encrypted"`
+- `loader.env.CLERK_*` / `CORS_ALLOWED_ORIGINS` — passthrough from host
 
 Dev-specific:
 - `key_name = "_dev_key"` with `fs.insecure__keys._dev_key` (persistent 16-byte key at `data/.dev_storage_key`)
@@ -485,7 +462,8 @@ Dev-specific:
 
 Prod-specific:
 - `key_name = "_sgx_mrsigner"` (derived from enclave signer identity)
-- Static DNS files baked into Docker image at `/app/dns/` as `sgx.trusted_files`
+- Static DNS at `/app/dns/` using public resolvers (`1.1.1.1`, `8.8.8.8`) — Docker's `127.0.0.11` is unreachable from inside SGX
+- `--env-file .env` for `docker run` (bypasses sudo stripping env vars)
 
 Prerequisites:
 - SGX signing key: `~/.config/gramine/enclave-key.pem`

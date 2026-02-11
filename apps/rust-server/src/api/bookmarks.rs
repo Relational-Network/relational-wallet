@@ -104,6 +104,11 @@ pub async fn create_bookmark(
     let storage = state.storage();
     let wallet_id = request.wallet_id.to_string();
 
+    // Validate the bookmarked address is a valid Ethereum address
+    request.address.validate_eth_address().map_err(|e| {
+        ApiError::bad_request(&e)
+    })?;
+
     // Verify wallet ownership
     let wallet_repo = WalletRepository::new(&storage);
     let wallet = wallet_repo
@@ -249,7 +254,7 @@ mod tests {
         let request = CreateBookmarkRequest {
             wallet_id: WalletAddress::from(wallet_id.as_str()),
             name: "test_name".into(),
-            address: WalletAddress::from("test_address"),
+            address: WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12"),
         };
 
         let (status, Json(bookmark)) =

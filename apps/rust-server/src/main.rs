@@ -212,18 +212,47 @@ async fn initialize_auth_config() -> AuthConfig {
         
         let jwks_manager = JwksManager::new(&url);
         
-        // Pre-fetch JWKS to verify connectivity
-        match jwks_manager.refresh().await {
-            Ok(()) => info!("JWKS fetched successfully"),
-            Err(e) => {
-                warn!(error = %e, "Failed to fetch JWKS - JWT verification will fail until available");
+        // Pre-fetch JWKS with retry — DNS may not be ready immediately
+        // in containerized environments (Docker DNS at 127.0.0.11).
+        let max_retries = 5u32;
+        let mut fetched = false;
+        for attempt in 1..=max_retries {
+            match jwks_manager.refresh().await {
+                Ok(()) => {
+                    info!("JWKS fetched successfully");
+                    fetched = true;
+                    break;
+                }
+                Err(e) => {
+                    if attempt < max_retries {
+                        let delay = Duration::from_secs(u64::from(attempt));
+                        warn!(
+                            attempt,
+                            max_retries,
+                            delay_secs = delay.as_secs(),
+                            error = %e,
+                            "JWKS fetch failed, retrying..."
+                        );
+                        tokio::time::sleep(delay).await;
+                    } else {
+                        warn!(
+                            error = %e,
+                            "JWKS fetch failed after {max_retries} attempts — \
+                             JWT verification will fail until next background refresh"
+                        );
+                    }
+                }
             }
+        }
+        if fetched {
+            info!("JWKS pre-fetch succeeded — authentication ready");
         }
 
         if let Some(ref iss) = issuer {
             info!(issuer = %iss, "Issuer validation enabled");
         } else {
-            warn!("CLERK_ISSUER not set - issuer validation disabled");
+            panic!("CLERK_ISSUER must be set when CLERK_JWKS_URL is configured. \
+                    Without issuer validation, JWT verification is insecure.");
         }
 
         if let Some(ref aud) = audience {

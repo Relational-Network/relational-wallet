@@ -28,6 +28,14 @@ loader.env.MALLOC_ARENA_MAX = "1"
 
 loader.env.RUST_BACKTRACE = "full"
 
+# ========== AUTH & CORS (passthrough from host/container) ==========
+# These MUST be set at runtime for production auth to work.
+# Without CLERK_JWKS_URL + CLERK_ISSUER, all authenticated requests are REJECTED.
+loader.env.CLERK_JWKS_URL  = { passthrough = true }
+loader.env.CLERK_ISSUER    = { passthrough = true }
+loader.env.CLERK_AUDIENCE  = { passthrough = true }
+loader.env.CORS_ALLOWED_ORIGINS = { passthrough = true }
+
 fs.mounts = [
     { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
     { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },

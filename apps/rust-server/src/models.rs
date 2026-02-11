@@ -39,6 +39,38 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WalletAddress(pub String);
 
+impl WalletAddress {
+    /// Validate that this is a valid Ethereum address:
+    /// `0x` prefix followed by exactly 40 hexadecimal characters.
+    ///
+    /// Call this explicitly when the value is expected to be an Ethereum address
+    /// (not a wallet UUID). Returns `Ok(())` on success, `Err` with a message on failure.
+    pub fn validate_eth_address(&self) -> Result<(), String> {
+        let s = &self.0;
+        if !s.starts_with("0x") && !s.starts_with("0X") {
+            return Err(format!(
+                "Invalid wallet address '{}': must start with '0x'",
+                s
+            ));
+        }
+        let hex_part = &s[2..];
+        if hex_part.len() != 40 {
+            return Err(format!(
+                "Invalid wallet address '{}': expected 40 hex chars after '0x', got {}",
+                s,
+                hex_part.len()
+            ));
+        }
+        if !hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!(
+                "Invalid wallet address '{}': contains non-hex characters",
+                s
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl std::fmt::Display for WalletAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -210,13 +242,37 @@ mod tests {
 
     #[test]
     fn wallet_address_from_and_into_string() {
-        let from_str: WalletAddress = "abc".into();
-        assert_eq!(from_str.0, "abc");
+        let from_str: WalletAddress = "0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12".into();
+        assert_eq!(from_str.0, "0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12");
 
-        let from_string: WalletAddress = String::from("def").into();
-        assert_eq!(from_string.0, "def");
+        let from_string: WalletAddress = String::from("0xABCDEF1234567890abcdef1234567890ABCDEF12").into();
+        assert_eq!(from_string.0, "0xABCDEF1234567890abcdef1234567890ABCDEF12");
 
-        let to_string: String = WalletAddress("ghi".into()).into();
-        assert_eq!(to_string, "ghi");
+        let to_string: String = WalletAddress("0x0000000000000000000000000000000000000001".into()).into();
+        assert_eq!(to_string, "0x0000000000000000000000000000000000000001");
+    }
+
+    #[test]
+    fn wallet_address_validation_accepts_valid() {
+        let addr = WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12");
+        assert!(addr.validate_eth_address().is_ok());
+    }
+
+    #[test]
+    fn wallet_address_validation_rejects_no_prefix() {
+        let addr = WalletAddress::from("742d35Cc6634C0532925a3b844Bc9e7595f4aB12");
+        assert!(addr.validate_eth_address().is_err());
+    }
+
+    #[test]
+    fn wallet_address_validation_rejects_short() {
+        let addr = WalletAddress::from("0x742d35Cc");
+        assert!(addr.validate_eth_address().is_err());
+    }
+
+    #[test]
+    fn wallet_address_validation_rejects_non_hex() {
+        let addr = WalletAddress::from("0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
+        assert!(addr.validate_eth_address().is_err());
     }
 }
