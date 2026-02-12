@@ -19,6 +19,12 @@ interface SendFormProps {
   walletId: string;
   publicAddress: string;
   walletLabel: string | null;
+  prefill?: {
+    to?: string;
+    amount?: string;
+    token?: string;
+    note?: string;
+  };
 }
 
 type TransactionState =
@@ -35,13 +41,18 @@ type TransactionState =
  * Fixed-size components for faster page loads.
  * Polls every 10 seconds, max 2 minutes, with manual refresh option.
  */
-export function SendForm({ walletId, publicAddress, walletLabel }: SendFormProps) {
+export function SendForm({ walletId, publicAddress, walletLabel, prefill }: SendFormProps) {
   const router = useRouter();
 
+  const prefillTo = prefill?.to ?? "";
+  const prefillAmount = prefill?.amount ?? "";
+  const prefillToken = prefill?.token === "usdc" ? "usdc" : "native";
+  const prefillNote = prefill?.note?.trim() ?? "";
+
   // Form state
-  const [toAddress, setToAddress] = useState("");
-  const [amount, setAmount] = useState("");
-  const [token, setToken] = useState<"native" | "usdc">("native");
+  const [toAddress, setToAddress] = useState(prefillTo);
+  const [amount, setAmount] = useState(prefillAmount);
+  const [token, setToken] = useState<"native" | "usdc">(prefillToken);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
@@ -525,6 +536,27 @@ export function SendForm({ walletId, publicAddress, walletLabel }: SendFormProps
           {publicAddress}
         </div>
       </div>
+
+      {(prefillTo || prefillAmount || prefillNote) && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem",
+            backgroundColor: "#e7f1ff",
+            border: "1px solid #b8daff",
+            borderRadius: "4px",
+            color: "#004085",
+            fontSize: "0.875rem",
+          }}
+        >
+          This form was pre-filled from a payment request link.
+          {prefillNote && (
+            <div style={{ marginTop: "0.25rem" }}>
+              Note: <strong>{prefillNote}</strong>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Token Selection */}
       <div style={{ marginBottom: "1.5rem" }}>

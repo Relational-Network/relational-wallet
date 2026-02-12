@@ -454,13 +454,29 @@ pub async fn send_transaction(
         TokenType::Erc20(request.token.clone())
     };
 
+    // If recipient belongs to an internal wallet, mirror a transaction record
+    // to that wallet so history lookups stay wallet-local and scalable.
+    let recipient_wallet_id = wallet_repo
+        .list_all_wallets()
+        .ok()
+        .and_then(|wallets| {
+            wallets
+                .into_iter()
+                .find(|w| {
+                    w.status != WalletStatus::Deleted
+                        && w.public_address.eq_ignore_ascii_case(&request.to)
+                })
+                .map(|w| w.wallet_id)
+        });
+
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),
         wallet_id.clone(),
+        recipient_wallet_id.clone().filter(|id| id != &wallet_id),
         wallet.public_address.clone(),
         request.to.clone(),
         request.amount.clone(),
-        token_type,
+        token_type.clone(),
         request.network.clone(),
         result.explorer_url.clone(),
     );
@@ -468,6 +484,30 @@ pub async fn send_transaction(
     let tx_repo = TransactionRepository::new(&storage);
     if let Err(e) = tx_repo.create(&stored_tx) {
         tracing::warn!("Failed to store transaction record: {}", e);
+    }
+
+    // Mirror recipient-side transaction record for internal transfers.
+    if let Some(recipient_id) = recipient_wallet_id {
+        if recipient_id != wallet_id {
+            let mirrored_tx = StoredTransaction::new_pending(
+                result.tx_hash.clone(),
+                recipient_id.clone(),
+                Some(wallet_id.clone()),
+                wallet.public_address.clone(),
+                request.to.clone(),
+                request.amount.clone(),
+                token_type,
+                request.network.clone(),
+                result.explorer_url.clone(),
+            );
+            if let Err(e) = tx_repo.create(&mirrored_tx) {
+                tracing::warn!(
+                    recipient_wallet_id = %recipient_id,
+                    "Failed to store mirrored recipient transaction record: {}",
+                    e
+                );
+            }
+        }
     }
 
     // Log audit event
@@ -529,35 +569,23 @@ pub async fn list_transactions(
 
     let tx_repo = TransactionRepository::new(&storage);
     let mut summaries: Vec<TransactionSummary> = Vec::new();
+    let wallet_address = wallet.public_address.to_lowercase();
 
-    // Get OUTGOING transactions (sent from this wallet)
-    let outgoing = tx_repo
+    // List wallet-local transaction records only.
+    // Direction is derived by comparing addresses.
+    let wallet_txs = tx_repo
         .list_by_wallet(&wallet_id)
         .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
 
-    for tx in &outgoing {
-        summaries.push(to_summary_with_direction(tx, "sent"));
-    }
-
-    // Get INCOMING transactions (received by this wallet)
-    // Search all user's wallets for transactions TO this wallet's address
-    let wallet_address = wallet.public_address.to_lowercase();
-    let user_wallets = wallet_repo.list_by_owner(&user.user_id).unwrap_or_default();
-
-    for other_wallet in &user_wallets {
-        if other_wallet.wallet_id == wallet_id {
-            continue; // Skip current wallet (already processed as outgoing)
-        }
-
-        let other_txs = tx_repo
-            .list_by_wallet(&other_wallet.wallet_id)
-            .unwrap_or_default();
-        for tx in &other_txs {
-            // Check if this transaction was sent TO the current wallet
-            if tx.to.to_lowercase() == wallet_address {
-                summaries.push(to_summary_with_direction(tx, "received"));
-            }
-        }
+    for tx in &wallet_txs {
+        let direction = if tx.from.to_lowercase() == wallet_address {
+            "sent"
+        } else if tx.to.to_lowercase() == wallet_address {
+            "received"
+        } else {
+            "sent"
+        };
+        summaries.push(to_summary_with_direction(tx, direction));
     }
 
     // Sort all by timestamp descending (newest first)
@@ -660,6 +688,17 @@ pub async fn get_transaction_status(
                 receipt.gas_used,
                 receipt.success,
             );
+
+            // Keep mirrored internal counterparty record in sync, if present.
+            if let Some(counterparty_wallet_id) = &tx.counterparty_wallet_id {
+                let _ = tx_repo.update_from_receipt(
+                    counterparty_wallet_id,
+                    &tx_hash,
+                    receipt.block_number,
+                    receipt.gas_used,
+                    receipt.success,
+                );
+            }
 
             let confirmations = current_block.saturating_sub(receipt.block_number);
 

@@ -13,13 +13,19 @@ interface SendPageProps {
   params: Promise<{
     wallet_id: string;
   }>;
+  searchParams: Promise<{
+    to?: string;
+    amount?: string;
+    token?: string;
+    note?: string;
+  }>;
 }
 
 /**
  * Send transaction page.
  * Server component that loads wallet data and renders the SendForm client component.
  */
-export default async function SendPage({ params }: SendPageProps) {
+export default async function SendPage({ params, searchParams }: SendPageProps) {
   const { userId } = await auth();
 
   if (!userId) {
@@ -27,6 +33,7 @@ export default async function SendPage({ params }: SendPageProps) {
   }
 
   const { wallet_id } = await params;
+  const query = await searchParams;
   const token = await getSessionToken();
 
   // Fetch wallet details
@@ -97,6 +104,12 @@ export default async function SendPage({ params }: SendPageProps) {
           walletId={wallet.wallet_id}
           publicAddress={wallet.public_address}
           walletLabel={wallet.label ?? null}
+          prefill={{
+            to: query.to,
+            amount: query.amount,
+            token: query.token,
+            note: query.note,
+          }}
         />
       ) : null}
     </main>

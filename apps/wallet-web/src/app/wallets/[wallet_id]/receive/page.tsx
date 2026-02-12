@@ -9,6 +9,7 @@ import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AddressQRCode } from "@/components/AddressQRCode";
+import { PaymentRequestBuilder } from "./PaymentRequestBuilder";
 
 interface ReceivePageProps {
   params: Promise<{
@@ -134,6 +135,10 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
             </p>
             <CopyAddress address={wallet.public_address} />
           </section>
+
+          <PaymentRequestBuilder
+            recipientAddress={wallet.public_address}
+          />
 
           {/* Network Info */}
           <section
