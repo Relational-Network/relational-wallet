@@ -5,8 +5,9 @@ import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
-import { apiClient, type WalletResponse } from "@/lib/api";
+import { apiClient, type Bookmark, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+// import { CashExchangeGuide } from "@/components/CashExchangeGuide";
 import { parsePaymentRequestQuery } from "@/lib/paymentRequest";
 import { SendForm } from "./SendForm";
 
@@ -40,7 +41,9 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
 
   // Fetch wallet details
   let wallet: WalletResponse | null = null;
+  let bookmarks: Bookmark[] = [];
   let error: string | null = null;
+  let shortcutError: string | null = null;
 
   const response = await apiClient.getWallet(token || "", wallet_id);
 
@@ -67,6 +70,17 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
     error = `Cannot send from a ${wallet.status} wallet.`;
   }
 
+  if (!error && token) {
+    const bookmarksResponse = await apiClient.listBookmarks(token, wallet_id);
+    if (bookmarksResponse.success) {
+      bookmarks = bookmarksResponse.data;
+    } else if (bookmarksResponse.error.status === 401) {
+      redirect("/sign-in");
+    } else if (bookmarksResponse.error.status !== 404) {
+      shortcutError = `Saved recipients unavailable: ${bookmarksResponse.error.message}`;
+    }
+  }
+
   return (
     <main style={{ padding: "2rem", maxWidth: "600px", margin: "0 auto" }}>
       <header
@@ -89,6 +103,8 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
         <UserButton />
       </header>
 
+      {/* <CashExchangeGuide walletId={wallet_id} currentStep="send" /> */}
+
       {error ? (
         <div
           style={{
@@ -108,6 +124,12 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
           walletLabel={wallet.label ?? null}
           prefill={parsedRequest.prefill}
           prefillWarnings={parsedRequest.warnings}
+          shortcuts={bookmarks.map((bookmark) => ({
+            id: bookmark.id,
+            name: bookmark.name,
+            address: bookmark.address,
+          }))}
+          shortcutsLoadError={shortcutError}
         />
       ) : null}
     </main>

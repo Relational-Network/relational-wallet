@@ -98,6 +98,18 @@ impl StoragePaths {
         self.recurring_dir().join(format!("{payment_id}.json"))
     }
 
+    // ========== Fiat Request Paths ==========
+
+    /// Directory containing all fiat requests.
+    pub fn fiat_dir(&self) -> PathBuf {
+        self.root.join("fiat")
+    }
+
+    /// Path to a specific fiat request file.
+    pub fn fiat_request(&self, request_id: &str) -> PathBuf {
+        self.fiat_dir().join(format!("{request_id}.json"))
+    }
+
     // ========== Audit Log Paths ==========
 
     /// Directory containing audit logs.
@@ -200,6 +212,16 @@ mod tests {
         assert_eq!(
             paths.audit_entry(1706400000, "evt-001"),
             PathBuf::from("/data/audit/1706400000-evt-001.json")
+        );
+    }
+
+    #[test]
+    fn fiat_paths_are_correct() {
+        let paths = StoragePaths::default();
+        assert_eq!(paths.fiat_dir(), PathBuf::from("/data/fiat"));
+        assert_eq!(
+            paths.fiat_request("fr-123"),
+            PathBuf::from("/data/fiat/fr-123.json")
         );
     }
 }

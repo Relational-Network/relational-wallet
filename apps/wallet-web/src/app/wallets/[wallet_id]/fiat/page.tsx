@@ -7,22 +7,19 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
 import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
-// import { CashExchangeGuide } from "@/components/CashExchangeGuide";
-import { TransactionList } from "./TransactionList";
+import { FiatRequestPanel } from "./FiatRequestPanel";
 
-interface TransactionsPageProps {
+interface FiatPageProps {
   params: Promise<{
     wallet_id: string;
   }>;
 }
 
 /**
- * Transaction history page.
- * Server component that loads wallet data and renders the TransactionList client component.
+ * Fiat request page (on-ramp/off-ramp).
  */
-export default async function TransactionsPage({ params }: TransactionsPageProps) {
+export default async function FiatPage({ params }: FiatPageProps) {
   const { userId } = await auth();
-
   if (!userId) {
     redirect("/sign-in");
   }
@@ -30,24 +27,20 @@ export default async function TransactionsPage({ params }: TransactionsPageProps
   const { wallet_id } = await params;
   const token = await getSessionToken();
 
-  // Fetch wallet details
   let wallet: WalletResponse | null = null;
   let error: string | null = null;
 
   const response = await apiClient.getWallet(token || "", wallet_id);
-
   if (response.success) {
     wallet = response.data;
+  } else if (response.error.status === 401) {
+    redirect("/sign-in");
+  } else if (response.error.status === 403) {
+    error = "Access denied. You do not have permission to use this wallet.";
+  } else if (response.error.status === 404) {
+    notFound();
   } else {
-    if (response.error.status === 401) {
-      redirect("/sign-in");
-    } else if (response.error.status === 403) {
-      error = "Access denied. You do not have permission to view this wallet.";
-    } else if (response.error.status === 404) {
-      notFound();
-    } else {
-      error = `Unable to load wallet: ${response.error.message}`;
-    }
+    error = `Unable to load wallet: ${response.error.message}`;
   }
 
   if (!wallet && !error) {
@@ -55,13 +48,13 @@ export default async function TransactionsPage({ params }: TransactionsPageProps
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "900px", margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: "760px", margin: "0 auto" }}>
       <header
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: "2rem",
+          marginBottom: "1.5rem",
         }}
       >
         <div>
@@ -71,20 +64,16 @@ export default async function TransactionsPage({ params }: TransactionsPageProps
           >
             ← Back to Wallet
           </Link>
-          <h1 style={{ marginTop: "0.5rem" }}>Transaction History</h1>
-          {wallet && (
-            <p style={{ color: "#666", margin: 0 }}>
-              {wallet.label || "Wallet"} •{" "}
-              <span style={{ fontFamily: "monospace", fontSize: "0.875rem" }}>
-                {wallet.public_address.slice(0, 10)}...{wallet.public_address.slice(-8)}
-              </span>
+          <h1 style={{ marginTop: "0.5rem" }}>Fiat On/Off-Ramp</h1>
+          {wallet ? (
+            <p style={{ margin: 0, color: "#666" }}>
+              {wallet.label || "Wallet"} • {wallet.public_address.slice(0, 8)}...
+              {wallet.public_address.slice(-6)}
             </p>
-          )}
+          ) : null}
         </div>
         <UserButton />
       </header>
-
-      {/* <CashExchangeGuide walletId={wallet_id} currentStep="history" /> */}
 
       {error ? (
         <div
@@ -99,7 +88,7 @@ export default async function TransactionsPage({ params }: TransactionsPageProps
           {error}
         </div>
       ) : wallet ? (
-        <TransactionList walletId={wallet.wallet_id} />
+        <FiatRequestPanel walletId={wallet.wallet_id} />
       ) : null}
     </main>
   );

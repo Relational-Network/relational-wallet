@@ -48,6 +48,10 @@ pub enum AuditEventType {
     // Admin events
     AdminAccess,
     ConfigChanged,
+
+    // Fiat events
+    FiatOnRampRequested,
+    FiatOffRampRequested,
 }
 
 /// An audit log entry.

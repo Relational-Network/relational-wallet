@@ -67,6 +67,7 @@ rustls = { version = "0.23.26", default-features = false, features = ["ring", "s
 # -----------------------------------------------------------------------------
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 reqwest = { version = "0.12.15", default-features = false, features = ["rustls-tls", "json"] }
+truelayer-signing = { version = "0.3.1", default-features = false }
 
 # -----------------------------------------------------------------------------
 # Cryptography 

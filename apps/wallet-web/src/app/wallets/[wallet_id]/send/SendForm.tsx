@@ -15,11 +15,19 @@ import type {
 // USDC contract address on Fuji testnet
 const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
 
+interface RecipientShortcut {
+  id: string;
+  name: string;
+  address: string;
+}
+
 interface SendFormProps {
   walletId: string;
   publicAddress: string;
   walletLabel: string | null;
   prefillWarnings?: string[];
+  shortcuts?: RecipientShortcut[];
+  shortcutsLoadError?: string | null;
   prefill?: {
     to?: string;
     amount?: string;
@@ -48,6 +56,8 @@ export function SendForm({
   walletLabel,
   prefill,
   prefillWarnings = [],
+  shortcuts = [],
+  shortcutsLoadError = null,
 }: SendFormProps) {
   const router = useRouter();
 
@@ -63,6 +73,12 @@ export function SendForm({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
+  const [savedRecipients, setSavedRecipients] = useState<RecipientShortcut[]>(shortcuts);
+  const [showSaveRecipient, setShowSaveRecipient] = useState(false);
+  const [saveRecipientName, setSaveRecipientName] = useState("");
+  const [isSavingRecipient, setIsSavingRecipient] = useState(false);
+  const [saveRecipientError, setSaveRecipientError] = useState<string | null>(null);
+  const [saveRecipientSuccess, setSaveRecipientSuccess] = useState<string | null>(null);
 
   // Transaction state
   const [txState, setTxState] = useState<TransactionState>({ step: "form" });
@@ -86,6 +102,82 @@ export function SendForm({
   const formatAmount = (amt: string) => {
     const symbol = token === "usdc" ? "USDC" : "AVAX";
     return `${amt} ${symbol}`;
+  };
+
+  const shortAddress = (address: string) => {
+    if (address.length <= 16) return address;
+    return `${address.slice(0, 8)}...${address.slice(-6)}`;
+  };
+
+  const fillRecipient = (address: string) => {
+    setToAddress(address);
+    setSaveRecipientError(null);
+    setSaveRecipientSuccess("Recipient filled from saved shortcuts.");
+    setError(null);
+  };
+
+  const handleSaveRecipient = async () => {
+    const name = saveRecipientName.trim();
+    const normalized = toAddress.trim();
+
+    setSaveRecipientError(null);
+    setSaveRecipientSuccess(null);
+
+    if (!isValidAddress(normalized)) {
+      setSaveRecipientError("Enter a valid recipient address before saving.");
+      return;
+    }
+
+    if (!name) {
+      setSaveRecipientError("Recipient name is required.");
+      return;
+    }
+
+    const duplicate = savedRecipients.find(
+      (recipient) => recipient.address.toLowerCase() === normalized.toLowerCase()
+    );
+    if (duplicate) {
+      setSaveRecipientSuccess(`Already saved as "${duplicate.name}".`);
+      setShowSaveRecipient(false);
+      return;
+    }
+
+    setIsSavingRecipient(true);
+    try {
+      const response = await fetch("/api/proxy/v1/bookmarks", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet_id: walletId,
+          name,
+          address: normalized,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        setSaveRecipientError(text || `Failed to save recipient (${response.status})`);
+        return;
+      }
+
+      const payload = (await response.json()) as RecipientShortcut;
+      setSavedRecipients((existing) => [
+        ...existing,
+        {
+          id: payload.id,
+          name: payload.name,
+          address: payload.address,
+        },
+      ]);
+      setSaveRecipientName("");
+      setShowSaveRecipient(false);
+      setSaveRecipientSuccess(`Saved "${name}" to recipient shortcuts.`);
+    } catch (err) {
+      setSaveRecipientError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setIsSavingRecipient(false);
+    }
   };
 
   // Estimate gas
@@ -567,6 +659,130 @@ export function SendForm({
           )}
         </div>
       )}
+
+      <section
+        style={{
+          marginBottom: "1.25rem",
+          padding: "0.9rem",
+          border: "1px solid #d7e9f9",
+          borderRadius: "6px",
+          backgroundColor: "#f8fcff",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "center" }}>
+          <strong style={{ color: "#1f4f77", fontSize: "0.92rem" }}>Saved Recipients</strong>
+          <button
+            type="button"
+            onClick={() => setShowSaveRecipient((value) => !value)}
+            style={{
+              border: "1px solid #6e8aa3",
+              borderRadius: "4px",
+              backgroundColor: "#fff",
+              color: "#1f4f77",
+              padding: "0.35rem 0.65rem",
+              cursor: "pointer",
+              fontSize: "0.78rem",
+            }}
+          >
+            {showSaveRecipient ? "Cancel Save" : "Save Current Recipient"}
+          </button>
+        </div>
+
+        {shortcutsLoadError && (
+          <p style={{ margin: "0.6rem 0 0 0", color: "#8a5b00", fontSize: "0.8rem" }}>
+            {shortcutsLoadError}
+          </p>
+        )}
+
+        {savedRecipients.length > 0 ? (
+          <div style={{ marginTop: "0.65rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            {savedRecipients.map((recipient) => (
+              <button
+                key={recipient.id}
+                type="button"
+                onClick={() => fillRecipient(recipient.address)}
+                style={{
+                  border: "1px solid #c8def0",
+                  borderRadius: "999px",
+                  padding: "0.35rem 0.65rem",
+                  backgroundColor: "#fff",
+                  color: "#234d72",
+                  cursor: "pointer",
+                  fontSize: "0.78rem",
+                }}
+              >
+                {recipient.name} ({shortAddress(recipient.address)})
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p style={{ margin: "0.6rem 0 0 0", color: "#60788f", fontSize: "0.8rem" }}>
+            No saved recipients yet. Save one to avoid retyping addresses.
+          </p>
+        )}
+
+        {showSaveRecipient && (
+          <div
+            style={{
+              marginTop: "0.75rem",
+              padding: "0.75rem",
+              borderRadius: "4px",
+              backgroundColor: "#fff",
+              border: "1px solid #d6e4f2",
+            }}
+          >
+            <label
+              htmlFor="saveRecipientName"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.35rem", fontSize: "0.82rem" }}
+            >
+              Recipient Name
+            </label>
+            <input
+              id="saveRecipientName"
+              type="text"
+              value={saveRecipientName}
+              onChange={(event) => setSaveRecipientName(event.target.value)}
+              placeholder="e.g. Grocer"
+              maxLength={48}
+              style={{
+                width: "100%",
+                padding: "0.55rem",
+                border: "1px solid #d0d0d0",
+                borderRadius: "4px",
+                boxSizing: "border-box",
+                marginBottom: "0.6rem",
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleSaveRecipient}
+              disabled={isSavingRecipient}
+              style={{
+                border: "1px solid #0b63a9",
+                borderRadius: "4px",
+                backgroundColor: isSavingRecipient ? "#7ca9cc" : "#0b7bd3",
+                color: "#fff",
+                padding: "0.45rem 0.75rem",
+                cursor: isSavingRecipient ? "not-allowed" : "pointer",
+                fontSize: "0.8rem",
+              }}
+            >
+              {isSavingRecipient ? "Saving..." : "Save Recipient"}
+            </button>
+          </div>
+        )}
+
+        {saveRecipientError && (
+          <p style={{ margin: "0.65rem 0 0 0", color: "#b32424", fontSize: "0.8rem" }}>
+            {saveRecipientError}
+          </p>
+        )}
+        {saveRecipientSuccess && (
+          <p style={{ margin: "0.65rem 0 0 0", color: "#176c39", fontSize: "0.8rem" }}>
+            {saveRecipientSuccess}
+          </p>
+        )}
+      </section>
 
       {/* Token Selection */}
       <div style={{ marginBottom: "1.5rem" }}>

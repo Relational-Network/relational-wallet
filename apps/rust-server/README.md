@@ -178,6 +178,13 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `CLERK_AUDIENCE` | Expected JWT audience | — |
 | `SEED_INVITE_CODE` | Pre-seed invite code | — |
 | `DATA_DIR` | Encrypted data directory | `/data` |
+| `TRUELAYER_CLIENT_ID` | TrueLayer OAuth client id (sandbox/prod) | — |
+| `TRUELAYER_CLIENT_SECRET` | TrueLayer OAuth client secret | — |
+| `TRUELAYER_SIGNING_KEY_ID` | TrueLayer signing key id | — |
+| `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` | Path to TrueLayer private key PEM | — |
+| `TRUELAYER_MERCHANT_ACCOUNT_ID` | TrueLayer merchant account id | — |
+| `TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME` | Off-ramp beneficiary name (sandbox) | — |
+| `TRUELAYER_OFFRAMP_IBAN` | Off-ramp beneficiary IBAN (sandbox) | — |
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 
@@ -212,6 +219,13 @@ Query parameters: `network=fuji` (default) or `network=mainnet`
 - `DELETE /v1/recurring/payment/{id}` — Delete payment
 - `GET  /v1/recurring/payments/today` — Get payments due today
 - `PUT  /v1/recurring/payment/{id}/last-paid-date` — Update last paid
+
+### Fiat (Protected)
+- `GET  /v1/fiat/providers` — List configured fiat providers and capabilities
+- `POST /v1/fiat/onramp/requests` — Create on-ramp request (live TrueLayer sandbox call)
+- `POST /v1/fiat/offramp/requests` — Create off-ramp request (live TrueLayer sandbox call)
+- `GET  /v1/fiat/requests` — List fiat requests (wallet filter optional)
+- `GET  /v1/fiat/requests/{request_id}` — Get fiat request details
 
 ### Admin (Admin Role Required)
 - `GET  /v1/admin/stats` — System statistics (wallet counts, invite usage, uptime)

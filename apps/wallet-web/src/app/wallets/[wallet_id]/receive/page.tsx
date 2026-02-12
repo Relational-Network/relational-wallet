@@ -9,6 +9,7 @@ import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AddressQRCode } from "@/components/AddressQRCode";
+// import { CashExchangeGuide } from "@/components/CashExchangeGuide";
 import { PaymentRequestBuilder } from "./PaymentRequestBuilder";
 
 interface ReceivePageProps {
@@ -92,6 +93,8 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
         </div>
       ) : wallet ? (
         <div>
+          {/* <CashExchangeGuide walletId={wallet.wallet_id} currentStep="receive" /> */}
+
           {/* QR Code */}
           <section
             style={{

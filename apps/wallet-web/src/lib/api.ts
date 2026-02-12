@@ -93,6 +93,49 @@ export interface TransactionStatusResponse {
   timestamp?: string;
 }
 
+export type FiatDirection = "on_ramp" | "off_ramp";
+export type FiatRequestStatus = "queued" | "provider_pending" | "completed" | "failed";
+
+export interface CreateFiatRequest {
+  wallet_id: string;
+  amount_eur: string;
+  provider?: string;
+  note?: string;
+}
+
+export interface FiatRequest {
+  request_id: string;
+  wallet_id: string;
+  direction: FiatDirection;
+  amount_eur: string;
+  provider: string;
+  status: FiatRequestStatus;
+  note?: string;
+  provider_reference?: string;
+  provider_action_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FiatRequestListResponse {
+  requests: FiatRequest[];
+  total: number;
+}
+
+export interface FiatProviderSummary {
+  provider_id: string;
+  display_name: string;
+  sandbox: boolean;
+  enabled: boolean;
+  supports_on_ramp: boolean;
+  supports_off_ramp: boolean;
+}
+
+export interface FiatProviderListResponse {
+  default_provider: string;
+  providers: FiatProviderSummary[];
+}
+
 // =============================================================================
 // API Response Types
 // =============================================================================
@@ -364,6 +407,77 @@ export class WalletApiClient {
         token,
       }
     );
+  }
+
+  // ===========================================================================
+  // Fiat Endpoints (stubs)
+  // ===========================================================================
+
+  /**
+   * List supported fiat providers.
+   */
+  async listFiatProviders(
+    token: string
+  ): Promise<ApiResponse<FiatProviderListResponse>> {
+    return this.request<FiatProviderListResponse>("/v1/fiat/providers", {
+      method: "GET",
+      token,
+    });
+  }
+
+  /**
+   * Create a fiat on-ramp request.
+   */
+  async createFiatOnRampRequest(
+    token: string,
+    data: CreateFiatRequest
+  ): Promise<ApiResponse<FiatRequest>> {
+    return this.request<FiatRequest>("/v1/fiat/onramp/requests", {
+      method: "POST",
+      token,
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Create a fiat off-ramp request.
+   */
+  async createFiatOffRampRequest(
+    token: string,
+    data: CreateFiatRequest
+  ): Promise<ApiResponse<FiatRequest>> {
+    return this.request<FiatRequest>("/v1/fiat/offramp/requests", {
+      method: "POST",
+      token,
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * List fiat requests for current user, optionally by wallet.
+   */
+  async listFiatRequests(
+    token: string,
+    walletId?: string
+  ): Promise<ApiResponse<FiatRequestListResponse>> {
+    const params = walletId ? `?wallet_id=${encodeURIComponent(walletId)}` : "";
+    return this.request<FiatRequestListResponse>(`/v1/fiat/requests${params}`, {
+      method: "GET",
+      token,
+    });
+  }
+
+  /**
+   * Get a fiat request by ID.
+   */
+  async getFiatRequest(
+    token: string,
+    requestId: string
+  ): Promise<ApiResponse<FiatRequest>> {
+    return this.request<FiatRequest>(`/v1/fiat/requests/${encodeURIComponent(requestId)}`, {
+      method: "GET",
+      token,
+    });
   }
 
   // ===========================================================================

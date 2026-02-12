@@ -62,6 +62,7 @@ pub mod blockchain;
 pub mod config;
 pub mod error;
 pub mod models;
+pub mod providers;
 pub mod state;
 pub mod storage;
 pub mod tls;

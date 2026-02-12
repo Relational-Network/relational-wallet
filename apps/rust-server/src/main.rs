@@ -8,6 +8,7 @@ mod blockchain;
 mod config;
 mod error;
 mod models;
+mod providers;
 mod state;
 mod storage;
 mod tls;

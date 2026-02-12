@@ -456,18 +456,15 @@ pub async fn send_transaction(
 
     // If recipient belongs to an internal wallet, mirror a transaction record
     // to that wallet so history lookups stay wallet-local and scalable.
-    let recipient_wallet_id = wallet_repo
-        .list_all_wallets()
-        .ok()
-        .and_then(|wallets| {
-            wallets
-                .into_iter()
-                .find(|w| {
-                    w.status != WalletStatus::Deleted
-                        && w.public_address.eq_ignore_ascii_case(&request.to)
-                })
-                .map(|w| w.wallet_id)
-        });
+    let recipient_wallet_id = wallet_repo.list_all_wallets().ok().and_then(|wallets| {
+        wallets
+            .into_iter()
+            .find(|w| {
+                w.status != WalletStatus::Deleted
+                    && w.public_address.eq_ignore_ascii_case(&request.to)
+            })
+            .map(|w| w.wallet_id)
+    });
 
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),

@@ -19,12 +19,15 @@ use crate::{
         WalletAddress,
     },
     state::AppState,
-    storage::{StoredTransaction, TokenType, TxStatus},
+    storage::{
+        FiatDirection, FiatRequestStatus, StoredFiatRequest, StoredTransaction, TokenType, TxStatus,
+    },
 };
 
 pub mod admin;
 pub mod balance;
 pub mod bookmarks;
+pub mod fiat;
 pub mod health;
 pub mod invites;
 pub mod recurring;
@@ -100,6 +103,12 @@ pub fn router(state: AppState) -> Router {
             "/recurring/payments/today",
             get(recurring::recurring_payments_today),
         )
+        // Fiat request stubs
+        .route("/fiat/providers", get(fiat::list_fiat_providers))
+        .route("/fiat/onramp/requests", post(fiat::create_onramp_request))
+        .route("/fiat/offramp/requests", post(fiat::create_offramp_request))
+        .route("/fiat/requests", get(fiat::list_fiat_requests))
+        .route("/fiat/requests/{request_id}", get(fiat::get_fiat_request))
         // Admin endpoints (admin role required)
         .route("/admin/stats", get(admin::get_system_stats))
         .route("/admin/wallets", get(admin::list_all_wallets))
@@ -183,6 +192,12 @@ fn build_cors_layer() -> CorsLayer {
         recurring::delete_recurring_payment,
         recurring::recurring_payments_today,
         recurring::update_last_paid_date,
+        // Fiat endpoints
+        fiat::list_fiat_providers,
+        fiat::create_onramp_request,
+        fiat::create_offramp_request,
+        fiat::list_fiat_requests,
+        fiat::get_fiat_request,
         // Admin endpoints
         admin::get_system_stats,
         admin::list_all_wallets,
@@ -224,6 +239,15 @@ fn build_cors_layer() -> CorsLayer {
             StoredTransaction,
             TokenType,
             TxStatus,
+            // Fiat schemas
+            fiat::CreateFiatRequest,
+            fiat::FiatProviderSummary,
+            fiat::FiatProviderListResponse,
+            fiat::FiatRequestResponse,
+            fiat::FiatRequestListResponse,
+            FiatDirection,
+            FiatRequestStatus,
+            StoredFiatRequest,
             // Admin schemas
             admin::SystemStatsResponse,
             admin::AdminWalletItem,
@@ -258,6 +282,7 @@ fn build_cors_layer() -> CorsLayer {
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "Invites", description = "Invite validation and redemption"),
         (name = "Recurring", description = "Recurring payment scheduling"),
+        (name = "Fiat", description = "Fiat on-ramp/off-ramp provider integrations"),
         (name = "Admin", description = "Admin-only system management"),
         (name = "Health", description = "Liveness and readiness checks")
     ),

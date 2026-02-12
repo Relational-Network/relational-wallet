@@ -156,6 +156,7 @@ impl EncryptedStorage {
             self.paths.bookmarks_dir(),
             self.paths.invites_dir(),
             self.paths.recurring_dir(),
+            self.paths.fiat_dir(),
             self.paths.audit_dir(),
         ];
 

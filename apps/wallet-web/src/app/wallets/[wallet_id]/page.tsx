@@ -172,6 +172,7 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
             style={{
               display: "flex",
               gap: "1rem",
+              flexWrap: "wrap",
               marginBottom: "2rem",
             }}
           >
@@ -215,6 +216,7 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
               href={`/wallets/${wallet.wallet_id}/transactions`}
               style={{
                 flex: 1,
+                minWidth: "180px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -227,6 +229,25 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
               }}
             >
               📜 Transaction History
+            </Link>
+            <Link
+              href={`/wallets/${wallet.wallet_id}/fiat`}
+              style={{
+                flex: 1,
+                minWidth: "180px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "1rem",
+                backgroundColor: wallet.status === "active" ? "#5b6ba3" : "#aaa",
+                color: "white",
+                textDecoration: "none",
+                borderRadius: "4px",
+                fontWeight: "bold",
+                pointerEvents: wallet.status === "active" ? "auto" : "none",
+              }}
+            >
+              € Fiat Ramp
             </Link>
           </section>
 
