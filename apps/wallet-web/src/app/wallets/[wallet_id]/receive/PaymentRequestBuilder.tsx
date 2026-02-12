@@ -3,7 +3,9 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { buildPaymentRequestParams } from "@/lib/paymentRequest";
 
 interface PaymentRequestBuilderProps {
   recipientAddress: string;
@@ -13,17 +15,23 @@ interface PaymentRequestBuilderProps {
  * Builds a shareable link that pre-fills the send form for pull-style requests.
  */
 export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilderProps) {
+  const QR_SIZE = 220;
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"native" | "usdc">("native");
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showQrPopup, setShowQrPopup] = useState(false);
 
   const requestLink = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set("to", recipientAddress);
-    if (amount.trim()) params.set("amount", amount.trim());
-    params.set("token", token);
-    if (note.trim()) params.set("note", note.trim());
+    const params = buildPaymentRequestParams(
+      {
+        to: recipientAddress,
+        amount: amount.trim() || undefined,
+        token,
+        note: note.trim() || undefined,
+      },
+      { includeDefaultToken: true }
+    );
 
     const path = `/pay?${params.toString()}`;
     if (typeof window === "undefined") return path;
@@ -39,6 +47,19 @@ export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilde
       setCopied(false);
     }
   };
+
+  useEffect(() => {
+    if (!showQrPopup) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowQrPopup(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [showQrPopup]);
 
   return (
     <section
@@ -141,21 +162,124 @@ export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilde
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={copyLink}
-        style={{
-          marginTop: "0.75rem",
-          padding: "0.5rem 0.9rem",
-          border: "1px solid #007bff",
-          borderRadius: "4px",
-          backgroundColor: copied ? "#28a745" : "#007bff",
-          color: "white",
-          cursor: "pointer",
-        }}
-      >
-        {copied ? "Copied" : "Copy Link"}
-      </button>
+      <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={copyLink}
+          style={{
+            padding: "0.5rem 0.9rem",
+            border: "1px solid #007bff",
+            borderRadius: "4px",
+            backgroundColor: copied ? "#28a745" : "#007bff",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          {copied ? "Copied" : "Copy Link"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowQrPopup(true)}
+          style={{
+            padding: "0.5rem 0.9rem",
+            border: "1px solid #444",
+            borderRadius: "4px",
+            backgroundColor: "#fff",
+            color: "#222",
+            cursor: "pointer",
+          }}
+        >
+          Generate QR
+        </button>
+      </div>
+
+      {showQrPopup ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Payment request QR code"
+          onClick={() => setShowQrPopup(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(420px, 100%)",
+              backgroundColor: "#fff",
+              borderRadius: "10px",
+              border: "1px solid #ddd",
+              padding: "1rem",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
+            }}
+          >
+            <h4 style={{ margin: "0 0 0.5rem 0", color: "#222" }}>Scan To Open Payment Link</h4>
+            <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.875rem", color: "#666" }}>
+              Fixed-size QR code for faster rendering. Press Esc to close.
+            </p>
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  padding: "0.75rem",
+                  border: "1px solid #ddd",
+                  borderRadius: "6px",
+                  lineHeight: 0,
+                  backgroundColor: "#fff",
+                }}
+              >
+                <QRCodeSVG value={requestLink} size={QR_SIZE} level="M" marginSize={2} />
+              </div>
+            </div>
+            <textarea
+              readOnly
+              value={requestLink}
+              rows={2}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.5rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+                fontFamily: "monospace",
+                fontSize: "0.75rem",
+                marginBottom: "0.75rem",
+                resize: "none",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setShowQrPopup(false)}
+                style={{
+                  padding: "0.5rem 0.9rem",
+                  border: "1px solid #666",
+                  borderRadius: "4px",
+                  backgroundColor: "#fff",
+                  color: "#222",
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

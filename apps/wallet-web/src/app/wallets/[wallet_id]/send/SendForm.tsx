@@ -19,6 +19,7 @@ interface SendFormProps {
   walletId: string;
   publicAddress: string;
   walletLabel: string | null;
+  prefillWarnings?: string[];
   prefill?: {
     to?: string;
     amount?: string;
@@ -41,7 +42,13 @@ type TransactionState =
  * Fixed-size components for faster page loads.
  * Polls every 10 seconds, max 2 minutes, with manual refresh option.
  */
-export function SendForm({ walletId, publicAddress, walletLabel, prefill }: SendFormProps) {
+export function SendForm({
+  walletId,
+  publicAddress,
+  walletLabel,
+  prefill,
+  prefillWarnings = [],
+}: SendFormProps) {
   const router = useRouter();
 
   const prefillTo = prefill?.to ?? "";
@@ -75,12 +82,8 @@ export function SendForm({ walletId, publicAddress, walletLabel, prefill }: Send
     return !isNaN(num) && num > 0;
   };
 
-  // Get decimals for current token
-  const getDecimals = () => (token === "usdc" ? 6 : 18);
-
   // Format amount display
   const formatAmount = (amt: string) => {
-    const decimals = getDecimals();
     const symbol = token === "usdc" ? "USDC" : "AVAX";
     return `${amt} ${symbol}`;
   };
@@ -537,7 +540,7 @@ export function SendForm({ walletId, publicAddress, walletLabel, prefill }: Send
         </div>
       </div>
 
-      {(prefillTo || prefillAmount || prefillNote) && (
+      {(prefillTo || prefillAmount || prefillNote || prefillToken === "usdc" || prefillWarnings.length > 0) && (
         <div
           style={{
             marginBottom: "1rem",
@@ -554,6 +557,13 @@ export function SendForm({ walletId, publicAddress, walletLabel, prefill }: Send
             <div style={{ marginTop: "0.25rem" }}>
               Note: <strong>{prefillNote}</strong>
             </div>
+          )}
+          {prefillWarnings.length > 0 && (
+            <ul style={{ margin: "0.5rem 0 0 1.25rem", padding: 0 }}>
+              {prefillWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
           )}
         </div>
       )}

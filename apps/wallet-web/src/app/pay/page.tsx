@@ -7,6 +7,10 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import {
+  buildPaymentRequestParams,
+  parsePaymentRequestQuery,
+} from "@/lib/paymentRequest";
 
 interface PayPageProps {
   searchParams: Promise<{
@@ -30,6 +34,7 @@ export default async function PayPage({ searchParams }: PayPageProps) {
   }
 
   const query = await searchParams;
+  const parsedRequest = parsePaymentRequestQuery(query);
   const token = await getSessionToken();
 
   let wallets: WalletResponse[] = [];
@@ -50,11 +55,9 @@ export default async function PayPage({ searchParams }: PayPageProps) {
     error = "Authentication token not available.";
   }
 
-  const requestParams = new URLSearchParams();
-  if (query.to) requestParams.set("to", query.to);
-  if (query.amount) requestParams.set("amount", query.amount);
-  if (query.token) requestParams.set("token", query.token);
-  if (query.note) requestParams.set("note", query.note);
+  const requestParams = buildPaymentRequestParams(parsedRequest.prefill, {
+    includeDefaultToken: true,
+  });
   const requestSuffix = requestParams.toString();
 
   return (
@@ -89,12 +92,42 @@ export default async function PayPage({ searchParams }: PayPageProps) {
           Choose which of your wallets should send this payment request.
         </p>
         <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", color: "#666" }}>
-          {query.to ? <div>To: {query.to}</div> : <div>To: not specified</div>}
-          {query.amount ? <div>Amount: {query.amount}</div> : <div>Amount: open</div>}
-          <div>Token: {query.token === "usdc" ? "USDC" : "AVAX"}</div>
-          {query.note ? <div>Note: {query.note}</div> : null}
+          {parsedRequest.prefill.to ? (
+            <div>To: {parsedRequest.prefill.to}</div>
+          ) : (
+            <div>To: not specified</div>
+          )}
+          {parsedRequest.prefill.amount ? (
+            <div>Amount: {parsedRequest.prefill.amount}</div>
+          ) : (
+            <div>Amount: open</div>
+          )}
+          <div>Token: {parsedRequest.prefill.token === "usdc" ? "USDC" : "AVAX"}</div>
+          {parsedRequest.prefill.note ? <div>Note: {parsedRequest.prefill.note}</div> : null}
         </div>
       </section>
+
+      {parsedRequest.warnings.length > 0 ? (
+        <section
+          style={{
+            padding: "0.875rem",
+            border: "1px solid #ffe08a",
+            borderRadius: "8px",
+            marginBottom: "1rem",
+            backgroundColor: "#fffbeb",
+            color: "#7c5800",
+          }}
+        >
+          <p style={{ margin: 0, fontWeight: "bold", fontSize: "0.9375rem" }}>
+            Some link details were adjusted
+          </p>
+          <ul style={{ margin: "0.5rem 0 0 1.25rem", padding: 0 }}>
+            {parsedRequest.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {error ? (
         <div
@@ -152,4 +185,3 @@ export default async function PayPage({ searchParams }: PayPageProps) {
     </main>
   );
 }
-

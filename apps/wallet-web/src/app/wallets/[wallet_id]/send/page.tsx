@@ -7,6 +7,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
 import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import { parsePaymentRequestQuery } from "@/lib/paymentRequest";
 import { SendForm } from "./SendForm";
 
 interface SendPageProps {
@@ -34,6 +35,7 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
 
   const { wallet_id } = await params;
   const query = await searchParams;
+  const parsedRequest = parsePaymentRequestQuery(query);
   const token = await getSessionToken();
 
   // Fetch wallet details
@@ -104,12 +106,8 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
           walletId={wallet.wallet_id}
           publicAddress={wallet.public_address}
           walletLabel={wallet.label ?? null}
-          prefill={{
-            to: query.to,
-            amount: query.amount,
-            token: query.token,
-            note: query.note,
-          }}
+          prefill={parsedRequest.prefill}
+          prefillWarnings={parsedRequest.warnings}
         />
       ) : null}
     </main>
