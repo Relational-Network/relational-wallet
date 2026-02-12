@@ -10,6 +10,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use truelayer_signing::{sign_with_pem, Method};
+use uuid::Uuid;
 
 const DEFAULT_API_BASE_URL: &str = "https://api.truelayer-sandbox.com";
 const DEFAULT_AUTH_BASE_URL: &str = "https://auth.truelayer-sandbox.com";
@@ -144,6 +145,8 @@ impl TrueLayerClient {
         &self,
         request: CreateOnRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
+        let provider_user_id = normalize_user_id_as_uuid(request.user_id);
+
         let mut metadata = serde_json::Map::new();
         metadata.insert(
             "wallet_id".to_string(),
@@ -181,7 +184,7 @@ impl TrueLayerClient {
                 }
             },
             "user": {
-                "id": request.user_id
+                "id": provider_user_id
             },
             "metadata": metadata
         });
@@ -540,6 +543,13 @@ fn load_signing_key_pem() -> Result<String, TrueLayerError> {
     Ok(trimmed)
 }
 
+fn normalize_user_id_as_uuid(raw_user_id: &str) -> String {
+    if let Ok(parsed) = Uuid::parse_str(raw_user_id) {
+        return parsed.to_string();
+    }
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, raw_user_id.as_bytes()).to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,5 +584,19 @@ mod tests {
             map_payout_status("pending"),
             ProviderExecutionStatus::Pending
         );
+    }
+
+    #[test]
+    fn normalize_user_id_passes_through_valid_uuid() {
+        let user_id = "3f4d6542-b8ce-4226-93d3-80d6f14d6db2";
+        assert_eq!(normalize_user_id_as_uuid(user_id), user_id);
+    }
+
+    #[test]
+    fn normalize_user_id_generates_stable_uuid_for_non_uuid_values() {
+        let first = normalize_user_id_as_uuid("user_2zR6yG2iJ0S2gr3");
+        let second = normalize_user_id_as_uuid("user_2zR6yG2iJ0S2gr3");
+        assert_eq!(first, second);
+        assert!(Uuid::parse_str(&first).is_ok());
     }
 }

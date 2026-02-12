@@ -41,7 +41,7 @@ tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
 # -----------------------------------------------------------------------------
 # Utilities
 # -----------------------------------------------------------------------------
-uuid = { version = "1.20.0", features = ["v4", "serde", "fast-rng"] }
+uuid = { version = "1.20.0", features = ["v4", "v5", "serde", "fast-rng"] }
 chrono = { version = "0.4.43", default-features = false, features = ["clock", "serde"] }
 url = "2.5.4"
 
