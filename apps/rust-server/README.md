@@ -183,10 +183,11 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_SIGNING_KEY_ID` | TrueLayer signing key id | — |
 | `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` | Path to TrueLayer private key PEM | — |
 | `TRUELAYER_MERCHANT_ACCOUNT_ID` | TrueLayer merchant account id | — |
+| `TRUELAYER_HPP_RETURN_URI` | Hosted payment return URL (must be allow-listed in TrueLayer Console) | — |
 | `TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME` | Off-ramp beneficiary name (sandbox) | — |
 | `TRUELAYER_OFFRAMP_IBAN` | Off-ramp beneficiary IBAN (sandbox) | — |
 
-TrueLayer note: OAuth client credentials must be granted the `payments` scope. Off-ramp also requires payout capability enabled for the same client in TrueLayer Console.
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp requires `TRUELAYER_HPP_RETURN_URI` to be allow-listed in TrueLayer Console. Off-ramp also requires payout capability enabled for the same client.
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 

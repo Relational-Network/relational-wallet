@@ -44,6 +44,7 @@ loader.env.TRUELAYER_SIGNING_KEY_ID = { passthrough = true }
 loader.env.TRUELAYER_SIGNING_PRIVATE_KEY_PEM = { passthrough = true }
 loader.env.TRUELAYER_SIGNING_PRIVATE_KEY_PATH = { passthrough = true }
 loader.env.TRUELAYER_MERCHANT_ACCOUNT_ID = { passthrough = true }
+loader.env.TRUELAYER_HPP_RETURN_URI = { passthrough = true }
 loader.env.TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME = { passthrough = true }
 loader.env.TRUELAYER_OFFRAMP_IBAN = { passthrough = true }
 

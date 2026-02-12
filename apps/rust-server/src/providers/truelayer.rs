@@ -79,6 +79,7 @@ pub struct TrueLayerClient {
     signing_private_key_pem: String,
     merchant_account_id: String,
     currency: String,
+    hosted_page_return_uri: Option<String>,
     payout_account_holder_name: Option<String>,
     payout_iban: Option<String>,
     http: Client,
@@ -104,6 +105,10 @@ impl TrueLayerClient {
             && required_env_present("TRUELAYER_OFFRAMP_IBAN")
     }
 
+    pub fn supports_onramp() -> bool {
+        required_env_present("TRUELAYER_HPP_RETURN_URI")
+    }
+
     pub fn from_env() -> Result<Self, TrueLayerError> {
         let api_base_url = env_or_default("TRUELAYER_API_BASE_URL", DEFAULT_API_BASE_URL);
         let auth_base_url = env_or_default("TRUELAYER_AUTH_BASE_URL", DEFAULT_AUTH_BASE_URL);
@@ -117,6 +122,7 @@ impl TrueLayerClient {
         let signing_private_key_pem = load_signing_key_pem()?;
         let merchant_account_id = env_required("TRUELAYER_MERCHANT_ACCOUNT_ID")?;
         let currency = env_or_default("TRUELAYER_CURRENCY", DEFAULT_CURRENCY).to_ascii_uppercase();
+        let hosted_page_return_uri = env_optional("TRUELAYER_HPP_RETURN_URI");
 
         let payout_account_holder_name = env_optional("TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME");
         let payout_iban = env_optional("TRUELAYER_OFFRAMP_IBAN");
@@ -136,6 +142,7 @@ impl TrueLayerClient {
             signing_private_key_pem,
             merchant_account_id,
             currency,
+            hosted_page_return_uri,
             payout_account_holder_name,
             payout_iban,
             http,
@@ -213,9 +220,15 @@ impl TrueLayerClient {
             .map(str::to_string);
 
         let action_url = response
-            .pointer("/authorization_flow/actions/next/url")
+            .pointer("/hosted_page/uri")
             .and_then(Value::as_str)
             .map(str::to_string)
+            .or_else(|| {
+                response
+                    .pointer("/authorization_flow/actions/next/url")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
             .or_else(|| {
                 response
                     .pointer("/authorization_flow/actions/next/uri")
@@ -224,14 +237,19 @@ impl TrueLayerClient {
             })
             .or_else(|| {
                 resource_token.as_ref().map(|token| {
-                    format!(
-                        "{}/payments#payment_id={}&resource_token={}",
-                        self.hosted_payments_base_url.trim_end_matches('/'),
-                        payment_id,
-                        token
+                    build_hpp_url(
+                        &self.hosted_payments_base_url,
+                        &payment_id,
+                        token,
+                        self.hosted_page_return_uri.as_deref(),
                     )
                 })
             });
+
+        let action_url = ensure_hpp_return_uri(
+            action_url,
+            self.hosted_page_return_uri.as_deref(),
+        );
 
         Ok(ProviderExecutionResult {
             provider_reference: payment_id,
@@ -286,7 +304,8 @@ impl TrueLayerClient {
                 "account_identifier": {
                     "type": "iban",
                     "iban": iban
-                }
+                },
+                "reference": format!("rw-offramp-{}", request.request_id)
             },
             "merchant_account_id": self.merchant_account_id,
             "metadata": metadata
@@ -560,6 +579,54 @@ fn build_provider_user(raw_user_id: &str) -> Value {
     })
 }
 
+fn build_hpp_url(
+    hosted_payments_base_url: &str,
+    payment_id: &str,
+    resource_token: &str,
+    return_uri: Option<&str>,
+) -> String {
+    let mut url = format!(
+        "{}/payments#payment_id={}&resource_token={}",
+        hosted_payments_base_url.trim_end_matches('/'),
+        payment_id,
+        resource_token
+    );
+
+    if let Some(uri) = return_uri {
+        if !uri.trim().is_empty() {
+            let encoded_uri: String = url::form_urlencoded::byte_serialize(uri.as_bytes()).collect();
+            url.push_str("&return_uri=");
+            url.push_str(&encoded_uri);
+        }
+    }
+
+    url
+}
+
+fn ensure_hpp_return_uri(url: Option<String>, return_uri: Option<&str>) -> Option<String> {
+    let mut url = url?;
+    let Some(return_uri) = return_uri else {
+        return Some(url);
+    };
+    if return_uri.trim().is_empty() || url.contains("return_uri=") {
+        return Some(url);
+    }
+    if !url.starts_with("https://payment.truelayer") {
+        return Some(url);
+    }
+
+    let encoded_uri: String = url::form_urlencoded::byte_serialize(return_uri.as_bytes()).collect();
+    if let Some(fragment_idx) = url.find('#') {
+        if fragment_idx + 1 < url.len() {
+            url.push('&');
+        }
+        url.push_str("return_uri=");
+        url.push_str(&encoded_uri);
+    }
+
+    Some(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,5 +690,33 @@ mod tests {
             .and_then(Value::as_str)
             .expect("email should exist");
         assert!(email.contains('@'));
+    }
+
+    #[test]
+    fn build_hpp_url_includes_encoded_return_uri_when_provided() {
+        let url = build_hpp_url(
+            "https://payment.truelayer-sandbox.com",
+            "payment-id",
+            "resource-token",
+            Some("https://wallet.example.com/fiat/return?from=onramp"),
+        );
+        assert!(url.contains("payment_id=payment-id"));
+        assert!(url.contains("resource_token=resource-token"));
+        assert!(
+            url.contains("return_uri=https%3A%2F%2Fwallet.example.com%2Ffiat%2Freturn%3Ffrom%3Donramp")
+        );
+    }
+
+    #[test]
+    fn ensure_hpp_return_uri_appends_when_missing() {
+        let url = ensure_hpp_return_uri(
+            Some(
+                "https://payment.truelayer-sandbox.com/payments#payment_id=a&resource_token=b"
+                    .to_string(),
+            ),
+            Some("https://wallet.example.com/fiat/return"),
+        )
+        .expect("url should be returned");
+        assert!(url.contains("return_uri="));
     }
 }
