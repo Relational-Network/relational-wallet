@@ -16,6 +16,7 @@ const DEFAULT_API_BASE_URL: &str = "https://api.truelayer-sandbox.com";
 const DEFAULT_AUTH_BASE_URL: &str = "https://auth.truelayer-sandbox.com";
 const DEFAULT_HOSTED_PAYMENTS_BASE_URL: &str = "https://payment.truelayer-sandbox.com";
 const DEFAULT_CURRENCY: &str = "EUR";
+const PAYMENTS_SCOPE: &str = "payments";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderExecutionStatus {
@@ -145,7 +146,7 @@ impl TrueLayerClient {
         &self,
         request: CreateOnRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
-        let provider_user_id = normalize_user_id_as_uuid(request.user_id);
+        let provider_user = build_provider_user(request.user_id);
 
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -183,14 +184,12 @@ impl TrueLayerClient {
                     "reference": reference
                 }
             },
-            "user": {
-                "id": provider_user_id
-            },
+            "user": provider_user,
             "metadata": metadata
         });
 
         let response = self
-            .signed_post_json("/v3/payments", "payments", &payload, request.request_id)
+            .signed_post_json("/v3/payments", PAYMENTS_SCOPE, &payload, request.request_id)
             .await?;
 
         let payment_id = response
@@ -294,7 +293,7 @@ impl TrueLayerClient {
         });
 
         let response = self
-            .signed_post_json("/v3/payouts", "payouts", &payload, request.request_id)
+            .signed_post_json("/v3/payouts", PAYMENTS_SCOPE, &payload, request.request_id)
             .await?;
 
         let payout_id = response
@@ -324,7 +323,7 @@ impl TrueLayerClient {
         provider_reference: &str,
     ) -> Result<ProviderExecutionStatus, TrueLayerError> {
         let response = self
-            .get_json(&format!("/v3/payments/{provider_reference}"), "payments")
+            .get_json(&format!("/v3/payments/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
         let status = response
             .get("status")
@@ -340,7 +339,7 @@ impl TrueLayerClient {
         provider_reference: &str,
     ) -> Result<ProviderExecutionStatus, TrueLayerError> {
         let response = self
-            .get_json(&format!("/v3/payouts/{provider_reference}"), "payouts")
+            .get_json(&format!("/v3/payouts/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
         let status = response
             .get("status")
@@ -550,6 +549,17 @@ fn normalize_user_id_as_uuid(raw_user_id: &str) -> String {
     Uuid::new_v5(&Uuid::NAMESPACE_URL, raw_user_id.as_bytes()).to_string()
 }
 
+fn build_provider_user(raw_user_id: &str) -> Value {
+    let provider_user_id = normalize_user_id_as_uuid(raw_user_id);
+    // TrueLayer requires user.name and either user.email or user.phone.
+    let email = format!("user-{provider_user_id}@sandbox.relational.network");
+    json!({
+        "id": provider_user_id,
+        "name": "Relational Wallet User",
+        "email": email
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -598,5 +608,20 @@ mod tests {
         let second = normalize_user_id_as_uuid("user_2zR6yG2iJ0S2gr3");
         assert_eq!(first, second);
         assert!(Uuid::parse_str(&first).is_ok());
+    }
+
+    #[test]
+    fn build_provider_user_contains_required_payment_fields() {
+        let user = build_provider_user("user_2zR6yG2iJ0S2gr3");
+        assert!(user.get("id").and_then(Value::as_str).is_some());
+        assert_eq!(
+            user.get("name").and_then(Value::as_str),
+            Some("Relational Wallet User")
+        );
+        let email = user
+            .get("email")
+            .and_then(Value::as_str)
+            .expect("email should exist");
+        assert!(email.contains('@'));
     }
 }

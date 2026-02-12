@@ -48,10 +48,13 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   const [selectedProvider, setSelectedProvider] = useState(DEFAULT_PROVIDER);
   const [requests, setRequests] = useState<FiatRequest[]>([]);
   const [amountOnRamp, setAmountOnRamp] = useState("25");
+  const [noteOnRamp, setNoteOnRamp] = useState("");
   const [amountOffRamp, setAmountOffRamp] = useState("10");
-  const [note, setNote] = useState("");
+  const [noteOffRamp, setNoteOffRamp] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState<"on" | "off" | null>(null);
+  const [isOnRampDialogOpen, setIsOnRampDialogOpen] = useState(false);
+  const [isOffRampDialogOpen, setIsOffRampDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [providerActionUrl, setProviderActionUrl] = useState<string | null>(null);
@@ -128,6 +131,7 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
     setProviderActionUrl(null);
 
     const amount = direction === "on" ? amountOnRamp : amountOffRamp;
+    const note = direction === "on" ? noteOnRamp : noteOffRamp;
     if (!amount.trim()) {
       setError("Amount is required.");
       return;
@@ -163,7 +167,13 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
         `${direction === "on" ? "On-ramp" : "Off-ramp"} request created: ${payload.request_id}`
       );
       setProviderActionUrl(payload.provider_action_url || null);
-      setNote("");
+      if (direction === "on") {
+        setNoteOnRamp("");
+        setIsOnRampDialogOpen(false);
+      } else {
+        setNoteOffRamp("");
+        setIsOffRampDialogOpen(false);
+      }
       await fetchRequests();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Network error");
@@ -188,10 +198,10 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
         backgroundColor: "#fff",
       }}
     >
-      <h2 style={{ marginTop: 0 }}>Fiat On/Off-Ramp</h2>
+      <h2 style={{ marginTop: 0 }}>Fiat On-Ramp / Off-Ramp</h2>
       <p style={{ marginTop: 0, color: "#666", fontSize: "0.875rem" }}>
-        Creates live sandbox requests via backend provider integration. Production cutover should
-        be configuration-only.
+        On-ramp converts fiat to tokens. Off-ramp converts tokens back to fiat. Both flows use
+        live sandbox provider APIs so production cutover remains configuration-driven.
       </p>
       {!isProviderEnabled && (
         <p style={{ marginTop: 0, color: "#b32424", fontSize: "0.875rem" }}>
@@ -225,101 +235,90 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
             ))}
           </select>
         </div>
+      </div>
 
-        <div>
-          <label htmlFor="onrampAmount" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            On-Ramp Amount (EUR)
-          </label>
-          <input
-            id="onrampAmount"
-            type="text"
-            value={amountOnRamp}
-            onChange={(event) => setAmountOnRamp(event.target.value)}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: "0.75rem",
+          marginBottom: "1rem",
+        }}
+      >
+        <div
+          style={{
+            border: "1px solid #d9e9f8",
+            borderRadius: "8px",
+            padding: "0.75rem",
+            backgroundColor: "#f4f9ff",
+          }}
+        >
+          <h3 style={{ margin: "0 0 0.4rem 0", fontSize: "1rem" }}>On-Ramp: Fiat to Tokens</h3>
+          <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
+            Use this when you want to buy tokens with fiat.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setSuccess(null);
+              setProviderActionUrl(null);
+              setIsOnRampDialogOpen(true);
+            }}
+            disabled={isSubmitting !== null || !canCreateOnRamp}
             style={{
               width: "100%",
-              boxSizing: "border-box",
-              padding: "0.6rem",
+              padding: "0.6rem 0.95rem",
+              border: "none",
               borderRadius: "4px",
-              border: "1px solid #ddd",
+              backgroundColor: isSubmitting !== null || !canCreateOnRamp ? "#84b6dd" : "#0b7bd3",
+              color: "#fff",
+              cursor: isSubmitting !== null || !canCreateOnRamp ? "not-allowed" : "pointer",
+              fontWeight: "bold",
             }}
-          />
+          >
+            Open On-Ramp Dialog
+          </button>
         </div>
 
-        <div>
-          <label htmlFor="offrampAmount" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Off-Ramp Amount (EUR)
-          </label>
-          <input
-            id="offrampAmount"
-            type="text"
-            value={amountOffRamp}
-            onChange={(event) => setAmountOffRamp(event.target.value)}
+        <div
+          style={{
+            border: "1px solid #dbe3ea",
+            borderRadius: "8px",
+            padding: "0.75rem",
+            backgroundColor: "#f7f9fc",
+          }}
+        >
+          <h3 style={{ margin: "0 0 0.4rem 0", fontSize: "1rem" }}>Off-Ramp: Tokens to Fiat</h3>
+          <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
+            Use this when you want to redeem tokens into fiat.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setSuccess(null);
+              setProviderActionUrl(null);
+              setIsOffRampDialogOpen(true);
+            }}
+            disabled={isSubmitting !== null || !canCreateOffRamp}
             style={{
               width: "100%",
-              boxSizing: "border-box",
-              padding: "0.6rem",
+              padding: "0.6rem 0.95rem",
+              border: "none",
               borderRadius: "4px",
-              border: "1px solid #ddd",
+              backgroundColor: isSubmitting !== null || !canCreateOffRamp ? "#8fa7be" : "#4f6f8b",
+              color: "#fff",
+              cursor: isSubmitting !== null || !canCreateOffRamp ? "not-allowed" : "pointer",
+              fontWeight: "bold",
             }}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="fiatNote" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Note (optional)
-          </label>
-          <input
-            id="fiatNote"
-            type="text"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            maxLength={140}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "0.6rem",
-              borderRadius: "4px",
-              border: "1px solid #ddd",
-            }}
-          />
+          >
+            Open Off-Ramp Dialog
+          </button>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-        <button
-          type="button"
-          onClick={() => createRequest("on")}
-          disabled={isSubmitting !== null || !canCreateOnRamp}
-          style={{
-            padding: "0.6rem 0.95rem",
-            border: "none",
-            borderRadius: "4px",
-            backgroundColor: isSubmitting !== null || !canCreateOnRamp ? "#84b6dd" : "#0b7bd3",
-            color: "#fff",
-            cursor: isSubmitting !== null || !canCreateOnRamp ? "not-allowed" : "pointer",
-            fontWeight: "bold",
-          }}
-        >
-          {isSubmitting === "on" ? "Creating..." : "Create On-Ramp Request"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => createRequest("off")}
-          disabled={isSubmitting !== null || !canCreateOffRamp}
-          style={{
-            padding: "0.6rem 0.95rem",
-            border: "none",
-            borderRadius: "4px",
-            backgroundColor: isSubmitting !== null || !canCreateOffRamp ? "#8fa7be" : "#4f6f8b",
-            color: "#fff",
-            cursor: isSubmitting !== null || !canCreateOffRamp ? "not-allowed" : "pointer",
-            fontWeight: "bold",
-          }}
-        >
-          {isSubmitting === "off" ? "Creating..." : "Create Off-Ramp Request"}
-        </button>
-
         <button
           type="button"
           onClick={fetchRequests}
@@ -417,6 +416,226 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {isOnRampDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="onRampDialogTitle"
+          onClick={() => setIsOnRampDialogOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(10, 25, 41, 0.55)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 60,
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: "460px",
+              backgroundColor: "#fff",
+              borderRadius: "10px",
+              border: "1px solid #d6e6f5",
+              boxShadow: "0 20px 48px rgba(7, 24, 39, 0.2)",
+              padding: "1rem",
+            }}
+          >
+            <h3 id="onRampDialogTitle" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
+              Create On-Ramp Request
+            </h3>
+            <p style={{ marginTop: 0, marginBottom: "0.75rem", color: "#5a6773", fontSize: "0.85rem" }}>
+              Fiat to tokens. Submit and continue in provider to authorize bank transfer.
+            </p>
+            <label
+              htmlFor="onRampAmountDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Amount (EUR)
+            </label>
+            <input
+              id="onRampAmountDialog"
+              type="text"
+              value={amountOnRamp}
+              onChange={(event) => setAmountOnRamp(event.target.value)}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+                marginBottom: "0.6rem",
+              }}
+            />
+            <label
+              htmlFor="onRampNoteDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Note (optional)
+            </label>
+            <input
+              id="onRampNoteDialog"
+              type="text"
+              value={noteOnRamp}
+              onChange={(event) => setNoteOnRamp(event.target.value)}
+              maxLength={140}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.9rem" }}>
+              <button
+                type="button"
+                onClick={() => setIsOnRampDialogOpen(false)}
+                style={{
+                  padding: "0.55rem 0.9rem",
+                  border: "1px solid #b9c7d5",
+                  borderRadius: "4px",
+                  backgroundColor: "#fff",
+                  color: "#4c5a67",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => createRequest("on")}
+                disabled={isSubmitting !== null || !canCreateOnRamp}
+                style={{
+                  padding: "0.55rem 0.9rem",
+                  border: "none",
+                  borderRadius: "4px",
+                  backgroundColor:
+                    isSubmitting !== null || !canCreateOnRamp ? "#84b6dd" : "#0b7bd3",
+                  color: "#fff",
+                  fontWeight: "bold",
+                  cursor: isSubmitting !== null || !canCreateOnRamp ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSubmitting === "on" ? "Creating..." : "Create On-Ramp Request"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isOffRampDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="offRampDialogTitle"
+          onClick={() => setIsOffRampDialogOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(14, 19, 34, 0.55)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 60,
+            padding: "1rem",
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: "460px",
+              backgroundColor: "#fff",
+              borderRadius: "10px",
+              border: "1px solid #d9e2eb",
+              boxShadow: "0 20px 48px rgba(7, 24, 39, 0.2)",
+              padding: "1rem",
+            }}
+          >
+            <h3 id="offRampDialogTitle" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
+              Create Off-Ramp Request
+            </h3>
+            <p style={{ marginTop: 0, marginBottom: "0.75rem", color: "#5a6773", fontSize: "0.85rem" }}>
+              Tokens to fiat. Submit and track payout status in request history.
+            </p>
+            <label
+              htmlFor="offRampAmountDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Amount (EUR)
+            </label>
+            <input
+              id="offRampAmountDialog"
+              type="text"
+              value={amountOffRamp}
+              onChange={(event) => setAmountOffRamp(event.target.value)}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+                marginBottom: "0.6rem",
+              }}
+            />
+            <label
+              htmlFor="offRampNoteDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Note (optional)
+            </label>
+            <input
+              id="offRampNoteDialog"
+              type="text"
+              value={noteOffRamp}
+              onChange={(event) => setNoteOffRamp(event.target.value)}
+              maxLength={140}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.9rem" }}>
+              <button
+                type="button"
+                onClick={() => setIsOffRampDialogOpen(false)}
+                style={{
+                  padding: "0.55rem 0.9rem",
+                  border: "1px solid #b9c7d5",
+                  borderRadius: "4px",
+                  backgroundColor: "#fff",
+                  color: "#4c5a67",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => createRequest("off")}
+                disabled={isSubmitting !== null || !canCreateOffRamp}
+                style={{
+                  padding: "0.55rem 0.9rem",
+                  border: "none",
+                  borderRadius: "4px",
+                  backgroundColor:
+                    isSubmitting !== null || !canCreateOffRamp ? "#8fa7be" : "#4f6f8b",
+                  color: "#fff",
+                  fontWeight: "bold",
+                  cursor: isSubmitting !== null || !canCreateOffRamp ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSubmitting === "off" ? "Creating..." : "Create Off-Ramp Request"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>

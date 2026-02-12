@@ -186,6 +186,8 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME` | Off-ramp beneficiary name (sandbox) | — |
 | `TRUELAYER_OFFRAMP_IBAN` | Off-ramp beneficiary IBAN (sandbox) | — |
 
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. Off-ramp also requires payout capability enabled for the same client in TrueLayer Console.
+
 ## Route Map (all prefixed with /v1, HTTPS only)
 
 ### Authentication
