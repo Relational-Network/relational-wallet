@@ -52,6 +52,15 @@ On-chain ledger for AVAX and stablecoin transfers:
 - **Transfer execution**: Send AVAX and USDC via Fuji testnet or mainnet
 - **Gas estimation**: Dynamic RPC-based estimation with optional override
 
+### 4. Contracts Workspace (`apps/contracts`)
+
+Foundry-based smart contract workspace for the Euro stablecoin:
+
+- **Contract**: `RelationalEuro (rEUR)`
+- **Controls**: `mint`, `burn`, `pause/unpause`, role-based access (`AccessControl`)
+- **Tests**: Forge test suite under `apps/contracts/test/`
+- **Deployment**: `apps/contracts/script/DeployFuji.s.sol`
+
 ## Data Flow
 
 ### Wallet Creation
@@ -111,6 +120,12 @@ relational-wallet/
 │       │   ├── components/   # React components
 │       │   └── lib/          # API client
 │       └── package.json
+│   └── contracts/            # Foundry smart contracts workspace
+│       ├── src/              # Solidity contracts
+│       ├── script/           # Deployment scripts
+│       ├── test/             # Forge tests
+│       ├── foundry.toml
+│       └── README.md
 ├── docs/
 │   ├── gh-pages/             # This documentation
 │   └── architecture/         # PlantUML diagrams

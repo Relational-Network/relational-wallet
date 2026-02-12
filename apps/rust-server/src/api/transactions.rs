@@ -454,13 +454,29 @@ pub async fn send_transaction(
         TokenType::Erc20(request.token.clone())
     };
 
+    // If recipient belongs to an internal wallet, mirror a transaction record
+    // to that wallet so history lookups stay wallet-local and scalable.
+    let recipient_wallet_id = wallet_repo
+        .list_all_wallets()
+        .ok()
+        .and_then(|wallets| {
+            wallets
+                .into_iter()
+                .find(|w| {
+                    w.status != WalletStatus::Deleted
+                        && w.public_address.eq_ignore_ascii_case(&request.to)
+                })
+                .map(|w| w.wallet_id)
+        });
+
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),
         wallet_id.clone(),
+        recipient_wallet_id.clone().filter(|id| id != &wallet_id),
         wallet.public_address.clone(),
         request.to.clone(),
         request.amount.clone(),
-        token_type,
+        token_type.clone(),
         request.network.clone(),
         result.explorer_url.clone(),
     );
@@ -468,6 +484,30 @@ pub async fn send_transaction(
     let tx_repo = TransactionRepository::new(&storage);
     if let Err(e) = tx_repo.create(&stored_tx) {
         tracing::warn!("Failed to store transaction record: {}", e);
+    }
+
+    // Mirror recipient-side transaction record for internal transfers.
+    if let Some(recipient_id) = recipient_wallet_id {
+        if recipient_id != wallet_id {
+            let mirrored_tx = StoredTransaction::new_pending(
+                result.tx_hash.clone(),
+                recipient_id.clone(),
+                Some(wallet_id.clone()),
+                wallet.public_address.clone(),
+                request.to.clone(),
+                request.amount.clone(),
+                token_type,
+                request.network.clone(),
+                result.explorer_url.clone(),
+            );
+            if let Err(e) = tx_repo.create(&mirrored_tx) {
+                tracing::warn!(
+                    recipient_wallet_id = %recipient_id,
+                    "Failed to store mirrored recipient transaction record: {}",
+                    e
+                );
+            }
+        }
     }
 
     // Log audit event
@@ -529,35 +569,23 @@ pub async fn list_transactions(
 
     let tx_repo = TransactionRepository::new(&storage);
     let mut summaries: Vec<TransactionSummary> = Vec::new();
+    let wallet_address = wallet.public_address.to_lowercase();
 
-    // Get OUTGOING transactions (sent from this wallet)
-    let outgoing = tx_repo
+    // List wallet-local transaction records only.
+    // Direction is derived by comparing addresses.
+    let wallet_txs = tx_repo
         .list_by_wallet(&wallet_id)
         .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
 
-    for tx in &outgoing {
-        summaries.push(to_summary_with_direction(tx, "sent"));
-    }
-
-    // Get INCOMING transactions (received by this wallet)
-    // Search all user's wallets for transactions TO this wallet's address
-    let wallet_address = wallet.public_address.to_lowercase();
-    let user_wallets = wallet_repo.list_by_owner(&user.user_id).unwrap_or_default();
-
-    for other_wallet in &user_wallets {
-        if other_wallet.wallet_id == wallet_id {
-            continue; // Skip current wallet (already processed as outgoing)
-        }
-
-        let other_txs = tx_repo
-            .list_by_wallet(&other_wallet.wallet_id)
-            .unwrap_or_default();
-        for tx in &other_txs {
-            // Check if this transaction was sent TO the current wallet
-            if tx.to.to_lowercase() == wallet_address {
-                summaries.push(to_summary_with_direction(tx, "received"));
-            }
-        }
+    for tx in &wallet_txs {
+        let direction = if tx.from.to_lowercase() == wallet_address {
+            "sent"
+        } else if tx.to.to_lowercase() == wallet_address {
+            "received"
+        } else {
+            "sent"
+        };
+        summaries.push(to_summary_with_direction(tx, direction));
     }
 
     // Sort all by timestamp descending (newest first)
@@ -661,6 +689,17 @@ pub async fn get_transaction_status(
                 receipt.success,
             );
 
+            // Keep mirrored internal counterparty record in sync, if present.
+            if let Some(counterparty_wallet_id) = &tx.counterparty_wallet_id {
+                let _ = tx_repo.update_from_receipt(
+                    counterparty_wallet_id,
+                    &tx_hash,
+                    receipt.block_number,
+                    receipt.gas_used,
+                    receipt.success,
+                );
+            }
+
             let confirmations = current_block.saturating_sub(receipt.block_number);
 
             return Ok(Json(TransactionStatusResponse {
@@ -711,4 +750,161 @@ pub async fn get_transaction_status(
         gas_used: tx.gas_used.map(|g| g.to_string()),
         timestamp: Some(tx.updated_at.to_rfc3339()),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::{AuthenticatedUser, Role};
+    use crate::storage::{TransactionRepository, WalletMetadata, WalletRepository};
+    use axum::extract::{Path, Query, State};
+    use chrono::Utc;
+
+    fn mock_auth(user_id: &str) -> Auth {
+        Auth(AuthenticatedUser {
+            user_id: user_id.to_string(),
+            role: Role::Client,
+            session_id: None,
+            issuer: "https://test.clerk.dev".to_string(),
+            expires_at: Utc::now().timestamp() + 3600,
+        })
+    }
+
+    fn wallet_meta(wallet_id: &str, owner_user_id: &str, public_address: &str) -> WalletMetadata {
+        WalletMetadata {
+            wallet_id: wallet_id.to_string(),
+            owner_user_id: owner_user_id.to_string(),
+            public_address: public_address.to_string(),
+            created_at: Utc::now(),
+            status: WalletStatus::Active,
+            label: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn list_transactions_shows_received_for_mirrored_cross_user_record() {
+        let state = AppState::default();
+        let storage = state.storage();
+        let wallet_repo = WalletRepository::new(storage);
+        let tx_repo = TransactionRepository::new(storage);
+
+        let sender_wallet_id = "sender-wallet-1";
+        let receiver_wallet_id = "receiver-wallet-1";
+        let sender_addr = "0x1111111111111111111111111111111111111111";
+        let receiver_addr = "0x2222222222222222222222222222222222222222";
+        let tx_hash = "0xabc111";
+
+        wallet_repo
+            .create(
+                &wallet_meta(sender_wallet_id, "user-a", sender_addr),
+                b"test-key-a",
+            )
+            .unwrap();
+        wallet_repo
+            .create(
+                &wallet_meta(receiver_wallet_id, "user-b", receiver_addr),
+                b"test-key-b",
+            )
+            .unwrap();
+
+        let sender_tx = StoredTransaction::new_pending(
+            tx_hash.to_string(),
+            sender_wallet_id.to_string(),
+            Some(receiver_wallet_id.to_string()),
+            sender_addr.to_string(),
+            receiver_addr.to_string(),
+            "5".to_string(),
+            TokenType::Native,
+            "fuji".to_string(),
+            "https://testnet.snowtrace.io/tx/0xabc111".to_string(),
+        );
+        tx_repo.create(&sender_tx).unwrap();
+
+        let mut receiver_tx = StoredTransaction::new_pending(
+            tx_hash.to_string(),
+            receiver_wallet_id.to_string(),
+            Some(sender_wallet_id.to_string()),
+            sender_addr.to_string(),
+            receiver_addr.to_string(),
+            "5".to_string(),
+            TokenType::Native,
+            "fuji".to_string(),
+            "https://testnet.snowtrace.io/tx/0xabc111".to_string(),
+        );
+        receiver_tx.status = TxStatus::Confirmed;
+        tx_repo.create(&receiver_tx).unwrap();
+
+        let response = list_transactions(
+            mock_auth("user-b"),
+            State(state.clone()),
+            Path(receiver_wallet_id.to_string()),
+            Query(TransactionListQuery {
+                network: None,
+                limit: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.transactions.len(), 1);
+        assert_eq!(response.transactions[0].tx_hash, tx_hash);
+        assert_eq!(response.transactions[0].direction, "received");
+        assert_eq!(response.transactions[0].from.to_lowercase(), sender_addr);
+        assert_eq!(response.transactions[0].to.to_lowercase(), receiver_addr);
+    }
+
+    #[tokio::test]
+    async fn get_transaction_status_works_for_receiver_mirrored_record() {
+        let state = AppState::default();
+        let storage = state.storage();
+        let wallet_repo = WalletRepository::new(storage);
+        let tx_repo = TransactionRepository::new(storage);
+
+        let sender_wallet_id = "sender-wallet-2";
+        let receiver_wallet_id = "receiver-wallet-2";
+        let sender_addr = "0x3333333333333333333333333333333333333333";
+        let receiver_addr = "0x4444444444444444444444444444444444444444";
+        let tx_hash = "0xabc222";
+
+        wallet_repo
+            .create(
+                &wallet_meta(sender_wallet_id, "user-a", sender_addr),
+                b"test-key-a2",
+            )
+            .unwrap();
+        wallet_repo
+            .create(
+                &wallet_meta(receiver_wallet_id, "user-b", receiver_addr),
+                b"test-key-b2",
+            )
+            .unwrap();
+
+        let mut receiver_tx = StoredTransaction::new_pending(
+            tx_hash.to_string(),
+            receiver_wallet_id.to_string(),
+            Some(sender_wallet_id.to_string()),
+            sender_addr.to_string(),
+            receiver_addr.to_string(),
+            "7".to_string(),
+            TokenType::Native,
+            "fuji".to_string(),
+            "https://testnet.snowtrace.io/tx/0xabc222".to_string(),
+        );
+        receiver_tx.status = TxStatus::Confirmed;
+        receiver_tx.block_number = None;
+        receiver_tx.gas_used = None;
+        tx_repo.create(&receiver_tx).unwrap();
+
+        let response = get_transaction_status(
+            mock_auth("user-b"),
+            State(state.clone()),
+            Path((receiver_wallet_id.to_string(), tx_hash.to_string())),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status, "confirmed");
+        assert_eq!(response.tx_hash, tx_hash);
+        assert!(response.block_number.is_none());
+    }
 }

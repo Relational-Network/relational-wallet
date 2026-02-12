@@ -54,6 +54,9 @@ pub struct StoredTransaction {
     pub tx_hash: String,
     /// Wallet ID that initiated the transaction
     pub wallet_id: String,
+    /// Optional counterparty wallet ID when both sides are internal wallets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counterparty_wallet_id: Option<String>,
     /// Sender address
     pub from: String,
     /// Recipient address
@@ -85,6 +88,7 @@ impl StoredTransaction {
     pub fn new_pending(
         tx_hash: String,
         wallet_id: String,
+        counterparty_wallet_id: Option<String>,
         from: String,
         to: String,
         amount: String,
@@ -96,6 +100,7 @@ impl StoredTransaction {
         Self {
             tx_hash,
             wallet_id,
+            counterparty_wallet_id,
             from,
             to,
             amount,
@@ -283,6 +288,7 @@ mod tests {
         StoredTransaction::new_pending(
             "0xabc123def456".to_string(),
             "wallet-123".to_string(),
+            None,
             "0x1234...".to_string(),
             "0x5678...".to_string(),
             "1.5".to_string(),
