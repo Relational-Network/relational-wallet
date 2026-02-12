@@ -45,6 +45,12 @@ pub struct CreateFiatRequest {
     /// Optional free-form note.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Beneficiary account holder name (required for off-ramp).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beneficiary_account_holder_name: Option<String>,
+    /// Beneficiary IBAN (required for off-ramp).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beneficiary_iban: Option<String>,
 }
 
 /// Fiat request response returned to clients.
@@ -183,7 +189,7 @@ fn parse_amount_to_minor(amount: &str) -> Result<(String, u64), ApiError> {
 fn provider_summaries() -> Vec<FiatProviderSummary> {
     let enabled = TrueLayerClient::is_configured();
     let supports_on_ramp = enabled;
-    let supports_off_ramp = enabled && TrueLayerClient::supports_offramp();
+    let supports_off_ramp = enabled;
     vec![FiatProviderSummary {
         provider_id: DEFAULT_PROVIDER.to_string(),
         display_name: "TrueLayer Sandbox".to_string(),
@@ -212,7 +218,7 @@ fn resolve_provider_id(raw_provider: Option<String>) -> Result<String, ApiError>
     }
 }
 
-fn ensure_provider_enabled(provider: &str, direction: FiatDirection) -> Result<(), ApiError> {
+fn ensure_provider_enabled(provider: &str, _direction: FiatDirection) -> Result<(), ApiError> {
     if provider != DEFAULT_PROVIDER {
         return Err(ApiError::bad_request("Unsupported provider"));
     }
@@ -223,13 +229,57 @@ fn ensure_provider_enabled(provider: &str, direction: FiatDirection) -> Result<(
         ));
     }
 
-    if direction == FiatDirection::OffRamp && !TrueLayerClient::supports_offramp() {
-        return Err(ApiError::service_unavailable(
-            "TrueLayer off-ramp is not configured. Set TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME and TRUELAYER_OFFRAMP_IBAN.",
+    Ok(())
+}
+
+fn normalize_offramp_account_holder_name(raw: Option<String>) -> Result<String, ApiError> {
+    let name = raw
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request("beneficiary_account_holder_name is required for off-ramp")
+        })?
+        .to_string();
+
+    if name.len() > 140 {
+        return Err(ApiError::bad_request(
+            "beneficiary_account_holder_name must be at most 140 characters",
         ));
     }
 
-    Ok(())
+    Ok(name)
+}
+
+fn normalize_offramp_iban(raw: Option<String>) -> Result<String, ApiError> {
+    let compact = raw
+        .as_deref()
+        .map(|value| {
+            value
+                .chars()
+                .filter(|c| !c.is_ascii_whitespace())
+                .collect::<String>()
+        })
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+
+    if compact.is_empty() {
+        return Err(ApiError::bad_request(
+            "beneficiary_iban is required for off-ramp",
+        ));
+    }
+    if compact.len() < 15 || compact.len() > 34 {
+        return Err(ApiError::bad_request(
+            "beneficiary_iban must be between 15 and 34 characters",
+        ));
+    }
+    if !compact.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(ApiError::bad_request(
+            "beneficiary_iban must contain only letters and numbers",
+        ));
+    }
+
+    Ok(compact)
 }
 
 fn map_provider_error(error: TrueLayerError) -> ApiError {
@@ -357,12 +407,21 @@ async fn create_request(
     Json(request): Json<CreateFiatRequest>,
     direction: FiatDirection,
 ) -> Result<(StatusCode, Json<FiatRequestResponse>), ApiError> {
-    let (normalized_amount, amount_in_minor) = parse_amount_to_minor(&request.amount_eur)?;
+    let CreateFiatRequest {
+        wallet_id,
+        amount_eur,
+        provider,
+        note,
+        beneficiary_account_holder_name,
+        beneficiary_iban,
+    } = request;
+
+    let (normalized_amount, amount_in_minor) = parse_amount_to_minor(&amount_eur)?;
     let storage = state.storage();
 
     let wallet_repo = WalletRepository::new(&storage);
     let wallet = wallet_repo
-        .get(&request.wallet_id)
+        .get(&wallet_id)
         .map_err(|_| ApiError::not_found("Wallet not found"))?;
 
     if wallet.owner_user_id != user.user_id {
@@ -374,10 +433,10 @@ async fn create_request(
         ));
     }
 
-    let provider = resolve_provider_id(request.provider)?;
+    let provider = resolve_provider_id(provider)?;
     ensure_provider_enabled(&provider, direction)?;
 
-    let note = request.note.and_then(|value| {
+    let note = note.and_then(|value| {
         let trimmed = value.trim().to_string();
         if trimmed.is_empty() {
             None
@@ -386,10 +445,19 @@ async fn create_request(
         }
     });
 
+    let beneficiary = if direction == FiatDirection::OffRamp {
+        Some((
+            normalize_offramp_account_holder_name(beneficiary_account_holder_name)?,
+            normalize_offramp_iban(beneficiary_iban)?,
+        ))
+    } else {
+        None
+    };
+
     let request_id = uuid::Uuid::new_v4().to_string();
     let mut record = StoredFiatRequest::new_queued(
         request_id,
-        request.wallet_id,
+        wallet_id,
         user.user_id.clone(),
         direction,
         normalized_amount.clone(),
@@ -413,6 +481,9 @@ async fn create_request(
                     .await
             }
             FiatDirection::OffRamp => {
+                let (beneficiary_account_holder_name, beneficiary_iban) = beneficiary
+                    .as_ref()
+                    .expect("off-ramp beneficiary should be present");
                 client
                     .create_offramp(CreateOffRampRequest {
                         request_id: &record.request_id,
@@ -420,6 +491,8 @@ async fn create_request(
                         user_id: &record.owner_user_id,
                         amount_in_minor,
                         amount_eur: &normalized_amount,
+                        beneficiary_account_holder_name,
+                        beneficiary_iban,
                         note: note.as_deref(),
                     })
                     .await
@@ -612,5 +685,19 @@ mod tests {
     fn parse_amount_rejects_too_many_decimals() {
         let error = parse_amount_to_minor("1.234").expect_err("too many decimals should fail");
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn normalize_offramp_iban_rejects_invalid_characters() {
+        let error = normalize_offramp_iban(Some("GB79 CLRB 04066800*102649".to_string()))
+            .expect_err("invalid IBAN should fail");
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn normalize_offramp_iban_compacts_and_uppercases() {
+        let iban = normalize_offramp_iban(Some("gb79 clrb 04066800102649".to_string()))
+            .expect("valid IBAN");
+        assert_eq!(iban, "GB79CLRB04066800102649");
     }
 }

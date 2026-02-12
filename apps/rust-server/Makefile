@@ -88,7 +88,7 @@ start-rust-server: all
 		echo "Loading environment from .env"; \
 		if grep -nE '^[[:space:]]*[^#[:space:]][^=]*=.*<[^>]+>' .env >/dev/null 2>&1; then \
 			echo "error: .env contains placeholder syntax like <...> which breaks shell parsing."; \
-			echo "replace placeholder values with literal URLs/values (example: TRUELAYER_HPP_RETURN_URI=http://localhost:3000/wallets)."; \
+			echo "replace placeholder values with literal URLs/values."; \
 			grep -nE '^[[:space:]]*[^#[:space:]][^=]*=.*<[^>]+>' .env; \
 			exit 1; \
 		fi; \

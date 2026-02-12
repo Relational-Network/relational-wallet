@@ -101,6 +101,8 @@ export interface CreateFiatRequest {
   amount_eur: string;
   provider?: string;
   note?: string;
+  beneficiary_account_holder_name?: string;
+  beneficiary_iban?: string;
 }
 
 export interface FiatRequest {

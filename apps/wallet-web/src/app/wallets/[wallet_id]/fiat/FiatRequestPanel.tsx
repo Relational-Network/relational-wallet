@@ -51,6 +51,8 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   const [noteOnRamp, setNoteOnRamp] = useState("");
   const [amountOffRamp, setAmountOffRamp] = useState("10");
   const [noteOffRamp, setNoteOffRamp] = useState("");
+  const [beneficiaryNameOffRamp, setBeneficiaryNameOffRamp] = useState("");
+  const [beneficiaryIbanOffRamp, setBeneficiaryIbanOffRamp] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState<"on" | "off" | null>(null);
   const [isOnRampDialogOpen, setIsOnRampDialogOpen] = useState(false);
@@ -136,6 +138,16 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
       setError("Amount is required.");
       return;
     }
+    if (direction === "off") {
+      if (!beneficiaryNameOffRamp.trim()) {
+        setError("Beneficiary account holder name is required for off-ramp.");
+        return;
+      }
+      if (!beneficiaryIbanOffRamp.trim()) {
+        setError("Beneficiary IBAN is required for off-ramp.");
+        return;
+      }
+    }
 
     setIsSubmitting(direction);
     try {
@@ -153,6 +165,9 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
           amount_eur: amount.trim(),
           provider: selectedProvider,
           note: note.trim() || undefined,
+          beneficiary_account_holder_name:
+            direction === "off" ? beneficiaryNameOffRamp.trim() : undefined,
+          beneficiary_iban: direction === "off" ? beneficiaryIbanOffRamp.trim() : undefined,
         }),
       });
 
@@ -172,6 +187,8 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
         setIsOnRampDialogOpen(false);
       } else {
         setNoteOffRamp("");
+        setBeneficiaryNameOffRamp("");
+        setBeneficiaryIbanOffRamp("");
         setIsOffRampDialogOpen(false);
       }
       await fetchRequests();
@@ -196,7 +213,7 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   const offRampDisabledReason = !isProviderEnabled
     ? "Selected provider is not configured on backend."
     : !selectedProviderConfig?.supports_off_ramp
-      ? "Off-ramp is disabled: backend is missing payout beneficiary config."
+      ? "Off-ramp is disabled for this provider."
       : null;
 
   return (
@@ -596,6 +613,47 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               type="text"
               value={amountOffRamp}
               onChange={(event) => setAmountOffRamp(event.target.value)}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+                marginBottom: "0.6rem",
+              }}
+            />
+            <label
+              htmlFor="offRampBeneficiaryNameDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Beneficiary account holder name
+            </label>
+            <input
+              id="offRampBeneficiaryNameDialog"
+              type="text"
+              value={beneficiaryNameOffRamp}
+              onChange={(event) => setBeneficiaryNameOffRamp(event.target.value)}
+              maxLength={140}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "0.6rem",
+                borderRadius: "4px",
+                border: "1px solid #ddd",
+                marginBottom: "0.6rem",
+              }}
+            />
+            <label
+              htmlFor="offRampBeneficiaryIbanDialog"
+              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
+            >
+              Beneficiary IBAN
+            </label>
+            <input
+              id="offRampBeneficiaryIbanDialog"
+              type="text"
+              value={beneficiaryIbanOffRamp}
+              onChange={(event) => setBeneficiaryIbanOffRamp(event.target.value)}
               style={{
                 width: "100%",
                 boxSizing: "border-box",

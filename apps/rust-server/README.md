@@ -183,11 +183,8 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_SIGNING_KEY_ID` | TrueLayer signing key id | — |
 | `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` | Path to TrueLayer private key PEM | — |
 | `TRUELAYER_MERCHANT_ACCOUNT_ID` | TrueLayer merchant account id | — |
-| `TRUELAYER_HPP_RETURN_URI` | Hosted payment return URL (must be allow-listed in TrueLayer Console) | — |
-| `TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME` | Off-ramp beneficiary name (sandbox) | — |
-| `TRUELAYER_OFFRAMP_IBAN` | Off-ramp beneficiary IBAN (sandbox) | — |
 
-TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp uses a built-in default return URL (`http://localhost:3000/wallets/{wallet_id}/fiat`) unless `TRUELAYER_HPP_RETURN_URI` override is set. In `.env`, use a literal URL value (do not include placeholders like `<wallet_id>`). Off-ramp also requires payout capability enabled for the same client.
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp return URL is hardcoded to `http://localhost:3000/callback` and must be allow-listed in TrueLayer Console. Off-ramp beneficiary account holder + IBAN are supplied per API request from the frontend dialog.
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 
