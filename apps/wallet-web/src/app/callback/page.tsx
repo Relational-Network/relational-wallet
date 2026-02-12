@@ -2,29 +2,27 @@
 // Copyright (C) 2026 Relational Network
 
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
 
+/**
+ * TrueLayer return URI callback landing page.
+ */
 export default function CallbackPage() {
   return (
-    <main style={{ maxWidth: "720px", margin: "2rem auto", padding: "0 1rem" }}>
-      <h1 style={{ marginBottom: "0.5rem" }}>Bank Authorization Callback</h1>
-      <p style={{ color: "#51606e", lineHeight: 1.5 }}>
-        Your bank provider redirected back to the app. You can return to your wallet fiat page and
-        refresh requests to check the latest on-ramp or off-ramp status.
-      </p>
-      <div style={{ marginTop: "1rem" }}>
-        <Link
-          href="/wallets"
-          style={{
-            display: "inline-block",
-            padding: "0.55rem 0.9rem",
-            borderRadius: "4px",
-            border: "1px solid #b8c6d5",
-            color: "#2f4659",
-            textDecoration: "none",
-          }}
-        >
-          Back to wallets
-        </Link>
+    <main className="callback-layout">
+      <div className="card callback-card">
+        <div className="callback-icon">
+          <CheckCircle2 size={32} />
+        </div>
+        <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Authorization Complete</h2>
+        <p className="text-secondary" style={{ margin: "0.75rem 0 0" }}>
+          Your bank authorization has been received. Return to your wallet to check the status.
+        </p>
+        <div className="stack" style={{ marginTop: "1.5rem", gap: "0.5rem" }}>
+          <Link className="btn btn-primary" href="/wallets">
+            Go to Wallet
+          </Link>
+        </div>
       </div>
     </main>
   );

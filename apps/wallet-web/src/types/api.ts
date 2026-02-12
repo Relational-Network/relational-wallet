@@ -254,6 +254,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fiat/offramp/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create fiat off-ramp request. */
+        post: operations["create_offramp_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fiat/onramp/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create fiat on-ramp request. */
+        post: operations["create_onramp_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fiat/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List supported fiat providers for sandbox testing. */
+        get: operations["list_fiat_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fiat/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List fiat requests for current user. */
+        get: operations["list_fiat_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fiat/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get fiat request by ID. */
+        get: operations["get_fiat_request"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/invite": {
         parameters: {
             query?: never;
@@ -619,7 +704,7 @@ export interface components {
          * @description Types of auditable events.
          * @enum {string}
          */
-        AuditEventType: "wallet_created" | "wallet_deleted" | "wallet_accessed" | "transaction_signed" | "transaction_broadcast" | "bookmark_created" | "bookmark_deleted" | "invite_created" | "invite_redeemed" | "recurring_created" | "recurring_updated" | "recurring_deleted" | "recurring_executed" | "auth_success" | "auth_failure" | "permission_denied" | "admin_access" | "config_changed";
+        AuditEventType: "wallet_created" | "wallet_deleted" | "wallet_accessed" | "transaction_signed" | "transaction_broadcast" | "bookmark_created" | "bookmark_deleted" | "invite_created" | "invite_redeemed" | "recurring_created" | "recurring_updated" | "recurring_deleted" | "recurring_executed" | "auth_success" | "auth_failure" | "permission_denied" | "admin_access" | "config_changed" | "fiat_on_ramp_requested" | "fiat_off_ramp_requested";
         /** @description Response for audit log queries. */
         AuditLogResponse: {
             /** @description Audit events matching the query. */
@@ -658,6 +743,21 @@ export interface components {
             name: string;
             /** @description The wallet to add the bookmark to (must be owned by the user). */
             wallet_id: components["schemas"]["WalletAddress"];
+        };
+        /** @description Request body for creating fiat on-ramp/off-ramp requests. */
+        CreateFiatRequest: {
+            /** @description Amount in EUR decimal string (e.g. "25.50"). */
+            amount_eur: string;
+            /** @description Beneficiary account holder name (required for off-ramp). */
+            beneficiary_account_holder_name?: string | null;
+            /** @description Beneficiary IBAN (required for off-ramp). */
+            beneficiary_iban?: string | null;
+            /** @description Optional free-form note. */
+            note?: string | null;
+            /** @description Optional provider name (`truelayer_sandbox` default). */
+            provider?: string | null;
+            /** @description Wallet to credit/debit for this fiat request. */
+            wallet_id: string;
         };
         /** @description Request to create a recurring payment schedule. */
         CreateRecurringPaymentRequest: {
@@ -746,15 +846,74 @@ export interface components {
             /** @description Max priority fee per gas in wei */
             max_priority_fee_per_gas: string;
         };
+        /**
+         * @description Fiat request direction.
+         * @enum {string}
+         */
+        FiatDirection: "on_ramp" | "off_ramp";
+        /** @description Response for provider discovery. */
+        FiatProviderListResponse: {
+            /** @description Default provider ID if client does not pass one. */
+            default_provider: string;
+            /** @description Providers currently enabled by backend. */
+            providers: components["schemas"]["FiatProviderSummary"][];
+        };
+        /** @description Provider summary exposed by fiat API. */
+        FiatProviderSummary: {
+            /** @description Human-friendly provider name for UI display. */
+            display_name: string;
+            /** @description Whether backend is configured and ready for this provider. */
+            enabled: boolean;
+            /** @description Stable provider ID used by API requests. */
+            provider_id: string;
+            /** @description Indicates this provider is sandbox-only in current environment. */
+            sandbox: boolean;
+            /** @description Whether the provider can process off-ramp requests. */
+            supports_off_ramp: boolean;
+            /** @description Whether the provider can process on-ramp requests. */
+            supports_on_ramp: boolean;
+        };
+        /** @description List response for fiat requests. */
+        FiatRequestListResponse: {
+            /** @description Requests visible to the authenticated user. */
+            requests: components["schemas"]["FiatRequestResponse"][];
+            /** @description Total count. */
+            total: number;
+        };
+        /** @description Fiat request response returned to clients. */
+        FiatRequestResponse: {
+            /** @description Amount in EUR. */
+            amount_eur: string;
+            /** @description Creation time. */
+            created_at: string;
+            /** @description `on_ramp` or `off_ramp`. */
+            direction: components["schemas"]["FiatDirection"];
+            /** @description Optional note. */
+            note?: string | null;
+            /** @description Provider identifier. */
+            provider: string;
+            /** @description Optional provider action URL (for redirect/continue flow). */
+            provider_action_url?: string | null;
+            /** @description Optional provider reference/session ID. */
+            provider_reference?: string | null;
+            /** @description Request ID. */
+            request_id: string;
+            /** @description Current status. */
+            status: components["schemas"]["FiatRequestStatus"];
+            /** @description Last update time. */
+            updated_at: string;
+            /** @description Wallet ID tied to this request. */
+            wallet_id: string;
+        };
+        /**
+         * @description Fiat request lifecycle status.
+         * @enum {string}
+         */
+        FiatRequestStatus: "queued" | "provider_pending" | "completed" | "failed";
         /** @description Individual health check results. */
         HealthChecks: {
             /** @description Data directory availability (if configured). */
             data_dir?: string | null;
-            /**
-             * @description JWKS (authentication keys) status.
-             *     Only present in production mode (CLERK_JWKS_URL configured).
-             */
-            jwks?: string | null;
             /** @description Whether the service process is running. */
             service: string;
         };
@@ -891,6 +1050,39 @@ export interface components {
             /** @description Whether the data directory is writable. */
             writable: boolean;
         };
+        /** @description Persisted fiat request record. */
+        StoredFiatRequest: {
+            /** @description Requested fiat amount in EUR (human-readable decimal string). */
+            amount_eur: string;
+            /**
+             * Format: date-time
+             * @description Creation timestamp.
+             */
+            created_at: string;
+            /** @description On-ramp vs off-ramp direction. */
+            direction: components["schemas"]["FiatDirection"];
+            /** @description Optional user note. */
+            note?: string | null;
+            /** @description Owner user ID. */
+            owner_user_id: string;
+            /** @description Selected provider identifier (stub: `truelayer_sandbox`). */
+            provider: string;
+            /** @description Optional URL where user can continue provider authorization. */
+            provider_action_url?: string | null;
+            /** @description Optional provider reference/session ID. */
+            provider_reference?: string | null;
+            /** @description Unique request identifier. */
+            request_id: string;
+            /** @description Current status. */
+            status: components["schemas"]["FiatRequestStatus"];
+            /**
+             * Format: date-time
+             * @description Last update timestamp.
+             */
+            updated_at: string;
+            /** @description Wallet tied to this request. */
+            wallet_id: string;
+        };
         /** @description Stored transaction record. */
         StoredTransaction: {
             /** @description Amount in human-readable format */
@@ -900,6 +1092,8 @@ export interface components {
              * @description Block number (if confirmed)
              */
             block_number?: number | null;
+            /** @description Optional counterparty wallet ID when both sides are internal wallets. */
+            counterparty_wallet_id?: string | null;
             /**
              * Format: date-time
              * @description When the transaction was submitted
@@ -1625,6 +1819,225 @@ export interface operations {
                 content?: never;
             };
             /** @description Bookmark not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_offramp_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFiatRequest"];
+            };
+        };
+        responses: {
+            /** @description Fiat off-ramp request created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatRequestResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_onramp_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFiatRequest"];
+            };
+        };
+        responses: {
+            /** @description Fiat on-ramp request created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatRequestResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_fiat_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Supported fiat providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatProviderListResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_fiat_requests: {
+        parameters: {
+            query?: {
+                /** @description Optional wallet filter. */
+                wallet_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fiat requests listed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatRequestListResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_fiat_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Fiat request ID */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fiat request details */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatRequestResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
             404: {
                 headers: {
                     [name: string]: unknown;

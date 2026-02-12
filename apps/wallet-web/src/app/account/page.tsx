@@ -1,32 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Relational Network
 
-import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { apiClient, type UserMeResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { TokenDisplay } from "@/components/TokenDisplay";
 
-/**
- * Account page (authenticated).
- *
- * Displays the current user's information and role claims.
- */
 export default async function AccountPage() {
   const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
 
-  if (!userId) {
-    redirect("/sign-in");
-  }
-
-  // Get Clerk user information
   const clerkUser = await currentUser();
   const token = await getSessionToken();
 
-  // Fetch user info from backend API
-  // TODO: Enable real fetch once enclave backend is available
   let backendUser: UserMeResponse | null = null;
   let backendError: string | null = null;
 
@@ -35,134 +23,77 @@ export default async function AccountPage() {
     if (response.success) {
       backendUser = response.data;
     } else if (response.error.status !== 401) {
-      // Don't show error for 401 - just means backend isn't available
       backendError = "Unable to fetch backend user info";
     }
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "800px", margin: "0 auto" }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "2rem",
-        }}
-      >
-        <div>
-          <Link href="/wallets" style={{ color: "#666", textDecoration: "none" }}>
-            ← Back to Wallets
-          </Link>
-          <h1 style={{ marginTop: "0.5rem" }}>Account</h1>
+    <SimpleWalletShell
+      topBar={
+        <>
+          <div className="app-top-left">
+            <span style={{ fontWeight: 700 }}>Account</span>
+          </div>
+        </>
+      }
+    >
+      <div className="stack">
+        <TokenDisplay />
+
+        <div className="card card-pad">
+          <h3 className="section-title">Clerk profile</h3>
+          <div className="grid-2" style={{ marginTop: "0.75rem" }}>
+            <div>
+              <div className="text-muted">User ID</div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{clerkUser?.id || "N/A"}</div>
+            </div>
+            <div>
+              <div className="text-muted">Email</div>
+              <div>{clerkUser?.emailAddresses?.[0]?.emailAddress || "N/A"}</div>
+            </div>
+            <div>
+              <div className="text-muted">Name</div>
+              <div>
+                {clerkUser?.firstName && clerkUser?.lastName
+                  ? `${clerkUser.firstName} ${clerkUser.lastName}`
+                  : clerkUser?.firstName || "N/A"}
+              </div>
+            </div>
+            <div>
+              <div className="text-muted">Created</div>
+              <div>{clerkUser?.createdAt ? new Date(clerkUser.createdAt).toLocaleString() : "N/A"}</div>
+            </div>
+          </div>
         </div>
-        <UserButton />
-      </header>
 
-      {/* JWT Token Display for Testing */}
-      <TokenDisplay />
-
-      <section
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "4px",
-          padding: "1.5rem",
-          marginBottom: "2rem",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Clerk User Information</h2>
-
-        <dl style={{ margin: 0 }}>
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            User ID
-          </dt>
-          <dd style={{ margin: "0.25rem 0 0 0", fontFamily: "monospace", color: "#333" }}>
-            {clerkUser?.id || "N/A"}
-          </dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            Email
-          </dt>
-          <dd style={{ margin: "0.25rem 0 0 0", color: "#333" }}>
-            {clerkUser?.emailAddresses?.[0]?.emailAddress || "N/A"}
-          </dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            Name
-          </dt>
-          <dd style={{ margin: "0.25rem 0 0 0", color: "#333" }}>
-            {clerkUser?.firstName && clerkUser?.lastName
-              ? `${clerkUser.firstName} ${clerkUser.lastName}`
-              : clerkUser?.firstName || "N/A"}
-          </dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            Created
-          </dt>
-          <dd style={{ margin: "0.25rem 0 0 0", color: "#333" }}>
-            {clerkUser?.createdAt
-              ? new Date(clerkUser.createdAt).toLocaleString()
-              : "N/A"}
-          </dd>
-        </dl>
-      </section>
-
-      <section
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "4px",
-          padding: "1.5rem",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Backend User Information</h2>
-
-        {backendError ? (
-          <p style={{ color: "#c00" }}>{backendError}</p>
-        ) : backendUser ? (
-          <dl style={{ margin: 0 }}>
-            <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-              Backend User ID
-            </dt>
-            <dd style={{ margin: "0.25rem 0 0 0", fontFamily: "monospace", color: "#333" }}>
-              {backendUser.user_id}
-            </dd>
-
-            <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-              Role
-            </dt>
-            <dd
-              style={{
-                margin: "0.25rem 0 0 0",
-                display: "inline-block",
-                padding: "0.25rem 0.5rem",
-                backgroundColor: "#e0e0e0",
-                borderRadius: "4px",
-                fontFamily: "monospace",
-                color: "#333",
-              }}
-            >
-              {backendUser.role}
-            </dd>
-
-            {backendUser.session_id && (
-              <>
-                <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-                  Session ID
-                </dt>
-                <dd style={{ margin: "0.25rem 0 0 0", fontFamily: "monospace", color: "#333" }}>
-                  {backendUser.session_id}
-                </dd>
-              </>
-            )}
-          </dl>
-        ) : (
-          <p style={{ color: "#666" }}>
-            Backend user information will be available once the enclave backend is connected.
-          </p>
-        )}
-      </section>
-
-      {/* TODO: Add admin dashboard link for admin users */}
-    </main>
+        <div className="card card-pad">
+          <h3 className="section-title">Developer tools</h3>
+          {backendError ? (
+            <div className="alert alert-error" style={{ marginTop: "0.75rem" }}>{backendError}</div>
+          ) : backendUser ? (
+            <div className="grid-2" style={{ marginTop: "0.75rem" }}>
+              <div>
+                <div className="text-muted">Backend User ID</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{backendUser.user_id}</div>
+              </div>
+              <div>
+                <div className="text-muted">Role</div>
+                <span className="badge badge-success" style={{ marginTop: "0.25rem" }}>
+                  {backendUser.role}
+                </span>
+              </div>
+              <div>
+                <div className="text-muted">Session ID</div>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{backendUser.session_id || "N/A"}</div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted" style={{ marginTop: "0.75rem" }}>
+              Backend info will appear once the enclave API is reachable.
+            </p>
+          )}
+        </div>
+      </div>
+    </SimpleWalletShell>
   );
 }

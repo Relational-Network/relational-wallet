@@ -3,12 +3,16 @@
 // Copyright (C) 2026 Relational Network
 
 use axum::{
+    extract::Path,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
+    Json,
     Router,
 };
+use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     auth::Role,
@@ -132,10 +136,68 @@ pub fn router(state: AppState) -> Router {
         .route("/health/ready", get(health::readiness))
         // API v1 routes
         .nest("/v1", v1_routes)
-        // Swagger UI
-        .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi()))
+        // Swagger/OpenAPI docs
+        .route("/api-doc/openapi.json", get(openapi_json))
+        .route("/docs", get(swagger_ui_index))
+        .route("/docs/", get(swagger_ui_index))
+        .route("/docs/{*rest}", get(swagger_ui_asset))
         .layer(build_cors_layer())
         .with_state(state)
+}
+
+async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    Json(ApiDoc::openapi())
+}
+
+async fn swagger_ui_index() -> Response {
+    serve_swagger_ui("index.html")
+}
+
+async fn swagger_ui_asset(Path(rest): Path<String>) -> Response {
+    serve_swagger_ui(&rest)
+}
+
+fn serve_swagger_ui(path: &str) -> Response {
+    let config = Arc::new(utoipa_swagger_ui::Config::from("/api-doc/openapi.json"));
+    let asset_path = if path.is_empty() || path == "/" {
+        "index.html"
+    } else {
+        path
+    };
+
+    match utoipa_swagger_ui::serve(asset_path, config) {
+        Ok(Some(file)) => {
+            let content_type = file.content_type;
+            let body = file.bytes.into_owned();
+
+            // Make relative asset links resolve correctly for both /docs and /docs/.
+            if asset_path == "index.html" {
+                match String::from_utf8(body) {
+                    Ok(html) => {
+                        let html = if html.contains("<base href=\"/docs/\"") {
+                            html
+                        } else {
+                            html.replacen("<head>", "<head>\n    <base href=\"/docs/\" />", 1)
+                        };
+                        return (StatusCode::OK, [(header::CONTENT_TYPE, content_type)], html)
+                            .into_response();
+                    }
+                    Err(error) => {
+                        return (
+                            StatusCode::OK,
+                            [(header::CONTENT_TYPE, content_type)],
+                            error.into_bytes(),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+
+            (StatusCode::OK, [(header::CONTENT_TYPE, content_type)], body).into_response()
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
 }
 
 /// Build CORS layer from environment configuration.
@@ -310,12 +372,31 @@ impl utoipa::Modify for SecurityAddon {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn router_builds_with_all_routes() {
         let app = router(AppState::default());
         // Ensure the router can be converted into a service without panicking.
         let _ = app.into_make_service();
+    }
+
+    #[tokio::test]
+    async fn docs_route_serves_without_redirect() {
+        let app = router(AppState::default());
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(Request::builder().uri("/docs/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[test]

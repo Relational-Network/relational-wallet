@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Relational Network
 
-import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
 import { apiClient, type Bookmark, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
-// import { CashExchangeGuide } from "@/components/CashExchangeGuide";
 import { parsePaymentRequestQuery } from "@/lib/paymentRequest";
+import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { SendForm } from "./SendForm";
 
 interface SendPageProps {
@@ -25,7 +23,6 @@ interface SendPageProps {
 
 /**
  * Send transaction page.
- * Server component that loads wallet data and renders the SendForm client component.
  */
 export default async function SendPage({ params, searchParams }: SendPageProps) {
   const { userId } = await auth();
@@ -39,7 +36,6 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
   const parsedRequest = parsePaymentRequestQuery(query);
   const token = await getSessionToken();
 
-  // Fetch wallet details
   let wallet: WalletResponse | null = null;
   let bookmarks: Bookmark[] = [];
   let error: string | null = null;
@@ -49,23 +45,20 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
 
   if (response.success) {
     wallet = response.data;
+  } else if (response.error.status === 401) {
+    redirect("/sign-in");
+  } else if (response.error.status === 403) {
+    error = "Access denied. You do not have permission to use this wallet.";
+  } else if (response.error.status === 404) {
+    notFound();
   } else {
-    if (response.error.status === 401) {
-      redirect("/sign-in");
-    } else if (response.error.status === 403) {
-      error = "Access denied. You do not have permission to use this wallet.";
-    } else if (response.error.status === 404) {
-      notFound();
-    } else {
-      error = `Unable to load wallet: ${response.error.message}`;
-    }
+    error = `Unable to load wallet: ${response.error.message}`;
   }
 
   if (!wallet && !error) {
     notFound();
   }
 
-  // Check wallet status
   if (wallet && wallet.status !== "active") {
     error = `Cannot send from a ${wallet.status} wallet.`;
   }
@@ -82,41 +75,18 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "600px", margin: "0 auto" }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "2rem",
-        }}
-      >
-        <div>
-          <Link
-            href={`/wallets/${wallet_id}`}
-            style={{ color: "#666", textDecoration: "none" }}
-          >
-            ← Back to Wallet
-          </Link>
-          <h1 style={{ marginTop: "0.5rem" }}>Send Transaction</h1>
-        </div>
-        <UserButton />
-      </header>
-
-      {/* <CashExchangeGuide walletId={wallet_id} currentStep="send" /> */}
-
+    <SimpleWalletShell
+      topBar={
+        <>
+          <div className="app-top-left">
+            <a href={`/wallets/${wallet_id}`} className="btn btn-ghost">← Back</a>
+            <span style={{ fontWeight: 700 }}>Send</span>
+          </div>
+        </>
+      }
+    >
       {error ? (
-        <div
-          style={{
-            padding: "1rem",
-            backgroundColor: "#fee",
-            border: "1px solid #f00",
-            borderRadius: "4px",
-            color: "#c00",
-          }}
-        >
-          {error}
-        </div>
+        <div className="alert alert-error">{error}</div>
       ) : wallet ? (
         <SendForm
           walletId={wallet.wallet_id}
@@ -132,6 +102,6 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
           shortcutsLoadError={shortcutError}
         />
       ) : null}
-    </main>
+    </SimpleWalletShell>
   );
 }

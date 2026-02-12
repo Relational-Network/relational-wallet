@@ -17,15 +17,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
-// Security: Prevent TLS bypass in production
-if (
-  process.env.NODE_ENV === "production" &&
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
-) {
-  throw new Error(
-    "NODE_TLS_REJECT_UNAUTHORIZED=0 is forbidden in production. " +
-      "Configure proper CA certificates instead."
-  );
+// Security: Prevent TLS bypass in production (checked at request time, not module load)
+function assertNoTlsBypassInProduction() {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
+  ) {
+    throw new Error(
+      "NODE_TLS_REJECT_UNAUTHORIZED=0 is forbidden in production. " +
+        "Configure proper CA certificates instead."
+    );
+  }
 }
 
 const BACKEND_URL = process.env.WALLET_API_BASE_URL || "https://localhost:8080";
@@ -37,6 +39,8 @@ async function proxyRequest(
   request: NextRequest,
   method: string
 ): Promise<NextResponse> {
+  assertNoTlsBypassInProduction();
+
   // Get the path from the URL (everything after /api/proxy/)
   const url = new URL(request.url);
   const pathSegments = url.pathname.replace("/api/proxy", "");

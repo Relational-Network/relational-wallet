@@ -6,10 +6,6 @@
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 
-/**
- * Component to display and copy the current JWT token.
- * Useful for testing API calls with curl or other tools.
- */
 export function TokenDisplay() {
   const { getToken } = useAuth();
   const [copied, setCopied] = useState(false);
@@ -39,81 +35,53 @@ export function TokenDisplay() {
   };
 
   return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "4px",
-        padding: "1.5rem",
-        marginBottom: "2rem",
-        backgroundColor: "#f8f9fa",
-      }}
-    >
-      <h2 style={{ marginTop: 0, marginBottom: "1rem" }}>🔑 JWT Token (Dev Tool)</h2>
-      <p style={{ color: "#666", fontSize: "0.875rem", marginBottom: "1rem" }}>
-        Use this token to test API endpoints with curl or other HTTP clients.
-      </p>
+    <section className="card pad">
+      <h2 className="card-title">JWT Token (Dev Tool)</h2>
+      <p className="card-subtitle">Copy token for curl/tests while backend auth is enabled.</p>
 
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        <button
-          onClick={copyToken}
-          style={{
-            padding: "0.5rem 1rem",
-            backgroundColor: copied ? "#28a745" : "#007bff",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            transition: "background-color 0.2s",
-          }}
-        >
-          {copied ? "✓ Copied!" : "📋 Copy JWT Token"}
+      <div className="inline-actions" style={{ marginTop: "0.8rem" }}>
+        <button className={`btn ${copied ? "btn-soft" : "btn-primary"}`} onClick={copyToken}>
+          {copied ? "Copied" : "Copy JWT token"}
         </button>
-        <button
-          onClick={toggleShowToken}
-          style={{
-            padding: "0.5rem 1rem",
-            backgroundColor: "#6c757d",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
-        >
-          {showToken ? "🙈 Hide Token" : "👁 Show Token"}
+        <button className="btn btn-ghost" onClick={toggleShowToken}>
+          {showToken ? "Hide token" : "Show token"}
         </button>
       </div>
 
-      {showToken && token && (
-        <div
+      {showToken && token ? (
+        <pre
           style={{
-            backgroundColor: "#1e1e1e",
-            color: "#d4d4d4",
-            padding: "1rem",
-            borderRadius: "4px",
-            fontFamily: "monospace",
-            fontSize: "0.75rem",
-            wordBreak: "break-all",
-            maxHeight: "200px",
+            marginTop: "0.8rem",
+            background: "#0f2433",
+            color: "#d8e7f0",
+            borderRadius: "12px",
+            padding: "0.75rem",
+            maxHeight: "220px",
             overflow: "auto",
+            fontSize: "0.72rem",
+            fontFamily: "var(--font-mono)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
           }}
         >
           {token}
-        </div>
-      )}
+        </pre>
+      ) : null}
 
-      <details style={{ marginTop: "1rem" }}>
-        <summary style={{ cursor: "pointer", color: "#666", fontSize: "0.875rem" }}>
+      <details style={{ marginTop: "0.8rem" }}>
+        <summary className="helper-text" style={{ cursor: "pointer" }}>
           Example curl commands
         </summary>
         <pre
           style={{
-            backgroundColor: "#1e1e1e",
-            color: "#d4d4d4",
-            padding: "1rem",
-            borderRadius: "4px",
-            fontSize: "0.75rem",
+            marginTop: "0.55rem",
+            background: "#0f2433",
+            color: "#d8e7f0",
+            borderRadius: "12px",
+            padding: "0.75rem",
             overflow: "auto",
-            marginTop: "0.5rem",
+            fontSize: "0.72rem",
+            fontFamily: "var(--font-mono)",
           }}
         >
 {`# Export the token
@@ -125,13 +93,9 @@ curl -k -H "Authorization: Bearer $JWT" \\
 
 # Get wallet balance
 curl -k -H "Authorization: Bearer $JWT" \\
-  "https://localhost:8080/v1/wallets/{wallet_id}/balance?network=fuji"
-
-# List transactions
-curl -k -H "Authorization: Bearer $JWT" \\
-  "https://localhost:8080/v1/wallets/{wallet_id}/transactions?network=fuji"`}
+  "https://localhost:8080/v1/wallets/{wallet_id}/balance?network=fuji"`}
         </pre>
       </details>
-    </div>
+    </section>
   );
 }

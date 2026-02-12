@@ -55,7 +55,7 @@ tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
 # API Documentation
 # -----------------------------------------------------------------------------
 utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "chrono"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored", "debug-embed"] }
 
 # -----------------------------------------------------------------------------
 # TLS
