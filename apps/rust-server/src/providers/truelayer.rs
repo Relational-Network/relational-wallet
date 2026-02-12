@@ -16,6 +16,7 @@ const DEFAULT_API_BASE_URL: &str = "https://api.truelayer-sandbox.com";
 const DEFAULT_AUTH_BASE_URL: &str = "https://auth.truelayer-sandbox.com";
 const DEFAULT_HOSTED_PAYMENTS_BASE_URL: &str = "https://payment.truelayer-sandbox.com";
 const DEFAULT_CURRENCY: &str = "EUR";
+const DEFAULT_FRONTEND_BASE_URL: &str = "http://localhost:3000";
 const PAYMENTS_SCOPE: &str = "payments";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,10 +106,6 @@ impl TrueLayerClient {
             && required_env_present("TRUELAYER_OFFRAMP_IBAN")
     }
 
-    pub fn supports_onramp() -> bool {
-        required_env_present("TRUELAYER_HPP_RETURN_URI")
-    }
-
     pub fn from_env() -> Result<Self, TrueLayerError> {
         let api_base_url = env_or_default("TRUELAYER_API_BASE_URL", DEFAULT_API_BASE_URL);
         let auth_base_url = env_or_default("TRUELAYER_AUTH_BASE_URL", DEFAULT_AUTH_BASE_URL);
@@ -154,6 +151,7 @@ impl TrueLayerClient {
         request: CreateOnRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
         let provider_user = build_provider_user(request.user_id);
+        let return_uri = self.resolve_return_uri(request.wallet_id);
 
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -241,15 +239,12 @@ impl TrueLayerClient {
                         &self.hosted_payments_base_url,
                         &payment_id,
                         token,
-                        self.hosted_page_return_uri.as_deref(),
+                        Some(return_uri.as_str()),
                     )
                 })
             });
 
-        let action_url = ensure_hpp_return_uri(
-            action_url,
-            self.hosted_page_return_uri.as_deref(),
-        );
+        let action_url = ensure_hpp_return_uri(action_url, Some(return_uri.as_str()));
 
         Ok(ProviderExecutionResult {
             provider_reference: payment_id,
@@ -323,12 +318,9 @@ impl TrueLayerClient {
             })?
             .to_string();
 
-        let status = response
-            .get("status")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                TrueLayerError::InvalidResponse("missing payout status in response".to_string())
-            })?;
+        // Some payout create responses do not include a status field immediately.
+        // Treat those as pending and rely on fetch_offramp_status() polling.
+        let status = extract_provider_status(&response).unwrap_or("pending");
 
         Ok(ProviderExecutionResult {
             provider_reference: payout_id,
@@ -360,13 +352,21 @@ impl TrueLayerClient {
         let response = self
             .get_json(&format!("/v3/payouts/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
-        let status = response
-            .get("status")
-            .and_then(Value::as_str)
+        let status = extract_provider_status(&response)
             .ok_or_else(|| {
                 TrueLayerError::InvalidResponse("missing payout status in response".to_string())
             })?;
         Ok(map_payout_status(status))
+    }
+
+    fn resolve_return_uri(&self, wallet_id: &str) -> String {
+        if let Some(uri) = self.hosted_page_return_uri.as_deref() {
+            return uri.to_string();
+        }
+        format!(
+            "{}/wallets/{wallet_id}/fiat",
+            DEFAULT_FRONTEND_BASE_URL.trim_end_matches('/')
+        )
     }
 
     async fn access_token(&self, scope: &str) -> Result<String, TrueLayerError> {
@@ -627,6 +627,15 @@ fn ensure_hpp_return_uri(url: Option<String>, return_uri: Option<&str>) -> Optio
     Some(url)
 }
 
+fn extract_provider_status(response: &Value) -> Option<&str> {
+    response
+        .get("status")
+        .and_then(Value::as_str)
+        .or_else(|| response.pointer("/payment/status").and_then(Value::as_str))
+        .or_else(|| response.pointer("/payout/status").and_then(Value::as_str))
+        .or_else(|| response.pointer("/data/status").and_then(Value::as_str))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,5 +727,46 @@ mod tests {
         )
         .expect("url should be returned");
         assert!(url.contains("return_uri="));
+    }
+
+    #[test]
+    fn extract_provider_status_reads_top_level_status() {
+        let payload = json!({ "status": "executed" });
+        assert_eq!(extract_provider_status(&payload), Some("executed"));
+    }
+
+    #[test]
+    fn extract_provider_status_reads_nested_payout_status() {
+        let payload = json!({ "payout": { "status": "pending" } });
+        assert_eq!(extract_provider_status(&payload), Some("pending"));
+    }
+
+    #[test]
+    fn extract_provider_status_returns_none_when_missing() {
+        let payload = json!({ "id": "payout_123" });
+        assert_eq!(extract_provider_status(&payload), None);
+    }
+
+    #[test]
+    fn resolve_return_uri_defaults_to_wallet_fiat_page() {
+        let client = TrueLayerClient {
+            api_base_url: DEFAULT_API_BASE_URL.to_string(),
+            auth_base_url: DEFAULT_AUTH_BASE_URL.to_string(),
+            hosted_payments_base_url: DEFAULT_HOSTED_PAYMENTS_BASE_URL.to_string(),
+            client_id: "id".to_string(),
+            client_secret: "secret".to_string(),
+            signing_key_id: "kid".to_string(),
+            signing_private_key_pem: "pem".to_string(),
+            merchant_account_id: "merchant".to_string(),
+            currency: "EUR".to_string(),
+            hosted_page_return_uri: None,
+            payout_account_holder_name: None,
+            payout_iban: None,
+            http: Client::new(),
+        };
+        assert_eq!(
+            client.resolve_return_uri("wallet-123"),
+            "http://localhost:3000/wallets/wallet-123/fiat"
+        );
     }
 }

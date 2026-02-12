@@ -188,6 +188,16 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   const isProviderEnabled = selectedProviderConfig?.enabled ?? false;
   const canCreateOnRamp = isProviderEnabled && (selectedProviderConfig?.supports_on_ramp ?? false);
   const canCreateOffRamp = isProviderEnabled && (selectedProviderConfig?.supports_off_ramp ?? false);
+  const onRampDisabledReason = !isProviderEnabled
+    ? "Selected provider is not configured on backend."
+    : !selectedProviderConfig?.supports_on_ramp
+      ? "On-ramp is disabled for this provider."
+      : null;
+  const offRampDisabledReason = !isProviderEnabled
+    ? "Selected provider is not configured on backend."
+    : !selectedProviderConfig?.supports_off_ramp
+      ? "Off-ramp is disabled: backend is missing payout beneficiary config."
+      : null;
 
   return (
     <section
@@ -257,6 +267,11 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
           <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
             Use this when you want to buy tokens with fiat.
           </p>
+          {onRampDisabledReason && (
+            <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.8rem", color: "#9f2f2f" }}>
+              {onRampDisabledReason}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -265,6 +280,7 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               setProviderActionUrl(null);
               setIsOnRampDialogOpen(true);
             }}
+            title={onRampDisabledReason ?? undefined}
             disabled={isSubmitting !== null || !canCreateOnRamp}
             style={{
               width: "100%",
@@ -293,6 +309,11 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
           <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
             Use this when you want to redeem tokens into fiat.
           </p>
+          {offRampDisabledReason && (
+            <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.8rem", color: "#9f2f2f" }}>
+              {offRampDisabledReason}
+            </p>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -301,6 +322,7 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               setProviderActionUrl(null);
               setIsOffRampDialogOpen(true);
             }}
+            title={offRampDisabledReason ?? undefined}
             disabled={isSubmitting !== null || !canCreateOffRamp}
             style={{
               width: "100%",

@@ -86,6 +86,12 @@ rust-server.manifest.sgx rust-server.sig &: rust-server.manifest
 start-rust-server: all
 	@if [ -f .env ]; then \
 		echo "Loading environment from .env"; \
+		if grep -nE '^[[:space:]]*[^#[:space:]][^=]*=.*<[^>]+>' .env >/dev/null 2>&1; then \
+			echo "error: .env contains placeholder syntax like <...> which breaks shell parsing."; \
+			echo "replace placeholder values with literal URLs/values (example: TRUELAYER_HPP_RETURN_URI=http://localhost:3000/wallets)."; \
+			grep -nE '^[[:space:]]*[^#[:space:]][^=]*=.*<[^>]+>' .env; \
+			exit 1; \
+		fi; \
 		set -a; . ./.env; set +a; \
 	fi; \
 	gramine-sgx rust-server

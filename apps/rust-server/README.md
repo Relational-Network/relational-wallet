@@ -187,7 +187,7 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_OFFRAMP_ACCOUNT_HOLDER_NAME` | Off-ramp beneficiary name (sandbox) | — |
 | `TRUELAYER_OFFRAMP_IBAN` | Off-ramp beneficiary IBAN (sandbox) | — |
 
-TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp requires `TRUELAYER_HPP_RETURN_URI` to be allow-listed in TrueLayer Console. Off-ramp also requires payout capability enabled for the same client.
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp uses a built-in default return URL (`http://localhost:3000/wallets/{wallet_id}/fiat`) unless `TRUELAYER_HPP_RETURN_URI` override is set. In `.env`, use a literal URL value (do not include placeholders like `<wallet_id>`). Off-ramp also requires payout capability enabled for the same client.
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 

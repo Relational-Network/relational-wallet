@@ -182,7 +182,7 @@ fn parse_amount_to_minor(amount: &str) -> Result<(String, u64), ApiError> {
 
 fn provider_summaries() -> Vec<FiatProviderSummary> {
     let enabled = TrueLayerClient::is_configured();
-    let supports_on_ramp = enabled && TrueLayerClient::supports_onramp();
+    let supports_on_ramp = enabled;
     let supports_off_ramp = enabled && TrueLayerClient::supports_offramp();
     vec![FiatProviderSummary {
         provider_id: DEFAULT_PROVIDER.to_string(),
@@ -220,12 +220,6 @@ fn ensure_provider_enabled(provider: &str, direction: FiatDirection) -> Result<(
     if !TrueLayerClient::is_configured() {
         return Err(ApiError::service_unavailable(
             "TrueLayer sandbox is not configured. Set TRUELAYER_* environment variables.",
-        ));
-    }
-
-    if direction == FiatDirection::OnRamp && !TrueLayerClient::supports_onramp() {
-        return Err(ApiError::service_unavailable(
-            "TrueLayer on-ramp is not configured. Set TRUELAYER_HPP_RETURN_URI to a whitelisted redirect URL.",
         ));
     }
 
