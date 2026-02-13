@@ -3,6 +3,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { WalletResponse } from "@/lib/api";
 import type { ParsedPaymentRequest } from "@/lib/paymentRequest";
@@ -41,6 +42,9 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
     return (
       <main className="pay-layout">
         <div className="pay-container">
+          <div className="row" style={{ justifyContent: "flex-start" }}>
+            <Link href="/wallets" className="btn btn-ghost">← Back to wallets</Link>
+          </div>
           <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
             <span className="badge badge-brand">Payment Request</span>
           </div>
@@ -73,6 +77,9 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
   return (
     <main className="pay-layout">
       <div className="pay-container">
+        <div className="row" style={{ justifyContent: "flex-start" }}>
+          <Link href="/wallets" className="btn btn-ghost">← Back to wallets</Link>
+        </div>
         <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
           <span className="badge badge-brand">Payment Request</span>
         </div>

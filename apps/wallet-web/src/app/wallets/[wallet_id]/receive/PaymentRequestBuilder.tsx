@@ -22,6 +22,7 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
   const [showQrPopup, setShowQrPopup] = useState(false);
+  const hasAmount = amount.trim().length > 0;
 
   const requestLink = useMemo(() => {
     const params = buildPaymentRequestParams(
@@ -40,6 +41,7 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
   }, [amount, note, recipientAddress, token]);
 
   const copyLink = async () => {
+    if (compact && !hasAmount) return;
     try {
       await navigator.clipboard.writeText(requestLink);
       setCopied(true);
@@ -132,10 +134,20 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
         </div>
 
         <div className="row" style={{ gap: "0.5rem", justifyContent: "center" }}>
-          <button type="button" onClick={copyLink} className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}>
+          <button
+            type="button"
+            onClick={copyLink}
+            className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}
+            disabled={!hasAmount}
+          >
             {copied ? "Copied \u2713" : "Copy payment link"}
           </button>
-          <button type="button" onClick={() => setShowQrPopup(true)} className="btn btn-secondary">
+          <button
+            type="button"
+            onClick={() => setShowQrPopup(true)}
+            className="btn btn-secondary"
+            disabled={!hasAmount}
+          >
             QR code
           </button>
         </div>

@@ -35,6 +35,9 @@ export function ManageWalletsSheet({
     try {
       await onCreateWallet(label.trim() || undefined);
       setLabel("");
+      setSheetMessage({ type: "success", text: "Wallet created." });
+    } catch (err) {
+      setSheetMessage({ type: "error", text: err instanceof Error ? err.message : "Create failed" });
     } finally {
       setLoading(false);
     }

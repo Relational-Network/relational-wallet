@@ -11,13 +11,12 @@ interface AddressQRCodeProps {
   label?: string;
 }
 
-export function AddressQRCode({ address, size = 160, label }: AddressQRCodeProps) {
+export function AddressQRCode({ address, size = 160 }: AddressQRCodeProps) {
   return (
     <div className="qr-container">
       <div className="qr-frame">
         <QRCodeSVG value={address} size={size} level="M" marginSize={2} />
       </div>
-      {/* <span className="text-muted">{label ?? "Scan to receive"}</span> */}
     </div>
   );
 }

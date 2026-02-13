@@ -127,10 +127,10 @@ export function SimpleWalletDashboard() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsLoaded, setDetailsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
   const [activity, setActivity] = useState<DashboardActivityItem[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [bookmarksWalletId, setBookmarksWalletId] = useState<string | null>(null);
 
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [onRampAmount, setOnRampAmount] = useState("25");
@@ -243,8 +243,7 @@ export function SimpleWalletDashboard() {
 
   useEffect(() => {
     void fetchWallets();
-    void fetchProviders();
-  }, [fetchWallets, fetchProviders]);
+  }, [fetchWallets]);
 
   // Auto-open create wallet dialog when user has no wallets
   useEffect(() => {
@@ -262,6 +261,7 @@ export function SimpleWalletDashboard() {
       if (response.ok) {
         const data: Bookmark[] = await response.json();
         setBookmarks(data);
+        setBookmarksWalletId(walletId);
       }
     } catch {
       // Non-critical — keep empty bookmarks.
@@ -273,13 +273,18 @@ export function SimpleWalletDashboard() {
     setDetailsLoaded(false);
     setBalance(null);
     setActivity([]);
+    setBookmarks([]);
+    setBookmarksWalletId(null);
     void fetchWalletDetails(selectedWalletId);
-    void fetchBookmarks(selectedWalletId);
-  }, [selectedWalletId, fetchWalletDetails, fetchBookmarks]);
+  }, [selectedWalletId, fetchWalletDetails]);
+
+  useEffect(() => {
+    if (activeDialog !== "on_ramp" && activeDialog !== "off_ramp") return;
+    void fetchProviders();
+  }, [activeDialog, fetchProviders]);
 
   const createWallet = async (label?: string) => {
     setError(null);
-    setSuccess(null);
 
     const response = await fetch("/api/proxy/v1/wallets", {
       method: "POST",
@@ -300,8 +305,6 @@ export function SimpleWalletDashboard() {
     if (walletId) {
       setSelectedWalletId(walletId);
     }
-
-    setSuccess("Wallet created.");
   };
 
   const deleteWallet = async (walletId: string) => {
@@ -323,7 +326,6 @@ export function SimpleWalletDashboard() {
 
     setFiatSubmitting("on");
     setError(null);
-    setSuccess(null);
     setFiatResult(null);
 
     try {
@@ -360,7 +362,6 @@ export function SimpleWalletDashboard() {
 
     setFiatSubmitting("off");
     setError(null);
-    setSuccess(null);
     setFiatResult(null);
 
     try {
@@ -400,115 +401,72 @@ export function SimpleWalletDashboard() {
   const usdcBalance =
     balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC")
       ?.balance_formatted ?? "0";
+  const initialLoadComplete = !loadingWallets;
+  const dashboardLoading = loadingWallets || (selectedWallet !== null && loadingDetails && !detailsLoaded);
+  const walletLabel = selectedWallet?.label || "Wallet";
+  const walletAddress = selectedWallet?.public_address || "0x0000000000000000000000000000000000000000";
+  const actionsDisabled = !selectedWallet || selectedWallet.status !== "active" || loadingWallets;
 
-  const showSkeleton = loadingWallets || !selectedWallet;
+  if (!initialLoadComplete) {
+    return <main className="wallet-initial-blank" aria-hidden="true" />;
+  }
 
   return (
     <SimpleWalletShell>
-      <div className="row-between">
-        <button
-          type="button"
-          className="btn btn-manage"
-          onClick={() => setActiveDialog("manage")}
-        >
-          Manage Wallet(s)
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          {process.env.NODE_ENV === "development" && selectedWalletId ? (
-            <a
-              href={`/wallets/${selectedWalletId}`}
-              style={{ fontSize: "0.6875rem", color: "var(--ink-muted)", textDecoration: "none", opacity: 0.6 }}
-              title="Dev: view wallet detail page"
-            >
-              details →
-            </a>
-          ) : null}
-          <div className="clerk-avatar-slot">
-            <UserButton />
+      <div className="wallet-dashboard-shell">
+        <div className="row-between">
+          <button
+            type="button"
+            className="btn btn-manage"
+            onClick={() => setActiveDialog("manage")}
+          >
+            Manage Wallet(s)
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            {process.env.NODE_ENV === "development" && selectedWalletId ? (
+              <a
+                href={`/wallets/${selectedWalletId}`}
+                style={{ fontSize: "0.6875rem", color: "var(--ink-muted)", textDecoration: "none", opacity: 0.6 }}
+                title="Dev: view wallet detail page"
+              >
+                details →
+              </a>
+            ) : null}
+            <div className="clerk-avatar-slot">
+              <UserButton />
+            </div>
           </div>
         </div>
+        {error ? <div className="alert alert-error">{error}</div> : null}
+
+        <PrimaryBalanceCard
+          walletLabel={walletLabel}
+          walletAddress={walletAddress}
+          avaxBalance={avaxBalance}
+          usdcBalance={usdcBalance}
+          loading={dashboardLoading}
+          refreshing={loadingDetails && detailsLoaded}
+        />
+
+        <PrimaryActions
+          disabled={actionsDisabled}
+          onSend={() => {
+            if (selectedWalletId && bookmarksWalletId !== selectedWalletId) {
+              void fetchBookmarks(selectedWalletId);
+            }
+            setActiveDialog("send");
+          }}
+          onReceive={() => setActiveDialog("receive")}
+          onOnRamp={() => setActiveDialog("on_ramp")}
+          onOffRamp={() => setActiveDialog("off_ramp")}
+        />
+
+        <RecentActivityPreview
+          items={activity}
+          loading={dashboardLoading}
+          onOpenAll={() => setActiveDialog("activity")}
+        />
       </div>
-      {error ? <div className="alert alert-error">{error}</div> : null}
-      {success ? <div className="alert alert-success">{success}</div> : null}
-
-      {showSkeleton ? (
-        <>
-          <article className="balance-card" style={{ opacity: 0.5 }}>
-            <div className="balance-card-label">Loading…</div>
-            <div className="balance-card-amount">$0.00</div>
-            <div className="balance-card-address">
-              <span className="address-placeholder">0x0000…0000</span>
-            </div>
-            <div className="balance-tokens">
-              <div className="balance-token-tile">
-                <div className="balance-token-label">AVAX</div>
-                <div className="balance-token-value">0</div>
-              </div>
-              <div className="balance-token-tile">
-                <div className="balance-token-label">USDC</div>
-                <div className="balance-token-value">0</div>
-              </div>
-            </div>
-          </article>
-
-          <div className="quick-actions" role="group">
-            <button type="button" disabled className="quick-action-btn">
-              <span className="icon-circle" /><span>Send</span>
-            </button>
-            <button type="button" disabled className="quick-action-btn">
-              <span className="icon-circle" /><span>Receive</span>
-            </button>
-            <button type="button" disabled className="quick-action-btn">
-              <span className="icon-circle" /><span>On-Ramp</span>
-            </button>
-            <button type="button" disabled className="quick-action-btn">
-              <span className="icon-circle" /><span>Off-Ramp</span>
-            </button>
-          </div>
-
-          <div className="card card-pad">
-            <div className="section-header" style={{ marginBottom: "0.5rem" }}>
-              <h3 className="section-title">Recent activity</h3>
-            </div>
-            <div>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="activity-row" style={{ opacity: 0.35 }}>
-                  <div className="activity-icon" style={{ background: "var(--bg-subtle)" }} />
-                  <div className="activity-details">
-                    <div className="skeleton" style={{ width: i % 2 === 0 ? "55%" : "70%", height: "0.875rem", marginBottom: "0.25rem" }} />
-                    <div className="skeleton" style={{ width: "45%", height: "0.625rem" }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <PrimaryBalanceCard
-            walletLabel={selectedWallet.label || "Wallet"}
-            walletAddress={selectedWallet.public_address}
-            avaxBalance={avaxBalance}
-            usdcBalance={usdcBalance}
-            loading={loadingDetails && !detailsLoaded}
-            refreshing={loadingDetails && detailsLoaded}
-          />
-
-          <PrimaryActions
-            disabled={!selectedWallet || selectedWallet.status !== "active"}
-            onSend={() => setActiveDialog("send")}
-            onReceive={() => setActiveDialog("receive")}
-            onOnRamp={() => setActiveDialog("on_ramp")}
-            onOffRamp={() => setActiveDialog("off_ramp")}
-          />
-
-          <RecentActivityPreview
-            items={activity}
-            loading={loadingDetails && !detailsLoaded}
-            onOpenAll={() => setActiveDialog("activity")}
-          />
-        </>
-      )}
 
       {selectedWallet ? (
         <ActionDialog
