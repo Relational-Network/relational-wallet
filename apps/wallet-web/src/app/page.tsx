@@ -2,113 +2,105 @@
 // Copyright (C) 2026 Relational Network
 
 import Link from "next/link";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
-import { redirect } from "next/navigation";
+import { SignedOut } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
-import { apiClient, type ReadyResponse } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { Shield, Zap, Wallet } from "lucide-react";
 
 /**
- * Landing page for Relational Wallet.
- *
- * - Signed out: Shows sign-in/sign-up links and backend status
- * - Signed in: Redirects to /wallets
+ * Public landing page — fintech-style hero with feature cards.
  */
 export default async function HomePage() {
   const { userId } = await auth();
-
-  // Redirect authenticated users to wallets page
   if (userId) {
     redirect("/wallets");
   }
 
-  // Check backend health status
-  let backendStatus: { connected: boolean; data?: ReadyResponse; error?: string } = {
-    connected: false,
-  };
-
-  const healthResponse = await apiClient.checkHealth();
-  if (healthResponse.success) {
-    backendStatus = { connected: true, data: healthResponse.data };
-  } else {
-    backendStatus = { connected: false, error: healthResponse.error.message };
-  }
-
   return (
-    <main style={{ padding: "2rem", maxWidth: "600px", margin: "0 auto" }}>
-      <h1>Relational Wallet</h1>
-      <p>Custodial Avalanche wallet service secured by Intel SGX.</p>
-
-      {/* Backend Status */}
-      <div
-        style={{
-          marginTop: "1.5rem",
-          padding: "1rem",
-          border: "1px solid",
-          borderColor: backendStatus.connected ? "#4caf50" : "#f44336",
-          borderRadius: "4px",
-          backgroundColor: backendStatus.connected ? "#e8f5e9" : "#ffebee",
-        }}
-      >
-        <strong>Enclave Backend:</strong>{" "}
-        {backendStatus.connected ? (
-          <span style={{ color: "#2e7d32" }}>
-            ✓ Connected ({backendStatus.data?.status})
+    <div className="landing-root">
+      {/* ── Nav ─────────────────────────────────────────────── */}
+      <nav className="landing-nav">
+        <div className="row" style={{ gap: "0.5rem" }}>
+          <Shield size={22} strokeWidth={2.5} color="var(--brand)" />
+          <span style={{ fontWeight: 800, fontSize: "1.0625rem" }}>
+            Relational Wallet
           </span>
-        ) : (
-          <span style={{ color: "#c62828" }}>
-            ✗ Offline {backendStatus.error && `(${backendStatus.error})`}
-          </span>
-        )}
-        {backendStatus.connected && backendStatus.data?.checks && (
-          <div style={{ marginTop: "0.5rem", fontSize: "0.875rem", color: "#666" }}>
-            Service: {backendStatus.data.checks.service}
-            {backendStatus.data.checks.data_dir && (
-              <>, Data Dir: {backendStatus.data.checks.data_dir}</>
-            )}
-          </div>
-        )}
-      </div>
-
-      <SignedOut>
-        <div style={{ marginTop: "2rem" }}>
-          <p>Please sign in to access your wallets.</p>
-          <nav style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
-            <Link
-              href="/sign-in"
-              style={{
-                padding: "0.5rem 1rem",
-                border: "1px solid #333",
-                textDecoration: "none",
-                color: "#333",
-              }}
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/sign-up"
-              style={{
-                padding: "0.5rem 1rem",
-                border: "1px solid #333",
-                backgroundColor: "#333",
-                color: "#fff",
-                textDecoration: "none",
-              }}
-            >
-              Sign Up
-            </Link>
-          </nav>
         </div>
-      </SignedOut>
+        <SignedOut>
+          <Link className="btn btn-ghost" href="/sign-in">
+            Sign in
+          </Link>
+        </SignedOut>
+      </nav>
 
-      <SignedIn>
-        <div style={{ marginTop: "2rem" }}>
-          <p>Welcome back!</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <UserButton />
-            <Link href="/wallets">Go to Wallets</Link>
+      {/* ── Hero ────────────────────────────────────────────── */}
+      <section className="landing-hero">
+        <span className="badge badge-brand" style={{ marginBottom: "0.75rem" }}>
+          Avalanche Fuji Testnet
+        </span>
+        <h1>
+          Your money, protected by&nbsp;
+          <span>hardware&nbsp;enclaves</span>
+        </h1>
+        <p>
+          Send and receive USDC and AVAX with a wallet whose private keys never
+          leave a secure Intel SGX enclave. Fast, simple, auditable.
+        </p>
+
+        <SignedOut>
+          <div
+            className="row"
+            style={{
+              justifyContent: "center",
+              gap: "0.75rem",
+              marginTop: "1.5rem",
+            }}
+          >
+            <Link className="btn btn-primary" href="/sign-up">
+              Get started — it&apos;s free
+            </Link>
+            <Link className="btn btn-secondary" href="/sign-in">
+              Sign in
+            </Link>
           </div>
-        </div>
-      </SignedIn>
-    </main>
+        </SignedOut>
+      </section>
+
+      {/* ── Features ────────────────────────────────────────── */}
+      <section className="landing-features">
+        <article className="card card-pad landing-feature-card">
+          <Shield size={28} color="var(--brand)" />
+          <h3>Hardware-grade security</h3>
+          <p>
+            Private keys are generated and stored inside an Intel SGX enclave
+            with remote attestation — they never leave the secure boundary.
+          </p>
+        </article>
+        <article className="card card-pad landing-feature-card">
+          <Zap size={28} color="var(--brand)" />
+          <h3>Instant transactions</h3>
+          <p>
+            Send USDC or AVAX in seconds. Gas estimation, one-tap confirmation,
+            and real-time status polling built in.
+          </p>
+        </article>
+        <article className="card card-pad landing-feature-card">
+          <Wallet size={28} color="var(--brand)" />
+          <h3>Simple by design</h3>
+          <p>
+            No seed phrases to manage, no browser extensions required. Sign in,
+            create a wallet, and start transacting.
+          </p>
+        </article>
+      </section>
+
+      {/* ── Footer ──────────────────────────────────────────── */}
+      <footer className="landing-footer">
+        © {new Date().getFullYear()} Relational Network ·{" "}
+        <a href="https://github.com/Relational-Network/relational-wallet" target="_blank" rel="noopener noreferrer">
+          Source code (AGPL-3.0)
+        </a>
+      </footer>
+    </div>
   );
 }

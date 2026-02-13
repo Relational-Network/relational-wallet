@@ -3,16 +3,17 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Scan, Bookmark, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import type {
   EstimateGasRequest,
   EstimateGasResponse,
   SendTransactionRequest,
   SendTransactionResponse,
 } from "@/lib/api";
+import { RecipientQrScanner } from "@/components/RecipientQrScanner";
 
-// USDC contract address on Fuji testnet
 const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
 
 interface RecipientShortcut {
@@ -34,6 +35,9 @@ interface SendFormProps {
     token?: string;
     note?: string;
   };
+  mode?: "dialog" | "page";
+  onRequestClose?: () => void;
+  onComplete?: () => void;
 }
 
 type TransactionState =
@@ -44,12 +48,20 @@ type TransactionState =
   | { step: "success"; txHash: string; explorerUrl: string; blockNumber?: number }
   | { step: "failed"; txHash: string; explorerUrl: string; error?: string };
 
-/**
- * Send transaction form with gas estimation, confirmation, and status polling.
- *
- * Fixed-size components for faster page loads.
- * Polls every 10 seconds, max 2 minutes, with manual refresh option.
- */
+function isValidAddress(value: string) {
+  return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
+}
+
+function isValidAmount(value: string) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function shortenAddr(value: string) {
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 6)}\u2026${value.slice(-4)}`;
+}
+
 export function SendForm({
   walletId,
   publicAddress,
@@ -58,91 +70,67 @@ export function SendForm({
   prefillWarnings = [],
   shortcuts = [],
   shortcutsLoadError = null,
+  mode = "page",
+  onRequestClose,
+  onComplete,
 }: SendFormProps) {
   const router = useRouter();
 
   const prefillTo = prefill?.to ?? "";
   const prefillAmount = prefill?.amount ?? "";
   const prefillToken = prefill?.token === "usdc" ? "usdc" : "native";
-  const prefillNote = prefill?.note?.trim() ?? "";
 
-  // Form state
   const [toAddress, setToAddress] = useState(prefillTo);
   const [amount, setAmount] = useState(prefillAmount);
   const [token, setToken] = useState<"native" | "usdc">(prefillToken);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
+
   const [savedRecipients, setSavedRecipients] = useState<RecipientShortcut[]>(shortcuts);
   const [showSaveRecipient, setShowSaveRecipient] = useState(false);
   const [saveRecipientName, setSaveRecipientName] = useState("");
   const [isSavingRecipient, setIsSavingRecipient] = useState(false);
-  const [saveRecipientError, setSaveRecipientError] = useState<string | null>(null);
-  const [saveRecipientSuccess, setSaveRecipientSuccess] = useState<string | null>(null);
+  const [saveRecipientMessage, setSaveRecipientMessage] = useState<string | null>(null);
 
-  // Transaction state
+  const [showQrScanner, setShowQrScanner] = useState(false);
   const [txState, setTxState] = useState<TransactionState>({ step: "form" });
   const [error, setError] = useState<string | null>(null);
   const [isEstimating, setIsEstimating] = useState(false);
-
-  // Polling state
   const [pollCount, setPollCount] = useState(0);
-  const MAX_POLLS = 12; // 12 polls × 10 seconds = 2 minutes
 
-  // Address validation (0x + 40 hex characters)
-  const isValidAddress = (addr: string) => /^0x[a-fA-F0-9]{40}$/.test(addr);
+  const MAX_POLLS = 12;
 
-  // Amount validation
-  const isValidAmount = (amt: string) => {
-    const num = parseFloat(amt);
-    return !isNaN(num) && num > 0;
-  };
-
-  // Format amount display
-  const formatAmount = (amt: string) => {
-    const symbol = token === "usdc" ? "USDC" : "AVAX";
-    return `${amt} ${symbol}`;
-  };
-
-  const shortAddress = (address: string) => {
-    if (address.length <= 16) return address;
-    return `${address.slice(0, 8)}...${address.slice(-6)}`;
-  };
-
-  const fillRecipient = (address: string) => {
-    setToAddress(address);
-    setSaveRecipientError(null);
-    setSaveRecipientSuccess("Recipient filled from saved shortcuts.");
-    setError(null);
-  };
+  useEffect(() => {
+    if (shortcuts.length > 0) setSavedRecipients(shortcuts);
+  }, [shortcuts]);
 
   const handleSaveRecipient = async () => {
-    const name = saveRecipientName.trim();
     const normalized = toAddress.trim();
+    const name = saveRecipientName.trim();
 
-    setSaveRecipientError(null);
-    setSaveRecipientSuccess(null);
+    setSaveRecipientMessage(null);
 
     if (!isValidAddress(normalized)) {
-      setSaveRecipientError("Enter a valid recipient address before saving.");
+      setSaveRecipientMessage("Enter a valid recipient address first.");
       return;
     }
 
     if (!name) {
-      setSaveRecipientError("Recipient name is required.");
+      setSaveRecipientMessage("Recipient name is required.");
       return;
     }
 
-    const duplicate = savedRecipients.find(
+    const existing = savedRecipients.find(
       (recipient) => recipient.address.toLowerCase() === normalized.toLowerCase()
     );
-    if (duplicate) {
-      setSaveRecipientSuccess(`Already saved as "${duplicate.name}".`);
-      setShowSaveRecipient(false);
+    if (existing) {
+      setSaveRecipientMessage(`Already saved as \"${existing.name}\".`);
       return;
     }
 
     setIsSavingRecipient(true);
+
     try {
       const response = await fetch("/api/proxy/v1/bookmarks", {
         method: "POST",
@@ -157,37 +145,32 @@ export function SendForm({
 
       if (!response.ok) {
         const text = await response.text();
-        setSaveRecipientError(text || `Failed to save recipient (${response.status})`);
+        setSaveRecipientMessage(text || `Failed to save recipient (${response.status})`);
         return;
       }
 
       const payload = (await response.json()) as RecipientShortcut;
-      setSavedRecipients((existing) => [
-        ...existing,
-        {
-          id: payload.id,
-          name: payload.name,
-          address: payload.address,
-        },
-      ]);
-      setSaveRecipientName("");
+      setSavedRecipients((current) => [...current, payload]);
       setShowSaveRecipient(false);
-      setSaveRecipientSuccess(`Saved "${name}" to recipient shortcuts.`);
-    } catch (err) {
-      setSaveRecipientError(err instanceof Error ? err.message : "Network error");
+      setSaveRecipientName("");
+      setSaveRecipientMessage(`Saved \"${payload.name}\".`);
+    } catch (saveError) {
+      setSaveRecipientMessage(
+        saveError instanceof Error ? saveError.message : "Unable to save recipient"
+      );
     } finally {
       setIsSavingRecipient(false);
     }
   };
 
-  // Estimate gas
   const handleEstimate = async () => {
     if (!isValidAddress(toAddress)) {
-      setError("Invalid recipient address. Must be 0x followed by 40 hex characters.");
+      setError("Recipient address must be a valid 0x address.");
       return;
     }
+
     if (!isValidAmount(amount)) {
-      setError("Invalid amount. Must be a positive number.");
+      setError("Enter a valid positive amount.");
       return;
     }
 
@@ -196,37 +179,34 @@ export function SendForm({
 
     try {
       const request: EstimateGasRequest = {
-        to: toAddress,
-        amount,
+        to: toAddress.trim(),
+        amount: amount.trim(),
         token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
         network: "fuji",
       };
 
-      const response = await fetch(
-        `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/estimate`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
-        }
-      );
+      const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/estimate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
 
-      if (response.ok) {
-        const gasEstimate: EstimateGasResponse = await response.json();
-        setTxState({ step: "confirm", gasEstimate });
-      } else {
+      if (!response.ok) {
         const text = await response.text();
-        setError(text || `Estimation failed (${response.status})`);
+        setError(text || `Estimate failed (${response.status})`);
+        return;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
+
+      const gasEstimate: EstimateGasResponse = await response.json();
+      setTxState({ step: "confirm", gasEstimate });
+    } catch (estimateError) {
+      setError(estimateError instanceof Error ? estimateError.message : "Estimate failed");
     } finally {
       setIsEstimating(false);
     }
   };
 
-  // Send transaction
   const handleSend = async () => {
     if (txState.step !== "confirm") return;
 
@@ -235,50 +215,41 @@ export function SendForm({
 
     try {
       const request: SendTransactionRequest = {
-        to: toAddress,
-        amount,
+        to: toAddress.trim(),
+        amount: amount.trim(),
         token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
         network: "fuji",
+        gas_limit: gasLimitOverride.trim() || undefined,
+        max_priority_fee_per_gas: priorityFeeOverride.trim() || undefined,
       };
 
-      // Add overrides if specified
-      if (gasLimitOverride) {
-        request.gas_limit = gasLimitOverride;
-      }
-      if (priorityFeeOverride) {
-        request.max_priority_fee_per_gas = priorityFeeOverride;
-      }
+      const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/send`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      });
 
-      const response = await fetch(
-        `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/send`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(request),
-        }
-      );
-
-      if (response.ok) {
-        const result: SendTransactionResponse = await response.json();
-        setTxState({
-          step: "polling",
-          txHash: result.tx_hash,
-          explorerUrl: result.explorer_url,
-        });
-        setPollCount(0);
-      } else {
+      if (!response.ok) {
         const text = await response.text();
         setTxState({ step: "form" });
-        setError(text || `Transaction failed (${response.status})`);
+        setError(text || `Send failed (${response.status})`);
+        return;
       }
-    } catch (err) {
+
+      const payload: SendTransactionResponse = await response.json();
+      setTxState({
+        step: "polling",
+        txHash: payload.tx_hash,
+        explorerUrl: payload.explorer_url,
+      });
+      setPollCount(0);
+    } catch (sendError) {
       setTxState({ step: "form" });
-      setError(err instanceof Error ? err.message : "Network error");
+      setError(sendError instanceof Error ? sendError.message : "Send failed");
     }
   };
 
-  // Poll for transaction status
   const pollStatus = useCallback(async () => {
     if (txState.step !== "polling") return;
 
@@ -300,723 +271,324 @@ export function SendForm({
             explorerUrl: txState.explorerUrl,
             blockNumber: status.block_number,
           });
-        } else if (status.status === "failed") {
+          onComplete?.();
+          return;
+        }
+
+        if (status.status === "failed") {
           setTxState({
             step: "failed",
             txHash: txState.txHash,
             explorerUrl: txState.explorerUrl,
           });
+          onComplete?.();
+          return;
         }
       }
     } catch {
-      // Silently retry on network errors
+      // Retry on next tick.
     }
 
-    setPollCount((c) => c + 1);
-  }, [txState, walletId]);
+    setPollCount((count) => count + 1);
+  }, [onComplete, txState, walletId]);
 
-  // Auto-poll every 10 seconds
   useEffect(() => {
     if (txState.step !== "polling") return;
     if (pollCount >= MAX_POLLS) return;
 
-    const timer = setTimeout(pollStatus, 10000);
+    const timer = setTimeout(() => {
+      void pollStatus();
+    }, pollCount === 0 ? 1000 : 9000);
+
     return () => clearTimeout(timer);
   }, [txState, pollCount, pollStatus]);
 
-  // Poll immediately when entering polling state
-  useEffect(() => {
-    if (txState.step === "polling" && pollCount === 0) {
-      pollStatus();
-    }
-  }, [txState, pollCount, pollStatus]);
+  /* ── Success ─────────────────────────────────────────────────────── */
 
-  // Render based on current step
   if (txState.step === "success") {
     return (
-      <div
-        style={{
-          border: "1px solid #28a745",
-          borderRadius: "8px",
-          padding: "2rem",
-          backgroundColor: "#d4edda",
-          minHeight: "300px",
-        }}
-      >
-        <h2 style={{ color: "#155724", marginTop: 0 }}>✓ Transaction Confirmed</h2>
-        <p style={{ color: "#155724" }}>
-          Your transaction has been confirmed on the blockchain.
-        </p>
-        <dl style={{ color: "#155724" }}>
-          <dt style={{ fontWeight: "bold", marginTop: "1rem" }}>Transaction Hash</dt>
-          <dd style={{ fontFamily: "monospace", wordBreak: "break-all" }}>
-            {txState.txHash}
-          </dd>
-          {txState.blockNumber && (
-            <>
-              <dt style={{ fontWeight: "bold", marginTop: "1rem" }}>Block Number</dt>
-              <dd>{txState.blockNumber}</dd>
-            </>
-          )}
-        </dl>
-        <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
-          <a
-            href={txState.explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              padding: "0.75rem 1.5rem",
-              backgroundColor: "#28a745",
-              color: "white",
-              borderRadius: "4px",
-              textDecoration: "none",
-            }}
-          >
-            View on Explorer
+      <div className="stack">
+        <div className="alert alert-success" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
+          <strong>Transaction confirmed &#x2713;</strong>
+          <span className="mono-sm">{txState.txHash}</span>
+        </div>
+        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+          <a href={txState.explorerUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <ExternalLink size={14} /> Explorer
           </a>
-          <button
-            onClick={() => router.push(`/wallets/${walletId}`)}
-            style={{
-              padding: "0.75rem 1.5rem",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Back to Wallet
-          </button>
+          {mode === "dialog" ? (
+            <button type="button" className="btn btn-ghost" onClick={onRequestClose}>Close</button>
+          ) : (
+            <button type="button" className="btn btn-ghost" onClick={() => router.push(`/wallets/${walletId}`)}>Back to wallet</button>
+          )}
         </div>
       </div>
     );
   }
+
+  /* ── Failed ──────────────────────────────────────────────────────── */
 
   if (txState.step === "failed") {
     return (
-      <div
-        style={{
-          border: "1px solid #dc3545",
-          borderRadius: "8px",
-          padding: "2rem",
-          backgroundColor: "#f8d7da",
-          minHeight: "300px",
-        }}
-      >
-        <h2 style={{ color: "#721c24", marginTop: 0 }}>✗ Transaction Failed</h2>
-        <p style={{ color: "#721c24" }}>
-          The transaction was not successful. This may be due to insufficient gas,
-          contract rejection, or network issues.
-        </p>
-        <p style={{ fontFamily: "monospace", wordBreak: "break-all", color: "#721c24" }}>
-          TX: {txState.txHash}
-        </p>
-        <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
-          <a
-            href={txState.explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              padding: "0.75rem 1.5rem",
-              backgroundColor: "#dc3545",
-              color: "white",
-              borderRadius: "4px",
-              textDecoration: "none",
-            }}
-          >
-            View on Explorer
+      <div className="stack">
+        <div className="alert alert-error" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
+          <strong>Transaction failed</strong>
+          <span className="mono-sm">{txState.txHash}</span>
+        </div>
+        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+          <a href={txState.explorerUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <ExternalLink size={14} /> Explorer
           </a>
-          <button
-            onClick={() => {
-              setTxState({ step: "form" });
-              setError(null);
-            }}
-            style={{
-              padding: "0.75rem 1.5rem",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Try Again
-          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setTxState({ step: "form" })}>Try again</button>
         </div>
       </div>
     );
   }
 
-  if (txState.step === "polling" || txState.step === "sending") {
-    const isPending = txState.step === "sending" || pollCount < MAX_POLLS;
+  /* ── Sending / Polling ───────────────────────────────────────────── */
 
+  if (txState.step === "polling" || txState.step === "sending") {
     return (
-      <div
-        style={{
-          border: "1px solid #007bff",
-          borderRadius: "8px",
-          padding: "2rem",
-          backgroundColor: "#cce5ff",
-          minHeight: "300px",
-        }}
-      >
-        <h2 style={{ color: "#004085", marginTop: 0 }}>
-          {txState.step === "sending" ? "Sending..." : "Transaction Pending"}
-        </h2>
-        {txState.step === "polling" && (
+      <div className="stack" style={{ alignItems: "center", padding: "2rem 0", textAlign: "center" }}>
+        <div className="skeleton" style={{ width: 48, height: 48, borderRadius: "50%" }} />
+        <h3 style={{ margin: 0 }}>{txState.step === "sending" ? "Sending\u2026" : "Confirming\u2026"}</h3>
+        {txState.step === "polling" ? (
           <>
-            <p style={{ color: "#004085" }}>
-              Waiting for confirmation... (checked {pollCount}/{MAX_POLLS} times)
-            </p>
-            <p
-              style={{
-                fontFamily: "monospace",
-                wordBreak: "break-all",
-                color: "#004085",
-              }}
-            >
-              TX: {txState.txHash}
-            </p>
-            <div style={{ marginTop: "1rem", display: "flex", gap: "1rem" }}>
-              <a
-                href={txState.explorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  padding: "0.5rem 1rem",
-                  backgroundColor: "#007bff",
-                  color: "white",
-                  borderRadius: "4px",
-                  textDecoration: "none",
-                }}
-              >
-                View on Explorer
-              </a>
-              {isPending && (
-                <button
-                  onClick={pollStatus}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    backgroundColor: "#17a2b8",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Refresh Status
-                </button>
-              )}
-            </div>
-            {!isPending && (
-              <p style={{ color: "#856404", marginTop: "1rem", backgroundColor: "#fff3cd", padding: "0.5rem", borderRadius: "4px" }}>
-                Transaction is taking longer than expected. Check the explorer for status.
-              </p>
-            )}
+            <p className="text-muted" style={{ margin: 0 }}>Polling {pollCount}/{MAX_POLLS}</p>
+            <span className="mono-sm">{txState.txHash}</span>
           </>
-        )}
-        {txState.step === "sending" && (
-          <p style={{ color: "#004085" }}>
-            Signing and broadcasting transaction...
-          </p>
-        )}
+        ) : null}
       </div>
     );
   }
+
+  /* ── Confirm ─────────────────────────────────────────────────────── */
 
   if (txState.step === "confirm") {
     const { gasEstimate } = txState;
     return (
-      <div
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: "8px",
-          padding: "1.5rem",
-          minHeight: "400px",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Confirm Transaction</h2>
+      <div className="stack">
+        <div className="card card-pad">
+          <h3 className="section-title">Confirm transfer</h3>
+          <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>
+            From {walletLabel || "Wallet"}
+          </p>
+          <span className="mono-sm">{publicAddress}</span>
 
-        <dl>
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>From</dt>
-          <dd style={{ fontFamily: "monospace", fontSize: "0.875rem" }}>
-            {publicAddress}
-          </dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>To</dt>
-          <dd style={{ fontFamily: "monospace", fontSize: "0.875rem" }}>{toAddress}</dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>Amount</dt>
-          <dd style={{ fontSize: "1.25rem", fontWeight: "bold" }}>
-            {formatAmount(amount)}
-          </dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            Estimated Gas Cost
-          </dt>
-          <dd>{gasEstimate.estimated_cost} AVAX</dd>
-
-          <dt style={{ fontWeight: "bold", color: "#666", marginTop: "1rem" }}>
-            Gas Limit
-          </dt>
-          <dd>{gasLimitOverride || gasEstimate.gas_limit}</dd>
-        </dl>
-
-        {error && (
-          <div
-            style={{
-              padding: "0.75rem",
-              backgroundColor: "#fee",
-              border: "1px solid #f00",
-              borderRadius: "4px",
-              color: "#c00",
-              marginTop: "1rem",
-            }}
-          >
-            {error}
+          <div className="stack-sm" style={{ marginTop: "1rem" }}>
+            <div className="row-between">
+              <span className="text-secondary">To</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{shortenAddr(toAddress)}</span>
+            </div>
+            <hr className="divider" />
+            <div className="row-between">
+              <span className="text-secondary">Amount</span>
+              <strong>{amount} {token === "usdc" ? "USDC" : "AVAX"}</strong>
+            </div>
+            <hr className="divider" />
+            <div className="row-between">
+              <span className="text-secondary">Network fee</span>
+              <span>{gasEstimate.estimated_cost} AVAX</span>
+            </div>
           </div>
-        )}
+        </div>
 
-        <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
-          <button
-            onClick={handleSend}
-            style={{
-              flex: 1,
-              padding: "1rem",
-              backgroundColor: "#28a745",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "1rem",
-              fontWeight: "bold",
-            }}
-          >
-            Confirm & Send
+        {error ? <div className="alert alert-error">{error}</div> : null}
+
+        <div className="row" style={{ gap: "0.5rem" }}>
+          <button type="button" className="btn btn-primary" onClick={() => void handleSend()} style={{ flex: 1 }}>
+            Confirm &amp; send
           </button>
-          <button
-            onClick={() => {
-              setTxState({ step: "form" });
-              setError(null);
-            }}
-            style={{
-              padding: "1rem",
-              backgroundColor: "#6c757d",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
+          <button type="button" className="btn btn-secondary" onClick={() => setTxState({ step: "form" })}>
+            Back
           </button>
         </div>
       </div>
     );
   }
 
-  // Form step
+  /* ── Main form ───────────────────────────────────────────────────── */
+
   return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        padding: "1.5rem",
-        minHeight: "400px",
-      }}
-    >
-      <div style={{ marginBottom: "1rem", color: "#666" }}>
-        Sending from: <strong>{walletLabel || "Wallet"}</strong>
-        <div style={{ fontFamily: "monospace", fontSize: "0.75rem" }}>
-          {publicAddress}
-        </div>
+    <div className="stack">
+      <div className="text-muted" style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+        From <strong style={{ color: "var(--ink)" }}>{walletLabel || "Wallet"}</strong>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
+          {shortenAddr(publicAddress)}
+        </span>
       </div>
 
-      {(prefillTo || prefillAmount || prefillNote || prefillToken === "usdc" || prefillWarnings.length > 0) && (
-        <div
-          style={{
-            marginBottom: "1rem",
-            padding: "0.75rem",
-            backgroundColor: "#e7f1ff",
-            border: "1px solid #b8daff",
-            borderRadius: "4px",
-            color: "#004085",
-            fontSize: "0.875rem",
-          }}
-        >
-          This form was pre-filled from a payment request link.
-          {prefillNote && (
-            <div style={{ marginTop: "0.25rem" }}>
-              Note: <strong>{prefillNote}</strong>
-            </div>
-          )}
-          {prefillWarnings.length > 0 && (
-            <ul style={{ margin: "0.5rem 0 0 1.25rem", padding: 0 }}>
-              {prefillWarnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <section
-        style={{
-          marginBottom: "1.25rem",
-          padding: "0.9rem",
-          border: "1px solid #d7e9f9",
-          borderRadius: "6px",
-          backgroundColor: "#f8fcff",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", alignItems: "center" }}>
-          <strong style={{ color: "#1f4f77", fontSize: "0.92rem" }}>Saved Recipients</strong>
-          <button
-            type="button"
-            onClick={() => setShowSaveRecipient((value) => !value)}
-            style={{
-              border: "1px solid #6e8aa3",
-              borderRadius: "4px",
-              backgroundColor: "#fff",
-              color: "#1f4f77",
-              padding: "0.35rem 0.65rem",
-              cursor: "pointer",
-              fontSize: "0.78rem",
-            }}
-          >
-            {showSaveRecipient ? "Cancel Save" : "Save Current Recipient"}
-          </button>
-        </div>
-
-        {shortcutsLoadError && (
-          <p style={{ margin: "0.6rem 0 0 0", color: "#8a5b00", fontSize: "0.8rem" }}>
-            {shortcutsLoadError}
-          </p>
-        )}
-
-        {savedRecipients.length > 0 ? (
-          <div style={{ marginTop: "0.65rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            {savedRecipients.map((recipient) => (
-              <button
-                key={recipient.id}
-                type="button"
-                onClick={() => fillRecipient(recipient.address)}
-                style={{
-                  border: "1px solid #c8def0",
-                  borderRadius: "999px",
-                  padding: "0.35rem 0.65rem",
-                  backgroundColor: "#fff",
-                  color: "#234d72",
-                  cursor: "pointer",
-                  fontSize: "0.78rem",
-                }}
-              >
-                {recipient.name} ({shortAddress(recipient.address)})
-              </button>
+      {prefillWarnings.length > 0 ? (
+        <div className="alert alert-warning">
+          Link fields were adjusted.
+          <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+            {prefillWarnings.map((warning) => (
+              <li key={warning}>{warning}</li>
             ))}
-          </div>
-        ) : (
-          <p style={{ margin: "0.6rem 0 0 0", color: "#60788f", fontSize: "0.8rem" }}>
-            No saved recipients yet. Save one to avoid retyping addresses.
-          </p>
-        )}
+          </ul>
+        </div>
+      ) : null}
 
-        {showSaveRecipient && (
-          <div
-            style={{
-              marginTop: "0.75rem",
-              padding: "0.75rem",
-              borderRadius: "4px",
-              backgroundColor: "#fff",
-              border: "1px solid #d6e4f2",
-            }}
-          >
-            <label
-              htmlFor="saveRecipientName"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.35rem", fontSize: "0.82rem" }}
-            >
-              Recipient Name
-            </label>
-            <input
-              id="saveRecipientName"
-              type="text"
-              value={saveRecipientName}
-              onChange={(event) => setSaveRecipientName(event.target.value)}
-              placeholder="e.g. Grocer"
-              maxLength={48}
-              style={{
-                width: "100%",
-                padding: "0.55rem",
-                border: "1px solid #d0d0d0",
-                borderRadius: "4px",
-                boxSizing: "border-box",
-                marginBottom: "0.6rem",
-              }}
-            />
+      {/* ── Recipient ─────────────────────────────────────────────── */}
+
+      <div className="field">
+        <label>Recipient address</label>
+        <input
+          value={toAddress}
+          onChange={(event) => setToAddress(event.target.value)}
+          placeholder="0x\u2026"
+          style={{ fontFamily: "var(--font-mono)" }}
+        />
+      </div>
+
+      <div className="row" style={{ gap: "0.375rem", flexWrap: "wrap" }}>
+        <button type="button" className="btn btn-ghost" onClick={() => setShowQrScanner(true)}>
+          <Scan size={15} /> Scan QR
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
+          <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
+        </button>
+      </div>
+
+      {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
+
+      {savedRecipients.length > 0 ? (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          {savedRecipients.map((recipient) => (
             <button
+              key={recipient.id}
               type="button"
-              onClick={handleSaveRecipient}
-              disabled={isSavingRecipient}
-              style={{
-                border: "1px solid #0b63a9",
-                borderRadius: "4px",
-                backgroundColor: isSavingRecipient ? "#7ca9cc" : "#0b7bd3",
-                color: "#fff",
-                padding: "0.45rem 0.75rem",
-                cursor: isSavingRecipient ? "not-allowed" : "pointer",
-                fontSize: "0.8rem",
+              className={`bookmark-contact${toAddress.toLowerCase() === recipient.address.toLowerCase() ? " active" : ""}`}
+              onClick={() => {
+                setToAddress(recipient.address);
+                setError(null);
               }}
             >
-              {isSavingRecipient ? "Saving..." : "Save Recipient"}
+              <div className="bookmark-avatar">
+                {recipient.name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div className="bookmark-name">{recipient.name}</div>
+                <div className="bookmark-addr">{shortenAddr(recipient.address)}</div>
+              </div>
             </button>
-          </div>
-        )}
+          ))}
+        </div>
+      ) : null}
 
-        {saveRecipientError && (
-          <p style={{ margin: "0.65rem 0 0 0", color: "#b32424", fontSize: "0.8rem" }}>
-            {saveRecipientError}
-          </p>
-        )}
-        {saveRecipientSuccess && (
-          <p style={{ margin: "0.65rem 0 0 0", color: "#176c39", fontSize: "0.8rem" }}>
-            {saveRecipientSuccess}
-          </p>
-        )}
-      </section>
-
-      {/* Token Selection */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <label style={{ display: "block", fontWeight: "bold", marginBottom: "0.5rem" }}>
-          Token
-        </label>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
+      {showSaveRecipient ? (
+        <div className="inline-form">
+          <input
+            value={saveRecipientName}
+            onChange={(event) => setSaveRecipientName(event.target.value)}
+            placeholder="Recipient name"
+            className="input"
+          />
           <button
             type="button"
-            onClick={() => setToken("native")}
-            style={{
-              flex: 1,
-              padding: "0.75rem",
-              border: token === "native" ? "2px solid #007bff" : "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: token === "native" ? "#e7f1ff" : "white",
-              cursor: "pointer",
-            }}
+            className="btn btn-secondary"
+            onClick={() => void handleSaveRecipient()}
+            disabled={isSavingRecipient}
           >
-            AVAX
-          </button>
-          <button
-            type="button"
-            onClick={() => setToken("usdc")}
-            style={{
-              flex: 1,
-              padding: "0.75rem",
-              border: token === "usdc" ? "2px solid #007bff" : "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: token === "usdc" ? "#e7f1ff" : "white",
-              cursor: "pointer",
-            }}
-          >
-            USDC
+            {isSavingRecipient ? "Saving\u2026" : "Save"}
           </button>
         </div>
-      </div>
+      ) : null}
 
-      {/* Recipient Address */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <label
-          htmlFor="toAddress"
-          style={{ display: "block", fontWeight: "bold", marginBottom: "0.5rem" }}
-        >
-          Recipient Address
-        </label>
-        <input
-          id="toAddress"
-          type="text"
-          value={toAddress}
-          onChange={(e) => setToAddress(e.target.value)}
-          placeholder="0x..."
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            fontFamily: "monospace",
-            boxSizing: "border-box",
-          }}
-        />
-        {toAddress && !isValidAddress(toAddress) && (
-          <div style={{ color: "#dc3545", fontSize: "0.875rem", marginTop: "0.25rem" }}>
-            Invalid address format
-          </div>
-        )}
-      </div>
+      {saveRecipientMessage ? <p className="text-muted" style={{ margin: 0 }}>{saveRecipientMessage}</p> : null}
 
-      {/* Amount */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <label
-          htmlFor="amount"
-          style={{ display: "block", fontWeight: "bold", marginBottom: "0.5rem" }}
-        >
-          Amount ({token === "usdc" ? "USDC" : "AVAX"})
-        </label>
+      {/* ── Amount ────────────────────────────────────────────────── */}
+
+      <div className="field">
+        <label>Amount</label>
         <input
-          id="amount"
-          type="text"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(event) => setAmount(event.target.value)}
           placeholder="0.0"
-          style={{
-            width: "100%",
-            padding: "0.75rem",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            fontSize: "1.25rem",
-            boxSizing: "border-box",
-          }}
+          inputMode="decimal"
         />
       </div>
 
-      {/* Advanced Options */}
-      <div style={{ marginBottom: "1.5rem" }}>
+      <div className="row" style={{ gap: "0.375rem" }}>
         <button
           type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "#007bff",
-            cursor: "pointer",
-            padding: 0,
-          }}
+          className={`chip${token === "native" ? " active" : ""}`}
+          onClick={() => setToken("native")}
         >
-          {showAdvanced ? "▼ Hide" : "▶ Show"} Advanced Options
+          AVAX
         </button>
-        {showAdvanced && (
-          <div
-            style={{
-              marginTop: "1rem",
-              padding: "1rem",
-              backgroundColor: "#f8f9fa",
-              borderRadius: "4px",
-            }}
-          >
-            <div style={{ marginBottom: "1rem" }}>
-              <label
-                htmlFor="gasLimit"
-                style={{ display: "block", fontSize: "0.875rem", marginBottom: "0.25rem" }}
-              >
-                Gas Limit Override (optional)
-              </label>
-              <input
-                id="gasLimit"
-                type="text"
-                value={gasLimitOverride}
-                onChange={(e) => setGasLimitOverride(e.target.value)}
-                placeholder="e.g., 21000"
-                style={{
-                  width: "100%",
-                  padding: "0.5rem",
-                  border: "1px solid #ddd",
-                  borderRadius: "4px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="priorityFee"
-                style={{ display: "block", fontSize: "0.875rem", marginBottom: "0.25rem" }}
-              >
-                Priority Fee Override (wei, optional)
-              </label>
-              <input
-                id="priorityFee"
-                type="text"
-                value={priorityFeeOverride}
-                onChange={(e) => setPriorityFeeOverride(e.target.value)}
-                placeholder="e.g., 1500000000"
-                style={{
-                  width: "100%",
-                  padding: "0.5rem",
-                  border: "1px solid #ddd",
-                  borderRadius: "4px",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-          </div>
-        )}
+        <button
+          type="button"
+          className={`chip${token === "usdc" ? " active" : ""}`}
+          onClick={() => setToken("usdc")}
+        >
+          USDC
+        </button>
       </div>
 
-      {error && (
-        <div
-          style={{
-            padding: "0.75rem",
-            backgroundColor: "#fee",
-            border: "1px solid #f00",
-            borderRadius: "4px",
-            color: "#c00",
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {/* ── Advanced ──────────────────────────────────────────────── */}
 
-      {/* Submit */}
       <button
         type="button"
-        onClick={handleEstimate}
-        disabled={isEstimating || !toAddress || !amount}
-        style={{
-          width: "100%",
-          padding: "1rem",
-          backgroundColor:
-            isEstimating || !toAddress || !amount ? "#ccc" : "#007bff",
-          color: "white",
-          border: "none",
-          borderRadius: "4px",
-          cursor: isEstimating || !toAddress || !amount ? "not-allowed" : "pointer",
-          fontSize: "1rem",
-          fontWeight: "bold",
-        }}
+        className="btn btn-ghost"
+        onClick={() => setShowAdvanced((state) => !state)}
+        style={{ justifyContent: "flex-start" }}
       >
-        {isEstimating ? "Estimating..." : "Review Transaction"}
+        {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        {showAdvanced ? "Hide advanced" : "Advanced options"}
       </button>
 
-      {/* Faucet links */}
-      <div
-        style={{
-          marginTop: "1.5rem",
-          padding: "1rem",
-          backgroundColor: "#f8f9fa",
-          borderRadius: "4px",
-          fontSize: "0.875rem",
-          color: "#666",
-        }}
-      >
-        <strong>Need testnet funds?</strong>
-        <ul style={{ margin: "0.5rem 0 0 1.5rem", padding: 0 }}>
-          <li>
-            <a
-              href="https://core.app/tools/testnet-faucet/?subnet=c&token=c"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Avalanche Fuji Faucet (AVAX)
-            </a>
-          </li>
-          <li>
-            <a
-              href="https://faucet.circle.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Circle Faucet (USDC)
-            </a>
-          </li>
-        </ul>
+      {showAdvanced ? (
+        <div className="stack">
+          <div className="field">
+            <label>Gas limit override</label>
+            <input
+              value={gasLimitOverride}
+              onChange={(event) => setGasLimitOverride(event.target.value)}
+              placeholder="21000"
+            />
+          </div>
+          <div className="field">
+            <label>Priority fee override (wei)</label>
+            <input
+              value={priorityFeeOverride}
+              onChange={(event) => setPriorityFeeOverride(event.target.value)}
+              placeholder="1500000000"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Actions ───────────────────────────────────────────────── */}
+
+      {error ? <div className="alert alert-error">{error}</div> : null}
+
+      <div className="row" style={{ gap: "0.5rem" }}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => void handleEstimate()}
+          disabled={isEstimating || !toAddress.trim() || !amount.trim()}
+          style={{ flex: 1 }}
+        >
+          {isEstimating ? "Estimating\u2026" : "Review transaction"}
+        </button>
+        {mode === "dialog" && onRequestClose ? (
+          <button type="button" className="btn btn-secondary" onClick={onRequestClose}>
+            Cancel
+          </button>
+        ) : null}
       </div>
+
+      <RecipientQrScanner
+        open={showQrScanner}
+        onClose={() => setShowQrScanner(false)}
+        onScan={(value) => {
+          const maybeAddressMatch = value.match(/0x[a-fA-F0-9]{40}/);
+          setToAddress(maybeAddressMatch?.[0] || value.trim());
+          setError(null);
+        }}
+      />
     </div>
   );
 }

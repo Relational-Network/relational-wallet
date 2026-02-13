@@ -4,28 +4,35 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { Copy, Check } from "lucide-react";
+import { toast } from "sonner";
 
 interface CopyAddressProps {
+  /** Full Ethereum address */
   address: string;
-  /** Display label next to the button. */
+  /** Optional label shown before the truncated address */
   label?: string;
+  /** Show truncated address text (default true) */
+  showAddress?: boolean;
+}
+
+function truncate(addr: string) {
+  if (addr.length <= 12) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 }
 
 /**
- * Client component that copies a wallet address to the clipboard.
- *
- * Shows a brief "Copied!" confirmation after clicking.
+ * Compound copy-address widget.
+ * Shows a truncated address with a copy button. Provides toast feedback.
  */
-export function CopyAddress({ address, label }: CopyAddressProps) {
+export function CopyAddress({ address, label, showAddress = true }: CopyAddressProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(address);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback for older browsers
+      /* fallback for insecure contexts */
       const textarea = document.createElement("textarea");
       textarea.value = address;
       textarea.style.position = "fixed";
@@ -34,33 +41,27 @@ export function CopyAddress({ address, label }: CopyAddressProps) {
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
+    setCopied(true);
+    toast.success("Address copied");
+    setTimeout(() => setCopied(false), 1800);
   }, [address]);
 
+  if (!showAddress) {
+    return (
+      <button onClick={handleCopy} className="btn-icon" title="Copy address">
+        {copied ? <Check size={16} /> : <Copy size={16} />}
+      </button>
+    );
+  }
+
   return (
-    <button
-      onClick={handleCopy}
-      title="Copy address to clipboard"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "0.375rem",
-        minWidth: "9.5rem",
-        padding: "0.375rem 0.75rem",
-        border: "1px solid #ccc",
-        borderRadius: "4px",
-        background: copied ? "#d4edda" : "#f8f9fa",
-        color: copied ? "#155724" : "#333",
-        cursor: "pointer",
-        fontSize: "0.8125rem",
-        fontFamily: "inherit",
-        transition: "background 0.2s, color 0.2s",
-      }}
-    >
-      {copied ? "✓ Copied!" : `📋 ${label || "Copy Address"}`}
-    </button>
+    <div className="address-display">
+      {label && <span style={{ fontWeight: 600, fontFamily: "var(--font-sans)" }}>{label}</span>}
+      <span className="address-text">{truncate(address)}</span>
+      <button onClick={handleCopy} className="btn-icon" title="Copy address" style={{ border: 0, width: 28, height: 28 }}>
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
   );
 }

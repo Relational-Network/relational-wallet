@@ -575,6 +575,226 @@
         ]
       }
     },
+    "/v1/fiat/offramp/requests": {
+      "post": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "Create fiat off-ramp request.",
+        "operationId": "create_offramp_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFiatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Fiat off-ramp request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatRequestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Wallet not found"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/fiat/onramp/requests": {
+      "post": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "Create fiat on-ramp request.",
+        "operationId": "create_onramp_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFiatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Fiat on-ramp request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatRequestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Wallet not found"
+          },
+          "503": {
+            "description": "Provider unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/fiat/providers": {
+      "get": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "List supported fiat providers for sandbox testing.",
+        "operationId": "list_fiat_providers",
+        "responses": {
+          "200": {
+            "description": "Supported fiat providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatProviderListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/fiat/requests": {
+      "get": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "List fiat requests for current user.",
+        "operationId": "list_fiat_requests",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "query",
+            "description": "Optional wallet filter.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fiat requests listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatRequestListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/fiat/requests/{request_id}": {
+      "get": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "Get fiat request by ID.",
+        "operationId": "get_fiat_request",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Fiat request ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fiat request details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatRequestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/v1/invite": {
       "get": {
         "tags": [
@@ -1598,7 +1818,9 @@
           "auth_failure",
           "permission_denied",
           "admin_access",
-          "config_changed"
+          "config_changed",
+          "fiat_on_ramp_requested",
+          "fiat_off_ramp_requested"
         ]
       },
       "AuditLogResponse": {
@@ -1697,6 +1919,52 @@
           "wallet_id": {
             "$ref": "#/components/schemas/WalletAddress",
             "description": "The wallet to add the bookmark to (must be owned by the user)."
+          }
+        }
+      },
+      "CreateFiatRequest": {
+        "type": "object",
+        "description": "Request body for creating fiat on-ramp/off-ramp requests.",
+        "required": [
+          "wallet_id",
+          "amount_eur"
+        ],
+        "properties": {
+          "amount_eur": {
+            "type": "string",
+            "description": "Amount in EUR decimal string (e.g. \"25.50\")."
+          },
+          "beneficiary_account_holder_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Beneficiary account holder name (required for off-ramp)."
+          },
+          "beneficiary_iban": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Beneficiary IBAN (required for off-ramp)."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional free-form note."
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional provider name (`truelayer_sandbox` default)."
+          },
+          "wallet_id": {
+            "type": "string",
+            "description": "Wallet to credit/debit for this fiat request."
           }
         }
       },
@@ -1893,6 +2161,174 @@
           }
         }
       },
+      "FiatDirection": {
+        "type": "string",
+        "description": "Fiat request direction.",
+        "enum": [
+          "on_ramp",
+          "off_ramp"
+        ]
+      },
+      "FiatProviderListResponse": {
+        "type": "object",
+        "description": "Response for provider discovery.",
+        "required": [
+          "default_provider",
+          "providers"
+        ],
+        "properties": {
+          "default_provider": {
+            "type": "string",
+            "description": "Default provider ID if client does not pass one."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FiatProviderSummary"
+            },
+            "description": "Providers currently enabled by backend."
+          }
+        }
+      },
+      "FiatProviderSummary": {
+        "type": "object",
+        "description": "Provider summary exposed by fiat API.",
+        "required": [
+          "provider_id",
+          "display_name",
+          "sandbox",
+          "enabled",
+          "supports_on_ramp",
+          "supports_off_ramp"
+        ],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Human-friendly provider name for UI display."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether backend is configured and ready for this provider."
+          },
+          "provider_id": {
+            "type": "string",
+            "description": "Stable provider ID used by API requests."
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Indicates this provider is sandbox-only in current environment."
+          },
+          "supports_off_ramp": {
+            "type": "boolean",
+            "description": "Whether the provider can process off-ramp requests."
+          },
+          "supports_on_ramp": {
+            "type": "boolean",
+            "description": "Whether the provider can process on-ramp requests."
+          }
+        }
+      },
+      "FiatRequestListResponse": {
+        "type": "object",
+        "description": "List response for fiat requests.",
+        "required": [
+          "requests",
+          "total"
+        ],
+        "properties": {
+          "requests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FiatRequestResponse"
+            },
+            "description": "Requests visible to the authenticated user."
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total count.",
+            "minimum": 0
+          }
+        }
+      },
+      "FiatRequestResponse": {
+        "type": "object",
+        "description": "Fiat request response returned to clients.",
+        "required": [
+          "request_id",
+          "wallet_id",
+          "direction",
+          "amount_eur",
+          "provider",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "amount_eur": {
+            "type": "string",
+            "description": "Amount in EUR."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "Creation time."
+          },
+          "direction": {
+            "$ref": "#/components/schemas/FiatDirection",
+            "description": "`on_ramp` or `off_ramp`."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional note."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider identifier."
+          },
+          "provider_action_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional provider action URL (for redirect/continue flow)."
+          },
+          "provider_reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional provider reference/session ID."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FiatRequestStatus",
+            "description": "Current status."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "Last update time."
+          },
+          "wallet_id": {
+            "type": "string",
+            "description": "Wallet ID tied to this request."
+          }
+        }
+      },
+      "FiatRequestStatus": {
+        "type": "string",
+        "description": "Fiat request lifecycle status.",
+        "enum": [
+          "queued",
+          "provider_pending",
+          "completed",
+          "failed"
+        ]
+      },
       "HealthChecks": {
         "type": "object",
         "description": "Individual health check results.",
@@ -1906,13 +2342,6 @@
               "null"
             ],
             "description": "Data directory availability (if configured)."
-          },
-          "jwks": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "JWKS (authentication keys) status.\nOnly present in production mode (CLERK_JWKS_URL configured)."
           },
           "service": {
             "type": "string",
@@ -2184,6 +2613,82 @@
           }
         }
       },
+      "StoredFiatRequest": {
+        "type": "object",
+        "description": "Persisted fiat request record.",
+        "required": [
+          "request_id",
+          "wallet_id",
+          "owner_user_id",
+          "direction",
+          "amount_eur",
+          "provider",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "amount_eur": {
+            "type": "string",
+            "description": "Requested fiat amount in EUR (human-readable decimal string)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp."
+          },
+          "direction": {
+            "$ref": "#/components/schemas/FiatDirection",
+            "description": "On-ramp vs off-ramp direction."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional user note."
+          },
+          "owner_user_id": {
+            "type": "string",
+            "description": "Owner user ID."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Selected provider identifier (stub: `truelayer_sandbox`)."
+          },
+          "provider_action_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional URL where user can continue provider authorization."
+          },
+          "provider_reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional provider reference/session ID."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Unique request identifier."
+          },
+          "status": {
+            "$ref": "#/components/schemas/FiatRequestStatus",
+            "description": "Current status."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last update timestamp."
+          },
+          "wallet_id": {
+            "type": "string",
+            "description": "Wallet tied to this request."
+          }
+        }
+      },
       "StoredTransaction": {
         "type": "object",
         "description": "Stored transaction record.",
@@ -2213,6 +2718,13 @@
             "format": "int64",
             "description": "Block number (if confirmed)",
             "minimum": 0
+          },
+          "counterparty_wallet_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional counterparty wallet ID when both sides are internal wallets."
           },
           "created_at": {
             "type": "string",
@@ -2788,6 +3300,10 @@
     {
       "name": "Recurring",
       "description": "Recurring payment scheduling"
+    },
+    {
+      "name": "Fiat",
+      "description": "Fiat on-ramp/off-ramp provider integrations"
     },
     {
       "name": "Admin",

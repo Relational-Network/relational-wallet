@@ -8,11 +8,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { apiClient } from "@/lib/api";
+import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 
 /**
- * Create wallet page (authenticated).
- *
- * Allows users to create a new wallet.
+ * Fast wallet creation route.
+ * Optimized for clean-state onboarding after Clerk signup.
  */
 export default function NewWalletPage() {
   const router = useRouter();
@@ -22,102 +22,84 @@ export default function NewWalletPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
       const token = await getToken();
+      console.debug("[wallets.new] Creating wallet", { hasLabel: Boolean(label.trim()) });
 
-      // Create wallet - label is optional per OpenAPI spec
       const response = await apiClient.createWallet(token || "", {
         label: label.trim() || undefined,
       });
 
       if (response.success) {
-        // Redirect to the new wallet's detail page
-        router.push(`/wallets/${response.data.wallet.wallet_id}`);
-      } else {
-        // Handle different error statuses
-        if (response.error.status === 401) {
-          router.push("/sign-in");
-        } else if (response.error.status === 403) {
-          setError("Access denied. You do not have permission to create wallets.");
-        } else {
-          setError(`Unable to create wallet: ${response.error.message}`);
-        }
+        const walletId = response.data.wallet.wallet_id;
+        console.debug("[wallets.new] Wallet created", { walletId });
+        router.push(`/wallets/${walletId}`);
+        return;
       }
-    } catch {
-      setError("An unexpected error occurred. Please try again.");
+
+      if (response.error.status === 401) {
+        router.push("/sign-in");
+        return;
+      }
+
+      if (response.error.status === 403) {
+        setError("Access denied. You do not have permission to create wallets.");
+      } else {
+        setError(`Unable to create wallet: ${response.error.message}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error while creating wallet");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main style={{ padding: "2rem", maxWidth: "600px", margin: "0 auto" }}>
-      <header style={{ marginBottom: "2rem" }}>
-        <Link href="/wallets" style={{ color: "#666", textDecoration: "none" }}>
-          ← Back to Wallets
-        </Link>
-        <h1>Create New Wallet</h1>
-      </header>
+    <SimpleWalletShell
+      topBar={
+        <>
+          <div className="app-top-left">
+            <Link href="/wallets" className="btn btn-ghost">← Back</Link>
+            <span style={{ fontWeight: 700 }}>Create wallet</span>
+          </div>
+        </>
+      }
+    >
+      <div className="card card-pad" style={{ maxWidth: "38rem" }}>
+        <form onSubmit={handleSubmit} className="stack">
+          <div className="field">
+            <label htmlFor="walletLabel">Wallet label (optional)</label>
+            <input
+              id="walletLabel"
+              type="text"
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="Primary, treasury, operations..."
+              disabled={loading}
+            />
+          </div>
 
-      {error && (
-        <div
-          style={{
-            padding: "1rem",
-            backgroundColor: "#fee",
-            border: "1px solid #f00",
-            borderRadius: "4px",
-            color: "#c00",
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </div>
-      )}
+          {error && <div className="alert alert-error">{error}</div>}
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: "1rem" }}>
-          <label htmlFor="label" style={{ display: "block", marginBottom: "0.5rem" }}>
-            Wallet Label (optional)
-          </label>
-          <input
-            type="text"
-            id="label"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g., Primary Wallet"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "0.5rem",
-              border: "1px solid #ccc",
-              borderRadius: "4px",
-              fontSize: "1rem",
-            }}
-          />
-        </div>
+          <div className="row" style={{ gap: "0.5rem" }}>
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? "Creating…" : "Create wallet"}
+            </button>
+            <Link href="/wallets" className="btn btn-secondary">
+              Cancel
+            </Link>
+          </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: "0.75rem 1.5rem",
-            backgroundColor: loading ? "#999" : "#333",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontSize: "1rem",
-          }}
-        >
-          {loading ? "Creating..." : "Create Wallet"}
-        </button>
-      </form>
-    </main>
+          <p className="text-muted" style={{ margin: 0 }}>
+            Debug logs are available in browser console while creating wallets.
+          </p>
+        </form>
+      </div>
+    </SimpleWalletShell>
   );
 }

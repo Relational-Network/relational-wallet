@@ -9,12 +9,13 @@ import { buildPaymentRequestParams } from "@/lib/paymentRequest";
 
 interface PaymentRequestBuilderProps {
   recipientAddress: string;
+  compact?: boolean;
 }
 
 /**
  * Builds a shareable link that pre-fills the send form for pull-style requests.
  */
-export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilderProps) {
+export function PaymentRequestBuilder({ recipientAddress, compact = false }: PaymentRequestBuilderProps) {
   const QR_SIZE = 220;
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"native" | "usdc">("native");
@@ -42,7 +43,7 @@ export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilde
     try {
       await navigator.clipboard.writeText(requestLink);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(() => setCopied(false), 1400);
     } catch {
       setCopied(false);
     }
@@ -61,225 +62,144 @@ export function PaymentRequestBuilder({ recipientAddress }: PaymentRequestBuilde
     return () => window.removeEventListener("keydown", handleEscape);
   }, [showQrPopup]);
 
-  return (
-    <section
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "4px",
-        padding: "1.5rem",
-        marginBottom: "1.5rem",
-      }}
+  const qrPopup = showQrPopup ? (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Payment request QR code"
+      onClick={() => setShowQrPopup(false)}
+      className="dialog-backdrop"
     >
-      <h3 style={{ marginTop: 0, color: "#666" }}>Request Payment (Pull Transfer)</h3>
-      <p style={{ marginTop: 0, color: "#666", fontSize: "0.875rem" }}>
-        Generate a shareable link that pre-fills the sender&apos;s transfer form.
+      <div onClick={(event) => event.stopPropagation()} className="dialog-card" style={{ padding: "1.25rem" }}>
+        <h3 style={{ margin: 0 }}>Payment QR</h3>
+        <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>Scan to open a prefilled send form.</p>
+        <div style={{ display: "grid", placeItems: "center", margin: "1rem 0" }}>
+          <div className="qr-frame">
+            <QRCodeSVG value={requestLink} size={QR_SIZE} level="M" marginSize={2} />
+          </div>
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn-ghost" onClick={() => setShowQrPopup(false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  /* ── Compact mode (inside receive dialog) ────────────────────────── */
+
+  if (compact) {
+    return (
+      <div className="stack" style={{ width: "100%" }}>
+        <p className="text-muted" style={{ margin: 0, textAlign: "center" }}>
+          Request a specific amount via shareable payment link.
+        </p>
+
+        <div className="grid-2">
+          <div className="field">
+            <label htmlFor="requestAmount">Amount</label>
+            <input
+              id="requestAmount"
+              type="text"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.0"
+              inputMode="decimal"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="requestToken">Token</label>
+            <select
+              id="requestToken"
+              value={token}
+              onChange={(e) => setToken(e.target.value === "usdc" ? "usdc" : "native")}
+            >
+              <option value="native">AVAX</option>
+              <option value="usdc">USDC</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="field">
+          <label htmlFor="requestNoteCompact">Note (optional)</label>
+          <input
+            id="requestNoteCompact"
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. Dinner split"
+            maxLength={140}
+          />
+        </div>
+
+        <div className="row" style={{ gap: "0.5rem", justifyContent: "center" }}>
+          <button type="button" onClick={copyLink} className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}>
+            {copied ? "Copied \u2713" : "Copy payment link"}
+          </button>
+          <button type="button" onClick={() => setShowQrPopup(true)} className="btn btn-secondary">
+            QR code
+          </button>
+        </div>
+
+        {qrPopup}
+      </div>
+    );
+  }
+
+  /* ── Full mode (standalone receive page) ─────────────────────────── */
+
+  return (
+    <section className="card card-pad">
+      <h3 className="section-title">Request payment</h3>
+      <p className="text-secondary" style={{ margin: "0.25rem 0 0.75rem" }}>
+        Generate a shareable link that prefills the send form for the payer.
       </p>
 
-      <div style={{ display: "grid", gap: "0.75rem" }}>
-        <div>
-          <label htmlFor="requestAmount" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Amount (optional)
-          </label>
+      <div className="grid-2">
+        <div className="field">
+          <label htmlFor="requestAmount">Amount (optional)</label>
           <input
             id="requestAmount"
             type="text"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="e.g. 25"
-            style={{
-              width: "100%",
-              padding: "0.625rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              boxSizing: "border-box",
-            }}
           />
         </div>
-
-        <div>
-          <label htmlFor="requestToken" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Token
-          </label>
+        <div className="field">
+          <label htmlFor="requestToken">Token</label>
           <select
             id="requestToken"
             value={token}
             onChange={(e) => setToken(e.target.value === "usdc" ? "usdc" : "native")}
-            style={{
-              width: "100%",
-              padding: "0.625rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              backgroundColor: "white",
-              boxSizing: "border-box",
-            }}
           >
             <option value="native">AVAX</option>
             <option value="usdc">USDC</option>
           </select>
         </div>
-
-        <div>
-          <label htmlFor="requestNote" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Note (optional)
-          </label>
-          <input
-            id="requestNote"
-            type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. Grocery split"
-            maxLength={140}
-            style={{
-              width: "100%",
-              padding: "0.625rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              boxSizing: "border-box",
-            }}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="requestLink" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Share Link
-          </label>
-          <textarea
-            id="requestLink"
-            readOnly
-            value={requestLink}
-            rows={3}
-            style={{
-              width: "100%",
-              padding: "0.625rem",
-              border: "1px solid #ddd",
-              borderRadius: "4px",
-              fontFamily: "monospace",
-              fontSize: "0.8125rem",
-              boxSizing: "border-box",
-              resize: "vertical",
-            }}
-          />
-        </div>
       </div>
 
-      <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={copyLink}
-          style={{
-            padding: "0.5rem 0.9rem",
-            border: "1px solid #007bff",
-            borderRadius: "4px",
-            backgroundColor: copied ? "#28a745" : "#007bff",
-            color: "white",
-            cursor: "pointer",
-          }}
-        >
-          {copied ? "Copied" : "Copy Link"}
-        </button>
+      <div className="field" style={{ marginTop: "0.75rem" }}>
+        <label htmlFor="requestNote">Note (optional)</label>
+        <input
+          id="requestNote"
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. Grocery split"
+          maxLength={140}
+        />
+      </div>
 
-        <button
-          type="button"
-          onClick={() => setShowQrPopup(true)}
-          style={{
-            padding: "0.5rem 0.9rem",
-            border: "1px solid #444",
-            borderRadius: "4px",
-            backgroundColor: "#fff",
-            color: "#222",
-            cursor: "pointer",
-          }}
-        >
+      <div className="row" style={{ marginTop: "0.75rem", gap: "0.5rem" }}>
+        <button type="button" onClick={copyLink} className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}>
+          {copied ? "Copied \u2713" : "Copy link"}
+        </button>
+        <button type="button" onClick={() => setShowQrPopup(true)} className="btn btn-secondary">
           Generate QR
         </button>
       </div>
 
-      {showQrPopup ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Payment request QR code"
-          onClick={() => setShowQrPopup(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "1rem",
-          }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "min(420px, 100%)",
-              backgroundColor: "#fff",
-              borderRadius: "10px",
-              border: "1px solid #ddd",
-              padding: "1rem",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.25)",
-            }}
-          >
-            <h4 style={{ margin: "0 0 0.5rem 0", color: "#222" }}>Scan To Open Payment Link</h4>
-            <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.875rem", color: "#666" }}>
-              Fixed-size QR code for faster rendering. Press Esc to close.
-            </p>
-            <div
-              style={{
-                marginBottom: "0.75rem",
-                display: "flex",
-                justifyContent: "center",
-              }}
-            >
-              <div
-                style={{
-                  padding: "0.75rem",
-                  border: "1px solid #ddd",
-                  borderRadius: "6px",
-                  lineHeight: 0,
-                  backgroundColor: "#fff",
-                }}
-              >
-                <QRCodeSVG value={requestLink} size={QR_SIZE} level="M" marginSize={2} />
-              </div>
-            </div>
-            <textarea
-              readOnly
-              value={requestLink}
-              rows={2}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.5rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-                fontFamily: "monospace",
-                fontSize: "0.75rem",
-                marginBottom: "0.75rem",
-                resize: "none",
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => setShowQrPopup(false)}
-                style={{
-                  padding: "0.5rem 0.9rem",
-                  border: "1px solid #666",
-                  borderRadius: "4px",
-                  backgroundColor: "#fff",
-                  color: "#222",
-                  cursor: "pointer",
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {qrPopup}
     </section>
   );
 }

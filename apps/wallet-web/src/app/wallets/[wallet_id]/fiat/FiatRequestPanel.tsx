@@ -21,17 +21,11 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-function statusColor(status: FiatRequest["status"]): { bg: string; color: string } {
-  switch (status) {
-    case "completed":
-      return { bg: "#def5e8", color: "#19663a" };
-    case "failed":
-      return { bg: "#fce2e2", color: "#a13030" };
-    case "provider_pending":
-      return { bg: "#fff3cd", color: "#8a5b00" };
-    default:
-      return { bg: "#e8f1fb", color: "#1f4f77" };
-  }
+function requestStatusClass(status: FiatRequest["status"]) {
+  if (status === "completed") return "status-chip success";
+  if (status === "failed") return "status-chip failed";
+  if (status === "provider_pending") return "status-chip warn";
+  return "status-chip pending";
 }
 
 export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
@@ -120,11 +114,11 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   }, []);
 
   useEffect(() => {
-    fetchRequests();
+    void fetchRequests();
   }, [fetchRequests]);
 
   useEffect(() => {
-    fetchProviders();
+    void fetchProviders();
   }, [fetchProviders]);
 
   const createRequest = async (direction: "on" | "off") => {
@@ -217,43 +211,19 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
       : null;
 
   return (
-    <section
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        padding: "1rem",
-        backgroundColor: "#fff",
-      }}
-    >
-      <h2 style={{ marginTop: 0 }}>Fiat On-Ramp / Off-Ramp</h2>
-      <p style={{ marginTop: 0, color: "#666", fontSize: "0.875rem" }}>
-        On-ramp converts fiat to tokens. Off-ramp converts tokens back to fiat. Both flows use
-        live sandbox provider APIs so production cutover remains configuration-driven.
-      </p>
-      {!isProviderEnabled && (
-        <p style={{ marginTop: 0, color: "#b32424", fontSize: "0.875rem" }}>
-          Selected provider is not configured on the backend yet. Set `TRUELAYER_*` env vars to
-          enable live sandbox requests.
+    <section className="page-row">
+      <article className="card pad">
+        <h2 className="card-title">Provider</h2>
+        <p className="card-subtitle">
+          On-ramp converts fiat to tokens. Off-ramp converts tokens back to fiat.
         </p>
-      )}
 
-      <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
-        <div>
-          <label htmlFor="fiatProvider" style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}>
-            Provider
-          </label>
+        <div className="field" style={{ marginTop: "0.8rem" }}>
+          <label htmlFor="fiatProvider">Provider</label>
           <select
             id="fiatProvider"
             value={selectedProvider}
             onChange={(event) => setSelectedProvider(event.target.value)}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "0.6rem",
-              borderRadius: "4px",
-              border: "1px solid #ddd",
-              backgroundColor: "#fff",
-            }}
           >
             {providers.map((provider) => (
               <option key={provider.provider_id} value={provider.provider_id}>
@@ -262,462 +232,223 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
             ))}
           </select>
         </div>
-      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "0.75rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <div
-          style={{
-            border: "1px solid #d9e9f8",
-            borderRadius: "8px",
-            padding: "0.75rem",
-            backgroundColor: "#f4f9ff",
-          }}
-        >
-          <h3 style={{ margin: "0 0 0.4rem 0", fontSize: "1rem" }}>On-Ramp: Fiat to Tokens</h3>
-          <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
-            Use this when you want to buy tokens with fiat.
-          </p>
+        {!isProviderEnabled && (
+          <div className="alert warn" style={{ marginTop: "0.7rem" }}>
+            Selected provider is not configured. Set required `TRUELAYER_*` env vars on backend.
+          </div>
+        )}
+      </article>
+
+      <div className="page-grid-2">
+        <article className="card pad">
+          <h3 className="card-title">On-ramp: Fiat to tokens</h3>
+          <p className="card-subtitle">Use this when you want to buy tokens with fiat.</p>
           {onRampDisabledReason && (
-            <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.8rem", color: "#9f2f2f" }}>
+            <p className="helper-text" style={{ color: "var(--bad-600)", marginTop: "0.6rem" }}>
               {onRampDisabledReason}
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setSuccess(null);
-              setProviderActionUrl(null);
-              setIsOnRampDialogOpen(true);
-            }}
-            title={onRampDisabledReason ?? undefined}
-            disabled={isSubmitting !== null || !canCreateOnRamp}
-            style={{
-              width: "100%",
-              padding: "0.6rem 0.95rem",
-              border: "none",
-              borderRadius: "4px",
-              backgroundColor: isSubmitting !== null || !canCreateOnRamp ? "#84b6dd" : "#0b7bd3",
-              color: "#fff",
-              cursor: isSubmitting !== null || !canCreateOnRamp ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-            }}
-          >
-            Open On-Ramp Dialog
-          </button>
-        </div>
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setSuccess(null);
+                setProviderActionUrl(null);
+                setIsOnRampDialogOpen(true);
+              }}
+              title={onRampDisabledReason ?? undefined}
+              disabled={isSubmitting !== null || !canCreateOnRamp}
+              className="btn btn-primary"
+            >
+              Open On-Ramp Dialog
+            </button>
+          </div>
+        </article>
 
-        <div
-          style={{
-            border: "1px solid #dbe3ea",
-            borderRadius: "8px",
-            padding: "0.75rem",
-            backgroundColor: "#f7f9fc",
-          }}
-        >
-          <h3 style={{ margin: "0 0 0.4rem 0", fontSize: "1rem" }}>Off-Ramp: Tokens to Fiat</h3>
-          <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.83rem", color: "#4b5966" }}>
-            Use this when you want to redeem tokens into fiat.
-          </p>
+        <article className="card pad">
+          <h3 className="card-title">Off-ramp: Tokens to fiat</h3>
+          <p className="card-subtitle">Use this when you want to redeem tokens into fiat.</p>
           {offRampDisabledReason && (
-            <p style={{ margin: "0 0 0.65rem 0", fontSize: "0.8rem", color: "#9f2f2f" }}>
+            <p className="helper-text" style={{ color: "var(--bad-600)", marginTop: "0.6rem" }}>
               {offRampDisabledReason}
             </p>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setSuccess(null);
-              setProviderActionUrl(null);
-              setIsOffRampDialogOpen(true);
-            }}
-            title={offRampDisabledReason ?? undefined}
-            disabled={isSubmitting !== null || !canCreateOffRamp}
-            style={{
-              width: "100%",
-              padding: "0.6rem 0.95rem",
-              border: "none",
-              borderRadius: "4px",
-              backgroundColor: isSubmitting !== null || !canCreateOffRamp ? "#8fa7be" : "#4f6f8b",
-              color: "#fff",
-              cursor: isSubmitting !== null || !canCreateOffRamp ? "not-allowed" : "pointer",
-              fontWeight: "bold",
-            }}
-          >
-            Open Off-Ramp Dialog
-          </button>
-        </div>
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setSuccess(null);
+                setProviderActionUrl(null);
+                setIsOffRampDialogOpen(true);
+              }}
+              title={offRampDisabledReason ?? undefined}
+              disabled={isSubmitting !== null || !canCreateOffRamp}
+              className="btn btn-soft"
+            >
+              Open Off-Ramp Dialog
+            </button>
+          </div>
+        </article>
       </div>
 
-      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-        <button
-          type="button"
-          onClick={fetchRequests}
-          style={{
-            padding: "0.6rem 0.95rem",
-            border: "1px solid #adb5bd",
-            borderRadius: "4px",
-            backgroundColor: "#fff",
-            color: "#444",
-            cursor: "pointer",
-          }}
-        >
+      <div className="inline-actions">
+        <button type="button" onClick={() => void fetchRequests()} className="btn btn-ghost">
           Refresh
         </button>
       </div>
 
-      {error && (
-        <p style={{ margin: "0 0 0.75rem 0", color: "#b32424", fontSize: "0.875rem" }}>{error}</p>
-      )}
-      {success && (
-        <p style={{ margin: "0 0 0.75rem 0", color: "#176c39", fontSize: "0.875rem" }}>{success}</p>
-      )}
+      {error && <div className="alert error">{error}</div>}
+      {success && <div className="alert success">{success}</div>}
+
       {providerActionUrl && (
-        <p style={{ margin: "0 0 0.75rem 0", fontSize: "0.875rem" }}>
-          <a
-            href={providerActionUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: "#0b7bd3", textDecoration: "underline" }}
-          >
-            Continue with bank authorization
-          </a>
-        </p>
+        <article className="card pad">
+          <h3 className="card-title">Continue with bank authorization</h3>
+          <p className="card-subtitle">Open provider session in a new tab and complete consent.</p>
+          <div className="inline-actions" style={{ marginTop: "0.75rem" }}>
+            <a href={providerActionUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              Continue in provider
+            </a>
+          </div>
+          <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.65rem" }}>
+            Note: If the URL has expired in sandbox, create a fresh request.
+          </p>
+        </article>
       )}
 
-      <h3 style={{ marginBottom: "0.6rem" }}>Recent Fiat Requests</h3>
-      {isLoading ? (
-        <p style={{ color: "#666", margin: 0 }}>Loading requests...</p>
-      ) : requests.length === 0 ? (
-        <p style={{ color: "#666", margin: 0 }}>No fiat requests yet.</p>
-      ) : (
-        <div style={{ display: "grid", gap: "0.55rem" }}>
-          {requests.map((request) => {
-            const colors = statusColor(request.status);
-            return (
-              <div
-                key={request.request_id}
-                style={{
-                  border: "1px solid #e1e6eb",
-                  borderRadius: "6px",
-                  padding: "0.65rem",
-                  backgroundColor: "#fafbfd",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem" }}>
-                  <strong style={{ fontSize: "0.88rem" }}>
-                    {request.direction === "on_ramp" ? "On-Ramp" : "Off-Ramp"} • EUR {request.amount_eur}
-                  </strong>
-                  <span
-                    style={{
-                      fontSize: "0.7rem",
-                      padding: "0.18rem 0.45rem",
-                      borderRadius: "999px",
-                      backgroundColor: colors.bg,
-                      color: colors.color,
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {request.status}
-                  </span>
-                </div>
-                <div style={{ marginTop: "0.35rem", color: "#556372", fontSize: "0.78rem" }}>
-                  ID: <span style={{ fontFamily: "monospace" }}>{request.request_id}</span>
-                </div>
-                <div style={{ marginTop: "0.2rem", color: "#556372", fontSize: "0.78rem" }}>
-                  Provider: {request.provider} • {formatDate(request.created_at)}
-                </div>
-                {request.provider_action_url && request.status !== "completed" && (
-                  <div style={{ marginTop: "0.2rem", fontSize: "0.78rem" }}>
-                    <a
-                      href={request.provider_action_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#0b7bd3", textDecoration: "underline" }}
-                    >
-                      Continue in provider
-                    </a>
+      <article className="card pad">
+        <h3 className="card-title">Recent fiat requests</h3>
+        {isLoading ? (
+          <div className="list-stack" style={{ marginTop: "0.65rem" }}>
+            <div className="skeleton-line" />
+            <div className="skeleton-line" />
+          </div>
+        ) : requests.length === 0 ? (
+          <p className="helper-text" style={{ marginTop: "0.6rem" }}>No fiat requests yet.</p>
+        ) : (
+          <div className="list-stack" style={{ marginTop: "0.7rem" }}>
+            {requests.map((request) => (
+              <div key={request.request_id} className="card pad" style={{ boxShadow: "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <div>
+                    <strong>{request.direction === "on_ramp" ? "On-Ramp" : "Off-Ramp"} • EUR {request.amount_eur}</strong>
+                    <div className="mono">{request.request_id}</div>
                   </div>
-                )}
-                {request.note && (
-                  <div style={{ marginTop: "0.2rem", color: "#556372", fontSize: "0.78rem" }}>
+                  <span className={requestStatusClass(request.status)}>{request.status}</span>
+                </div>
+                <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.4rem" }}>
+                  {request.provider} • {formatDate(request.created_at)}
+                </p>
+                {request.note ? (
+                  <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
                     Note: {request.note}
-                  </div>
-                )}
+                  </p>
+                ) : null}
               </div>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </article>
 
-      {isOnRampDialogOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="onRampDialogTitle"
-          onClick={() => setIsOnRampDialogOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(10, 25, 41, 0.55)",
-            display: "grid",
-            placeItems: "center",
-            zIndex: 60,
-            padding: "1rem",
-          }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: "460px",
-              backgroundColor: "#fff",
-              borderRadius: "10px",
-              border: "1px solid #d6e6f5",
-              boxShadow: "0 20px 48px rgba(7, 24, 39, 0.2)",
-              padding: "1rem",
-            }}
-          >
-            <h3 id="onRampDialogTitle" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
-              Create On-Ramp Request
-            </h3>
-            <p style={{ marginTop: 0, marginBottom: "0.75rem", color: "#5a6773", fontSize: "0.85rem" }}>
-              Fiat to tokens. Submit and continue in provider to authorize bank transfer.
+      {isOnRampDialogOpen ? (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label="On-ramp request">
+          <div className="dialog-card">
+            <h3>On-ramp request</h3>
+            <p className="helper-text" style={{ marginTop: "0.45rem" }}>
+              Create a sandbox bank payment authorization to mint token value.
             </p>
-            <label
-              htmlFor="onRampAmountDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Amount (EUR)
-            </label>
-            <input
-              id="onRampAmountDialog"
-              type="text"
-              value={amountOnRamp}
-              onChange={(event) => setAmountOnRamp(event.target.value)}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-                marginBottom: "0.6rem",
-              }}
-            />
-            <label
-              htmlFor="onRampNoteDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Note (optional)
-            </label>
-            <input
-              id="onRampNoteDialog"
-              type="text"
-              value={noteOnRamp}
-              onChange={(event) => setNoteOnRamp(event.target.value)}
-              maxLength={140}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.9rem" }}>
-              <button
-                type="button"
-                onClick={() => setIsOnRampDialogOpen(false)}
-                style={{
-                  padding: "0.55rem 0.9rem",
-                  border: "1px solid #b9c7d5",
-                  borderRadius: "4px",
-                  backgroundColor: "#fff",
-                  color: "#4c5a67",
-                }}
-              >
+            <div className="field" style={{ marginTop: "0.75rem" }}>
+              <label htmlFor="onRampAmount">Amount (EUR)</label>
+              <input
+                id="onRampAmount"
+                type="text"
+                value={amountOnRamp}
+                onChange={(event) => setAmountOnRamp(event.target.value)}
+                placeholder="25"
+              />
+            </div>
+            <div className="field" style={{ marginTop: "0.65rem" }}>
+              <label htmlFor="onRampNote">Note (optional)</label>
+              <textarea
+                id="onRampNote"
+                value={noteOnRamp}
+                onChange={(event) => setNoteOnRamp(event.target.value)}
+                rows={2}
+                placeholder="sandbox on-ramp"
+              />
+            </div>
+            <div className="inline-actions" style={{ justifyContent: "flex-end", marginTop: "0.8rem" }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setIsOnRampDialogOpen(false)} disabled={isSubmitting !== null}>
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => createRequest("on")}
-                disabled={isSubmitting !== null || !canCreateOnRamp}
-                style={{
-                  padding: "0.55rem 0.9rem",
-                  border: "none",
-                  borderRadius: "4px",
-                  backgroundColor:
-                    isSubmitting !== null || !canCreateOnRamp ? "#84b6dd" : "#0b7bd3",
-                  color: "#fff",
-                  fontWeight: "bold",
-                  cursor: isSubmitting !== null || !canCreateOnRamp ? "not-allowed" : "pointer",
-                }}
-              >
-                {isSubmitting === "on" ? "Creating..." : "Create On-Ramp Request"}
+              <button type="button" className="btn btn-primary" onClick={() => void createRequest("on")} disabled={isSubmitting !== null}>
+                {isSubmitting === "on" ? "Creating..." : "Create On-Ramp"}
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {isOffRampDialogOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="offRampDialogTitle"
-          onClick={() => setIsOffRampDialogOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundColor: "rgba(14, 19, 34, 0.55)",
-            display: "grid",
-            placeItems: "center",
-            zIndex: 60,
-            padding: "1rem",
-          }}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: "460px",
-              backgroundColor: "#fff",
-              borderRadius: "10px",
-              border: "1px solid #d9e2eb",
-              boxShadow: "0 20px 48px rgba(7, 24, 39, 0.2)",
-              padding: "1rem",
-            }}
-          >
-            <h3 id="offRampDialogTitle" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
-              Create Off-Ramp Request
-            </h3>
-            <p style={{ marginTop: 0, marginBottom: "0.75rem", color: "#5a6773", fontSize: "0.85rem" }}>
-              Tokens to fiat. Submit and track payout status in request history.
+      {isOffRampDialogOpen ? (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" aria-label="Off-ramp request">
+          <div className="dialog-card">
+            <h3>Off-ramp request</h3>
+            <p className="helper-text" style={{ marginTop: "0.45rem" }}>
+              Provide beneficiary details for sandbox payout settlement.
             </p>
-            <label
-              htmlFor="offRampAmountDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Amount (EUR)
-            </label>
-            <input
-              id="offRampAmountDialog"
-              type="text"
-              value={amountOffRamp}
-              onChange={(event) => setAmountOffRamp(event.target.value)}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-                marginBottom: "0.6rem",
-              }}
-            />
-            <label
-              htmlFor="offRampBeneficiaryNameDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Beneficiary account holder name
-            </label>
-            <input
-              id="offRampBeneficiaryNameDialog"
-              type="text"
-              value={beneficiaryNameOffRamp}
-              onChange={(event) => setBeneficiaryNameOffRamp(event.target.value)}
-              maxLength={140}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-                marginBottom: "0.6rem",
-              }}
-            />
-            <label
-              htmlFor="offRampBeneficiaryIbanDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Beneficiary IBAN
-            </label>
-            <input
-              id="offRampBeneficiaryIbanDialog"
-              type="text"
-              value={beneficiaryIbanOffRamp}
-              onChange={(event) => setBeneficiaryIbanOffRamp(event.target.value)}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-                marginBottom: "0.6rem",
-              }}
-            />
-            <label
-              htmlFor="offRampNoteDialog"
-              style={{ display: "block", fontWeight: "bold", marginBottom: "0.25rem" }}
-            >
-              Note (optional)
-            </label>
-            <input
-              id="offRampNoteDialog"
-              type="text"
-              value={noteOffRamp}
-              onChange={(event) => setNoteOffRamp(event.target.value)}
-              maxLength={140}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "0.6rem",
-                borderRadius: "4px",
-                border: "1px solid #ddd",
-              }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.9rem" }}>
-              <button
-                type="button"
-                onClick={() => setIsOffRampDialogOpen(false)}
-                style={{
-                  padding: "0.55rem 0.9rem",
-                  border: "1px solid #b9c7d5",
-                  borderRadius: "4px",
-                  backgroundColor: "#fff",
-                  color: "#4c5a67",
-                }}
-              >
+            <div className="field" style={{ marginTop: "0.75rem" }}>
+              <label htmlFor="offRampAmount">Amount (EUR)</label>
+              <input
+                id="offRampAmount"
+                type="text"
+                value={amountOffRamp}
+                onChange={(event) => setAmountOffRamp(event.target.value)}
+                placeholder="10"
+              />
+            </div>
+            <div className="field" style={{ marginTop: "0.65rem" }}>
+              <label htmlFor="beneficiaryName">Beneficiary account holder name</label>
+              <input
+                id="beneficiaryName"
+                type="text"
+                value={beneficiaryNameOffRamp}
+                onChange={(event) => setBeneficiaryNameOffRamp(event.target.value)}
+                placeholder="Relational Bank 1"
+              />
+            </div>
+            <div className="field" style={{ marginTop: "0.65rem" }}>
+              <label htmlFor="beneficiaryIban">Beneficiary IBAN</label>
+              <input
+                id="beneficiaryIban"
+                type="text"
+                value={beneficiaryIbanOffRamp}
+                onChange={(event) => setBeneficiaryIbanOffRamp(event.target.value)}
+                placeholder="GB79CLRB04066800102649"
+              />
+            </div>
+            <div className="field" style={{ marginTop: "0.65rem" }}>
+              <label htmlFor="offRampNote">Note (optional)</label>
+              <textarea
+                id="offRampNote"
+                value={noteOffRamp}
+                onChange={(event) => setNoteOffRamp(event.target.value)}
+                rows={2}
+                placeholder="sandbox off-ramp"
+              />
+            </div>
+            <div className="inline-actions" style={{ justifyContent: "flex-end", marginTop: "0.8rem" }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setIsOffRampDialogOpen(false)} disabled={isSubmitting !== null}>
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => createRequest("off")}
-                disabled={isSubmitting !== null || !canCreateOffRamp}
-                style={{
-                  padding: "0.55rem 0.9rem",
-                  border: "none",
-                  borderRadius: "4px",
-                  backgroundColor:
-                    isSubmitting !== null || !canCreateOffRamp ? "#8fa7be" : "#4f6f8b",
-                  color: "#fff",
-                  fontWeight: "bold",
-                  cursor: isSubmitting !== null || !canCreateOffRamp ? "not-allowed" : "pointer",
-                }}
-              >
-                {isSubmitting === "off" ? "Creating..." : "Create Off-Ramp Request"}
+              <button type="button" className="btn btn-primary" onClick={() => void createRequest("off")} disabled={isSubmitting !== null}>
+                {isSubmitting === "off" ? "Creating..." : "Create Off-Ramp"}
               </button>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }
