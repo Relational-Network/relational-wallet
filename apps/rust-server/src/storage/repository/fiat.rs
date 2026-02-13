@@ -26,6 +26,12 @@ pub enum FiatDirection {
 pub enum FiatRequestStatus {
     /// Request accepted and queued for provider processing.
     Queued,
+    /// Waiting for provider flow completion callback/poll.
+    AwaitingProvider,
+    /// Off-ramp request is waiting for user to deposit rEUR to service wallet.
+    AwaitingUserDeposit,
+    /// Request is in on-chain settlement step.
+    SettlementPending,
     /// Provider flow started and waiting for completion.
     ProviderPending,
     /// Request settled successfully.
@@ -52,6 +58,12 @@ pub struct StoredFiatRequest {
     /// Optional user note.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Beneficiary account holder name for off-ramp payout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beneficiary_account_holder_name: Option<String>,
+    /// Beneficiary IBAN for off-ramp payout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beneficiary_iban: Option<String>,
     /// Optional provider reference/session ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_reference: Option<String>,
@@ -60,10 +72,41 @@ pub struct StoredFiatRequest {
     pub provider_action_url: Option<String>,
     /// Current status.
     pub status: FiatRequestStatus,
+    /// Chain network for settlement operations (Fuji-only in current deployment).
+    #[serde(default = "default_chain_network")]
+    pub chain_network: String,
+    /// Service-wallet address used for reserve flows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_wallet_address: Option<String>,
+    /// Expected token amount in minor units.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_amount_minor: Option<u64>,
+    /// Detected user deposit tx hash for off-ramp flow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deposit_tx_hash: Option<String>,
+    /// Reserve transfer tx hash for on-ramp settlement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reserve_transfer_tx_hash: Option<String>,
+    /// Last provider webhook event id processed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_event_id: Option<String>,
+    /// Last provider synchronization timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_provider_sync_at: Option<DateTime<Utc>>,
+    /// Last chain synchronization timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_chain_sync_at: Option<DateTime<Utc>>,
+    /// Failure reason for terminal failed state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
     /// Creation timestamp.
     pub created_at: DateTime<Utc>,
     /// Last update timestamp.
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_chain_network() -> String {
+    "fuji".to_string()
 }
 
 impl super::super::OwnedResource for StoredFiatRequest {
@@ -92,9 +135,20 @@ impl StoredFiatRequest {
             amount_eur,
             provider,
             note,
+            beneficiary_account_holder_name: None,
+            beneficiary_iban: None,
             provider_reference: None,
             provider_action_url: None,
             status: FiatRequestStatus::Queued,
+            chain_network: default_chain_network(),
+            service_wallet_address: None,
+            expected_amount_minor: None,
+            deposit_tx_hash: None,
+            reserve_transfer_tx_hash: None,
+            provider_event_id: None,
+            last_provider_sync_at: None,
+            last_chain_sync_at: None,
+            failure_reason: None,
             created_at: now,
             updated_at: now,
         }
@@ -157,9 +211,7 @@ impl<'a> FiatRequestRepository<'a> {
 
     /// List all requests for user.
     pub fn list_by_owner(&self, owner_user_id: &str) -> StorageResult<Vec<StoredFiatRequest>> {
-        let ids = self
-            .storage
-            .list_files(self.storage.paths().fiat_dir(), "json")?;
+        let ids = self.storage.list_files(self.storage.paths().fiat_dir(), "json")?;
 
         let mut requests = Vec::new();
         for id in ids {
@@ -170,6 +222,19 @@ impl<'a> FiatRequestRepository<'a> {
             }
         }
 
+        requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(requests)
+    }
+
+    /// List all requests (admin/system use).
+    pub fn list_all(&self) -> StorageResult<Vec<StoredFiatRequest>> {
+        let ids = self.storage.list_files(self.storage.paths().fiat_dir(), "json")?;
+        let mut requests = Vec::new();
+        for id in ids {
+            if let Ok(record) = self.get(&id) {
+                requests.push(record);
+            }
+        }
         requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(requests)
     }

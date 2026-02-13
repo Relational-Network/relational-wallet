@@ -158,6 +158,8 @@ impl EncryptedStorage {
             self.paths.recurring_dir(),
             self.paths.fiat_dir(),
             self.paths.audit_dir(),
+            self.paths.system_dir(),
+            self.paths.fiat_service_wallet_dir(),
         ];
 
         for dir in dirs {

@@ -109,6 +109,10 @@ pub fn router(state: AppState) -> Router {
         )
         // Fiat request stubs
         .route("/fiat/providers", get(fiat::list_fiat_providers))
+        .route(
+            "/fiat/providers/truelayer/webhook",
+            post(fiat::truelayer_webhook),
+        )
         .route("/fiat/onramp/requests", post(fiat::create_onramp_request))
         .route("/fiat/offramp/requests", post(fiat::create_offramp_request))
         .route("/fiat/requests", get(fiat::list_fiat_requests))
@@ -126,6 +130,26 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/admin/wallets/{wallet_id}/activate",
             post(admin::activate_wallet),
+        )
+        .route(
+            "/admin/fiat/service-wallet",
+            get(fiat::get_fiat_service_wallet),
+        )
+        .route(
+            "/admin/fiat/service-wallet/bootstrap",
+            post(fiat::bootstrap_fiat_service_wallet),
+        )
+        .route(
+            "/admin/fiat/reserve/topup",
+            post(fiat::topup_fiat_reserve),
+        )
+        .route(
+            "/admin/fiat/reserve/transfer",
+            post(fiat::transfer_fiat_reserve),
+        )
+        .route(
+            "/admin/fiat/requests/{request_id}/sync",
+            post(fiat::sync_fiat_request_admin),
         )
         .with_state(state.clone());
 
@@ -256,10 +280,16 @@ fn build_cors_layer() -> CorsLayer {
         recurring::update_last_paid_date,
         // Fiat endpoints
         fiat::list_fiat_providers,
+        fiat::truelayer_webhook,
         fiat::create_onramp_request,
         fiat::create_offramp_request,
         fiat::list_fiat_requests,
         fiat::get_fiat_request,
+        fiat::get_fiat_service_wallet,
+        fiat::bootstrap_fiat_service_wallet,
+        fiat::topup_fiat_reserve,
+        fiat::transfer_fiat_reserve,
+        fiat::sync_fiat_request_admin,
         // Admin endpoints
         admin::get_system_stats,
         admin::list_all_wallets,
@@ -307,6 +337,11 @@ fn build_cors_layer() -> CorsLayer {
             fiat::FiatProviderListResponse,
             fiat::FiatRequestResponse,
             fiat::FiatRequestListResponse,
+            fiat::FiatServiceWalletStatusResponse,
+            fiat::ReserveTopUpRequest,
+            fiat::ReserveTransferRequest,
+            fiat::ReserveTransactionResponse,
+            fiat::FiatSyncResponse,
             FiatDirection,
             FiatRequestStatus,
             StoredFiatRequest,

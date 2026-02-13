@@ -110,6 +110,28 @@ impl StoragePaths {
         self.fiat_dir().join(format!("{request_id}.json"))
     }
 
+    // ========== System Paths ==========
+
+    /// Directory containing system-managed state.
+    pub fn system_dir(&self) -> PathBuf {
+        self.root.join("system")
+    }
+
+    /// Directory for fiat reserve service-wallet metadata and key material.
+    pub fn fiat_service_wallet_dir(&self) -> PathBuf {
+        self.system_dir().join("fiat_service_wallet")
+    }
+
+    /// Path to fiat service-wallet metadata file.
+    pub fn fiat_service_wallet_meta(&self) -> PathBuf {
+        self.fiat_service_wallet_dir().join("meta.json")
+    }
+
+    /// Path to fiat service-wallet key file.
+    pub fn fiat_service_wallet_key(&self) -> PathBuf {
+        self.fiat_service_wallet_dir().join("key.pem")
+    }
+
     // ========== Audit Log Paths ==========
 
     /// Directory containing audit logs.
@@ -222,6 +244,24 @@ mod tests {
         assert_eq!(
             paths.fiat_request("fr-123"),
             PathBuf::from("/data/fiat/fr-123.json")
+        );
+    }
+
+    #[test]
+    fn system_paths_are_correct() {
+        let paths = StoragePaths::default();
+        assert_eq!(paths.system_dir(), PathBuf::from("/data/system"));
+        assert_eq!(
+            paths.fiat_service_wallet_dir(),
+            PathBuf::from("/data/system/fiat_service_wallet")
+        );
+        assert_eq!(
+            paths.fiat_service_wallet_meta(),
+            PathBuf::from("/data/system/fiat_service_wallet/meta.json")
+        );
+        assert_eq!(
+            paths.fiat_service_wallet_key(),
+            PathBuf::from("/data/system/fiat_service_wallet/key.pem")
         );
     }
 }

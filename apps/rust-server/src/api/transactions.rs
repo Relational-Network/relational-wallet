@@ -14,8 +14,8 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     auth::Auth,
     blockchain::{
-        format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder, AVAX_FUJI,
-        AVAX_MAINNET, USDC_TOKEN,
+        ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
+        AVAX_FUJI, REUR_TOKEN, USDC_TOKEN,
     },
     error::ApiError,
     state::AppState,
@@ -39,7 +39,7 @@ pub struct EstimateGasRequest {
     /// Token type: "native" for AVAX or contract address for ERC-20
     #[serde(default = "default_native")]
     pub token: String,
-    /// Network: "fuji" (default) or "mainnet"
+    /// Network: "fuji" only.
     #[serde(default = "default_fuji")]
     pub network: String,
 }
@@ -77,7 +77,7 @@ pub struct SendTransactionRequest {
     /// Token type: "native" for AVAX or contract address for ERC-20
     #[serde(default = "default_native")]
     pub token: String,
-    /// Network: "fuji" (default) or "mainnet"
+    /// Network: "fuji" only.
     #[serde(default = "default_fuji")]
     pub network: String,
     /// Optional gas limit override
@@ -102,7 +102,7 @@ pub struct SendTransactionResponse {
 /// Query parameters for transaction list.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct TransactionListQuery {
-    /// Network filter: "fuji" or "mainnet"
+    /// Network filter (must be "fuji" if provided).
     pub network: Option<String>,
     /// Maximum number of results (default: 50)
     #[param(default = 50)]
@@ -193,8 +193,9 @@ fn get_token_decimals(token: &str) -> u8 {
         18 // AVAX
     } else if token.eq_ignore_ascii_case(USDC_TOKEN.fuji_address.unwrap_or(""))
         || token.eq_ignore_ascii_case(USDC_TOKEN.mainnet_address.unwrap_or(""))
+        || token.eq_ignore_ascii_case(REUR_TOKEN.fuji_address.unwrap_or(""))
     {
-        6 // USDC
+        6 // USDC / rEUR
     } else {
         18 // Default to 18 for unknown tokens
     }
@@ -281,6 +282,8 @@ pub async fn estimate_gas(
         return Err(ApiError::forbidden("Wallet is suspended"));
     }
 
+    ensure_fuji_network(Some(request.network.as_str())).map_err(ApiError::bad_request)?;
+
     // Get private key and create wallet
     let private_key_pem = wallet_repo
         .read_private_key(&wallet_id)
@@ -289,11 +292,8 @@ pub async fn estimate_gas(
     let eth_wallet = wallet_from_pem(&private_key_pem)
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
-    // Determine network
-    let network_config = match request.network.as_str() {
-        "mainnet" => AVAX_MAINNET,
-        _ => AVAX_FUJI,
-    };
+    // Determine network (Fuji-only).
+    let network_config = AVAX_FUJI;
 
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config, eth_wallet)
@@ -383,6 +383,8 @@ pub async fn send_transaction(
         return Err(ApiError::forbidden("Wallet is suspended"));
     }
 
+    ensure_fuji_network(Some(request.network.as_str())).map_err(ApiError::bad_request)?;
+
     // Get private key and create wallet
     let private_key_pem = wallet_repo
         .read_private_key(&wallet_id)
@@ -391,11 +393,8 @@ pub async fn send_transaction(
     let eth_wallet = wallet_from_pem(&private_key_pem)
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
-    // Determine network
-    let network_config = match request.network.as_str() {
-        "mainnet" => AVAX_MAINNET,
-        _ => AVAX_FUJI,
-    };
+    // Determine network (Fuji-only).
+    let network_config = AVAX_FUJI;
 
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config.clone(), eth_wallet)
@@ -585,11 +584,15 @@ pub async fn list_transactions(
         summaries.push(to_summary_with_direction(tx, direction));
     }
 
+    // Fuji-only deployment: hide non-fuji historical records.
+    summaries.retain(|tx| tx.network == "fuji");
+
     // Sort all by timestamp descending (newest first)
     summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
     // Filter by network if specified
     if let Some(network) = &query.network {
+        ensure_fuji_network(Some(network.as_str())).map_err(ApiError::bad_request)?;
         summaries.retain(|tx| tx.network == *network);
     }
 
@@ -648,12 +651,15 @@ pub async fn get_transaction_status(
 
     // If pending, check blockchain for updates
     if tx.status == TxStatus::Pending {
-        // Create a read-only client to check status
-        let client = match tx.network.as_str() {
-            "mainnet" => AvaxClient::mainnet().await,
-            _ => AvaxClient::fuji().await,
+        if tx.network != "fuji" {
+            return Err(ApiError::bad_request(
+                "Only `fuji` network is supported in this deployment.",
+            ));
         }
-        .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+        // Create a read-only client to check status
+        let client = AvaxClient::fuji()
+            .await
+            .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
 
         // Get current block for confirmations
         let current_block = client.get_block_number().await.unwrap_or(0);
@@ -666,12 +672,7 @@ pub async fn get_transaction_status(
         let eth_wallet = wallet_from_pem(&private_key_pem)
             .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
-        let network_config = match tx.network.as_str() {
-            "mainnet" => AVAX_MAINNET,
-            _ => AVAX_FUJI,
-        };
-
-        let tx_builder = TxBuilder::new(network_config, eth_wallet)
+        let tx_builder = TxBuilder::new(AVAX_FUJI, eth_wallet)
             .await
             .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
 
@@ -716,11 +717,13 @@ pub async fn get_transaction_status(
 
     // Return stored status
     let confirmations = if tx.status == TxStatus::Confirmed {
+        if tx.network != "fuji" {
+            return Err(ApiError::bad_request(
+                "Only `fuji` network is supported in this deployment.",
+            ));
+        }
         // Try to get current block for confirmations
-        let client = match tx.network.as_str() {
-            "mainnet" => AvaxClient::mainnet().await,
-            _ => AvaxClient::fuji().await,
-        };
+        let client = AvaxClient::fuji().await;
 
         if let (Ok(client), Some(block)) = (client, tx.block_number) {
             client

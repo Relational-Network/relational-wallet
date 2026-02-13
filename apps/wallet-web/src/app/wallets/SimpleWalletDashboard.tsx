@@ -46,6 +46,16 @@ type ActiveDialog =
   | null;
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
+const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70ab815c96711a31bc65";
+const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
+
+function tokenLabel(token: string): string {
+  if (token === "native") return "AVAX";
+  const normalized = token.toLowerCase();
+  if (normalized === USDC_FUJI_ADDRESS) return "USDC";
+  if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
+  return "TOKEN";
+}
 
 function shortenAddress(address: string) {
   if (address.length < 18) return address;
@@ -55,7 +65,7 @@ function shortenAddress(address: string) {
 function mapActivity(response: TransactionListResponse): DashboardActivityItem[] {
   return response.transactions.slice(0, 5).map((transaction) => ({
     id: transaction.tx_hash,
-    title: `${transaction.direction === "sent" ? "Sent" : "Received"} ${transaction.amount} ${transaction.token === "native" ? "AVAX" : "USDC"}`,
+    title: `${transaction.direction === "sent" ? "Sent" : "Received"} ${transaction.amount} ${tokenLabel(transaction.token)}`,
     subtitle: `${shortenAddress(transaction.tx_hash)} • ${new Date(transaction.timestamp).toLocaleString()}`,
     status: transaction.status,
     timestamp: transaction.timestamp,
@@ -140,7 +150,13 @@ export function SimpleWalletDashboard() {
   const [offRampName, setOffRampName] = useState("");
   const [offRampIban, setOffRampIban] = useState("");
   const [fiatSubmitting, setFiatSubmitting] = useState<"on" | "off" | null>(null);
-  const [fiatResult, setFiatResult] = useState<{ requestId: string; actionUrl: string | null } | null>(null);
+  const [fiatResult, setFiatResult] = useState<{
+    requestId: string;
+    actionUrl: string | null;
+    status: FiatRequest["status"];
+    serviceWalletAddress: string | null;
+    failureReason: string | null;
+  } | null>(null);
 
   const selectedWallet = useMemo(
     () => wallets.find((wallet) => wallet.wallet_id === selectedWalletId) ?? null,
@@ -348,7 +364,13 @@ export function SimpleWalletDashboard() {
       }
 
       const payload = (await response.json()) as FiatRequest;
-      setFiatResult({ requestId: payload.request_id, actionUrl: payload.provider_action_url || null });
+      setFiatResult({
+        requestId: payload.request_id,
+        actionUrl: payload.provider_action_url || null,
+        status: payload.status,
+        serviceWalletAddress: payload.service_wallet_address || null,
+        failureReason: payload.failure_reason || null,
+      });
       setOnRampNote("");
     } catch (onRampError) {
       setError(onRampError instanceof Error ? onRampError.message : "On-ramp request failed");
@@ -386,7 +408,13 @@ export function SimpleWalletDashboard() {
       }
 
       const payload = (await response.json()) as FiatRequest;
-      setFiatResult({ requestId: payload.request_id, actionUrl: null });
+      setFiatResult({
+        requestId: payload.request_id,
+        actionUrl: payload.provider_action_url || null,
+        status: payload.status,
+        serviceWalletAddress: payload.service_wallet_address || null,
+        failureReason: payload.failure_reason || null,
+      });
       setOffRampNote("");
       setOffRampName("");
       setOffRampIban("");
@@ -400,6 +428,9 @@ export function SimpleWalletDashboard() {
   const avaxBalance = balance?.native_balance.balance_formatted ?? "0";
   const usdcBalance =
     balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC")
+      ?.balance_formatted ?? "0";
+  const reurBalance =
+    balance?.token_balances.find((token) => token.symbol.toUpperCase() === "REUR")
       ?.balance_formatted ?? "0";
   const initialLoadComplete = !loadingWallets;
   const dashboardLoading = loadingWallets || (selectedWallet !== null && loadingDetails && !detailsLoaded);
@@ -444,6 +475,7 @@ export function SimpleWalletDashboard() {
           walletAddress={walletAddress}
           avaxBalance={avaxBalance}
           usdcBalance={usdcBalance}
+          reurBalance={reurBalance}
           loading={dashboardLoading}
           refreshing={loadingDetails && detailsLoaded}
         />
@@ -556,7 +588,11 @@ export function SimpleWalletDashboard() {
               <div className="fiat-result">
                 <p className="fiat-result-title">✓ On-ramp request created</p>
                 <p className="fiat-result-detail">Request ID: {fiatResult.requestId}</p>
+                <p className="fiat-result-detail">Status: {fiatResult.status}</p>
               </div>
+              {fiatResult.failureReason ? (
+                <div className="alert alert-error">{fiatResult.failureReason}</div>
+              ) : null}
               {fiatResult.actionUrl ? (
                 <a href={fiatResult.actionUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
                   Continue with provider →
@@ -601,7 +637,16 @@ export function SimpleWalletDashboard() {
               <div className="fiat-result">
                 <p className="fiat-result-title">✓ Off-ramp request created</p>
                 <p className="fiat-result-detail">Request ID: {fiatResult.requestId}</p>
+                <p className="fiat-result-detail">Status: {fiatResult.status}</p>
               </div>
+              {fiatResult.serviceWalletAddress ? (
+                <div className="alert success">
+                  Send rEUR to reserve wallet: <span className="mono">{fiatResult.serviceWalletAddress}</span>
+                </div>
+              ) : null}
+              {fiatResult.failureReason ? (
+                <div className="alert alert-error">{fiatResult.failureReason}</div>
+              ) : null}
               <button type="button" className="btn btn-secondary" onClick={() => { setActiveDialog(null); setFiatResult(null); }}>
                 Done
               </button>

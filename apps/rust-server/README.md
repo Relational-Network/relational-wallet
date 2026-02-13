@@ -183,8 +183,13 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_SIGNING_KEY_ID` | TrueLayer signing key id | — |
 | `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` | Path to TrueLayer private key PEM | — |
 | `TRUELAYER_MERCHANT_ACCOUNT_ID` | TrueLayer merchant account id | — |
+| `REUR_CONTRACT_ADDRESS_FUJI` | Fuji `rEUR` token contract used for settlement | `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63` |
+| `FIAT_RESERVE_BOOTSTRAP_ENABLED` | Auto-bootstrap enclave reserve wallet on startup | `true` |
+| `FIAT_RESERVE_INITIAL_TOPUP_EUR` | Default top-up amount when admin top-up body omits amount | `1000000.00` |
+| `FIAT_MIN_CONFIRMATIONS` | Required confirmations for off-ramp deposit detection | `1` |
+| `TRUELAYER_WEBHOOK_SHARED_SECRET` | Enables webhook endpoint and verifies webhook secret header | — |
 
-TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp return URL is hardcoded to `http://localhost:3000/callback` and must be allow-listed in TrueLayer Console. Off-ramp beneficiary account holder + IBAN are supplied per API request from the frontend dialog.
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp return URL is hardcoded to `http://localhost:3000/callback` and must be allow-listed in TrueLayer Console. Off-ramp beneficiary account holder + IBAN are supplied per API request from the frontend dialog. If `TRUELAYER_WEBHOOK_SHARED_SECRET` is unset, webhook ingestion is disabled (`POST /v1/fiat/providers/truelayer/webhook` returns `503`) and request syncing falls back to polling on fiat list/detail endpoints.
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 
@@ -201,7 +206,7 @@ TrueLayer note: OAuth client credentials must be granted the `payments` scope. O
 - `GET  /v1/wallets/{id}/balance` — Get on-chain balance (native AVAX + ERC-20 tokens)
 - `GET  /v1/wallets/{id}/balance/native` — Get native AVAX balance only (faster)
 
-Query parameters: `network=fuji` (default) or `network=mainnet`
+Query parameters: `network=fuji` only. `mainnet` is rejected.
 
 ### Bookmarks (Protected)
 - `GET  /v1/bookmarks?wallet_id=...` — List bookmarks for wallet
@@ -222,6 +227,7 @@ Query parameters: `network=fuji` (default) or `network=mainnet`
 
 ### Fiat (Protected)
 - `GET  /v1/fiat/providers` — List configured fiat providers and capabilities
+- `POST /v1/fiat/providers/truelayer/webhook` — TrueLayer webhook callback (enabled only when webhook secret is configured)
 - `POST /v1/fiat/onramp/requests` — Create on-ramp request (live TrueLayer sandbox call)
 - `POST /v1/fiat/offramp/requests` — Create off-ramp request (live TrueLayer sandbox call)
 - `GET  /v1/fiat/requests` — List fiat requests (wallet filter optional)
@@ -235,6 +241,11 @@ Query parameters: `network=fuji` (default) or `network=mainnet`
 - `GET  /v1/admin/health` — Detailed health status with storage metrics
 - `POST /v1/admin/wallets/{id}/suspend` — Suspend a wallet
 - `POST /v1/admin/wallets/{id}/activate` — Reactivate a suspended wallet
+- `GET  /v1/admin/fiat/service-wallet` — Get enclave reserve wallet status/address
+- `POST /v1/admin/fiat/service-wallet/bootstrap` — Idempotently bootstrap enclave reserve wallet
+- `POST /v1/admin/fiat/reserve/topup` — Mint `rEUR` into reserve wallet
+- `POST /v1/admin/fiat/reserve/transfer` — Transfer `rEUR` from reserve wallet
+- `POST /v1/admin/fiat/requests/{request_id}/sync` — Force sync of a fiat request (provider/chain)
 
 ## Project Layout
 ```
@@ -288,11 +299,15 @@ Clients can verify the server's attestation by:
   ```
   /data/
   ├── wallets/{wallet_id}/
-  │   ├── metadata.json
-  │   └── private_key.pem (encrypted)
+  │   ├── meta.json
+  │   └── key.pem (encrypted)
   ├── bookmarks/{bookmark_id}.json
   ├── invites/{invite_id}.json
   ├── recurring/{payment_id}.json
+  ├── fiat/{request_id}.json
+  ├── system/fiat_service_wallet/
+  │   ├── meta.json
+  │   └── key.pem (encrypted)
   └── audit/{date}/events.jsonl
   ```
 

@@ -13,7 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     auth::Auth,
-    blockchain::{AvaxClient, WalletBalanceResponse, USDC_TOKEN},
+    blockchain::{ensure_fuji_network, AvaxClient, WalletBalanceResponse, REUR_TOKEN, USDC_TOKEN},
     error::ApiError,
     state::AppState,
     storage::{WalletRepository, WalletStatus},
@@ -22,7 +22,7 @@ use crate::{
 /// Query parameters for balance request.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct BalanceQuery {
-    /// Network to query: "fuji" (testnet) or "mainnet"
+    /// Network to query. Only "fuji" is supported.
     #[param(default = "fuji")]
     pub network: Option<String>,
     /// Additional token contract addresses to query (comma-separated)
@@ -87,31 +87,20 @@ pub async fn get_wallet_balance(
         return Err(ApiError::forbidden("Wallet is suspended"));
     }
 
-    // Determine network
-    let network = query.network.as_deref().unwrap_or("fuji");
-    let client = match network {
-        "mainnet" => AvaxClient::mainnet().await,
-        "fuji" | _ => AvaxClient::fuji().await,
-    }
-    .map_err(|e| {
+    ensure_fuji_network(query.network.as_deref()).map_err(ApiError::bad_request)?;
+    let client = AvaxClient::fuji().await.map_err(|e| {
         ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
     })?;
 
     // Build list of token addresses to query
     let mut token_addresses: Vec<&str> = Vec::new();
 
-    // Add USDC for the selected network
-    match network {
-        "mainnet" => {
-            if let Some(addr) = USDC_TOKEN.mainnet_address {
-                token_addresses.push(addr);
-            }
-        }
-        "fuji" | _ => {
-            if let Some(addr) = USDC_TOKEN.fuji_address {
-                token_addresses.push(addr);
-            }
-        }
+    // Add known demo tokens for Fuji.
+    if let Some(addr) = USDC_TOKEN.fuji_address {
+        token_addresses.push(addr);
+    }
+    if let Some(addr) = REUR_TOKEN.fuji_address {
+        token_addresses.push(addr);
     }
 
     // Add any custom token addresses from query
@@ -210,13 +199,8 @@ pub async fn get_native_balance(
         return Err(ApiError::not_found("Wallet has been deleted"));
     }
 
-    // Determine network
-    let network = query.network.as_deref().unwrap_or("fuji");
-    let client = match network {
-        "mainnet" => AvaxClient::mainnet().await,
-        "fuji" | _ => AvaxClient::fuji().await,
-    }
-    .map_err(|e| {
+    ensure_fuji_network(query.network.as_deref()).map_err(ApiError::bad_request)?;
+    let client = AvaxClient::fuji().await.map_err(|e| {
         ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
     })?;
 

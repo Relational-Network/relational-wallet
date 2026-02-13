@@ -8,6 +8,7 @@ interface PrimaryBalanceCardProps {
   walletAddress: string;
   avaxBalance: string;
   usdcBalance: string;
+  reurBalance: string;
   loading?: boolean;
   refreshing?: boolean;
 }
@@ -17,11 +18,12 @@ export function PrimaryBalanceCard({
   walletAddress,
   avaxBalance,
   usdcBalance,
+  reurBalance,
   loading = false,
   refreshing = false,
 }: PrimaryBalanceCardProps) {
   // Show $0.00 immediately — don't block with skeleton for blank wallets
-  const primaryAmount = loading ? "$0.00" : `$${usdcBalance}`;
+  const primaryAmount = loading ? "$0.00" : `EUR ${reurBalance}`;
 
   return (
     <article className="balance-card">
@@ -49,6 +51,12 @@ export function PrimaryBalanceCard({
           <div className="balance-token-label">USDC</div>
           <div className="balance-token-value" style={loading ? { opacity: 0.5 } : undefined}>
             {loading ? "0" : usdcBalance}
+          </div>
+        </div>
+        <div className="balance-token-tile">
+          <div className="balance-token-label">rEUR</div>
+          <div className="balance-token-value" style={loading ? { opacity: 0.5 } : undefined}>
+            {loading ? "0" : reurBalance}
           </div>
         </div>
       </div>

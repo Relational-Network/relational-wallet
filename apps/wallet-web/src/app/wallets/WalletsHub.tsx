@@ -14,6 +14,17 @@ import type {
   WalletResponse,
 } from "@/lib/api";
 
+const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70ab815c96711a31bc65";
+const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
+
+function tokenLabel(token: string): string {
+  if (token === "native") return "AVAX";
+  const normalized = token.toLowerCase();
+  if (normalized === USDC_FUJI_ADDRESS) return "USDC";
+  if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
+  return "TOKEN";
+}
+
 function shortenAddress(address: string): string {
   if (address.length <= 18) {
     return address;
@@ -104,7 +115,12 @@ export function WalletsHub() {
       let loadedPendingFiat = 0;
       if (fiatResponse.ok) {
         const payload: FiatRequestListResponse = await fiatResponse.json();
-        const pending = payload.requests.filter((request) => request.status === "provider_pending");
+        const pending = payload.requests.filter((request) =>
+          request.status === "provider_pending" ||
+          request.status === "awaiting_provider" ||
+          request.status === "awaiting_user_deposit" ||
+          request.status === "settlement_pending"
+        );
         setPendingFiat(pending.slice(0, 5));
         loadedPendingFiat = pending.length;
       } else {
@@ -206,7 +222,7 @@ export function WalletsHub() {
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "0.55rem", alignItems: "center" }}>
                     <div>
                       <div style={{ fontWeight: 600 }}>
-                        {transaction.direction === "sent" ? "Sent" : "Received"} {transaction.amount} {transaction.token === "native" ? "AVAX" : "USDC"}
+                        {transaction.direction === "sent" ? "Sent" : "Received"} {transaction.amount} {tokenLabel(transaction.token)}
                       </div>
                       <div className="mono">{shortenAddress(transaction.tx_hash)}</div>
                     </div>

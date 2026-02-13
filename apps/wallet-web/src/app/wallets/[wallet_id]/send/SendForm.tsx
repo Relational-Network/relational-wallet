@@ -15,6 +15,7 @@ import type {
 import { RecipientQrScanner } from "@/components/RecipientQrScanner";
 
 const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
+const REUR_FUJI_ADDRESS = "0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63";
 
 interface RecipientShortcut {
   id: string;
@@ -66,6 +67,18 @@ function shortenAddr(value: string) {
   return `${value.slice(0, 6)}\u2026${value.slice(-4)}`;
 }
 
+function tokenTicker(token: "native" | "usdc" | "reur"): string {
+  if (token === "native") return "AVAX";
+  if (token === "usdc") return "USDC";
+  return "rEUR";
+}
+
+function tokenAddress(token: "native" | "usdc" | "reur"): string {
+  if (token === "native") return "native";
+  if (token === "usdc") return USDC_FUJI_ADDRESS;
+  return REUR_FUJI_ADDRESS;
+}
+
 export function SendForm({
   walletId,
   publicAddress,
@@ -82,11 +95,12 @@ export function SendForm({
 
   const prefillTo = prefill?.to ?? "";
   const prefillAmount = prefill?.amount ?? "";
-  const prefillToken = prefill?.token === "usdc" ? "usdc" : "native";
+  const prefillToken =
+    prefill?.token === "usdc" ? "usdc" : prefill?.token === "reur" ? "reur" : "native";
 
   const [toAddress, setToAddress] = useState(prefillTo);
   const [amount, setAmount] = useState(prefillAmount);
-  const [token, setToken] = useState<"native" | "usdc">(prefillToken);
+  const [token, setToken] = useState<"native" | "usdc" | "reur">(prefillToken);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
@@ -186,7 +200,7 @@ export function SendForm({
       const request: EstimateGasRequest = {
         to: toAddress.trim(),
         amount: normalizeAmount(amount.trim()),
-        token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
+        token: tokenAddress(token),
         network: "fuji",
       };
 
@@ -222,7 +236,7 @@ export function SendForm({
       const request: SendTransactionRequest = {
         to: toAddress.trim(),
         amount: normalizeAmount(amount.trim()),
-        token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
+        token: tokenAddress(token),
         network: "fuji",
         gas_limit: gasLimitOverride.trim() || undefined,
         max_priority_fee_per_gas: priorityFeeOverride.trim() || undefined,
@@ -322,7 +336,7 @@ export function SendForm({
           </div>
           <h3 style={{ margin: 0 }}>Transaction confirmed</h3>
           <p className="text-muted" style={{ margin: "0.5rem 0 0" }}>
-            {amount} {token === "usdc" ? "USDC" : "AVAX"} sent successfully
+            {amount} {tokenTicker(token)} sent successfully
           </p>
           <span className="mono-sm" style={{ display: "block", marginTop: "0.5rem", wordBreak: "break-all" }}>{txState.txHash}</span>
           {txState.blockNumber ? (
@@ -408,7 +422,7 @@ export function SendForm({
             <hr className="divider" />
             <div className="row-between">
               <span className="text-secondary">Amount</span>
-              <strong>{amount} {token === "usdc" ? "USDC" : "AVAX"}</strong>
+              <strong>{amount} {tokenTicker(token)}</strong>
             </div>
             <hr className="divider" />
             <div className="row-between">
@@ -567,6 +581,13 @@ export function SendForm({
           onClick={() => setToken("usdc")}
         >
           USDC
+        </button>
+        <button
+          type="button"
+          className={`chip${token === "reur" ? " active" : ""}`}
+          onClick={() => setToken("reur")}
+        >
+          rEUR
         </button>
       </div>
 

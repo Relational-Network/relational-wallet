@@ -36,6 +36,14 @@ pub struct AvaxClient {
     provider: HttpProvider,
 }
 
+/// Minimal receipt details used for status polling.
+#[derive(Debug, Clone)]
+pub struct ReceiptStatus {
+    pub block_number: u64,
+    pub gas_used: u64,
+    pub success: bool,
+}
+
 impl AvaxClient {
     /// Create a new client for the specified network.
     pub async fn new(network: NetworkConfig) -> Result<Self, AvaxClientError> {
@@ -126,6 +134,28 @@ impl AvaxClient {
             .get_block_number()
             .await
             .map_err(|e| AvaxClientError::RpcError(e.to_string()))
+    }
+
+    /// Query transaction receipt status.
+    pub async fn get_transaction_receipt_status(
+        &self,
+        tx_hash: &str,
+    ) -> Result<Option<ReceiptStatus>, AvaxClientError> {
+        let hash = tx_hash
+            .parse()
+            .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid tx hash: {e}")))?;
+
+        let receipt = self
+            .provider
+            .get_transaction_receipt(hash)
+            .await
+            .map_err(|e| AvaxClientError::RpcError(format!("Failed to get receipt: {e}")))?;
+
+        Ok(receipt.map(|value| ReceiptStatus {
+            block_number: value.block_number.unwrap_or(0),
+            gas_used: value.gas_used as u64,
+            success: value.status(),
+        }))
     }
 
     /// Get the network configuration.

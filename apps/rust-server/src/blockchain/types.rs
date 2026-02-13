@@ -36,6 +36,21 @@ pub const AVAX_FUJI: NetworkConfig = NetworkConfig {
     explorer_url: "https://testnet.snowtrace.io",
 };
 
+/// Supported network identifier for this build.
+pub const NETWORK_FUJI: &str = "fuji";
+
+/// Validate network input for Fuji-only runtime.
+pub fn ensure_fuji_network(raw: Option<&str>) -> Result<(), String> {
+    let value = raw.unwrap_or(NETWORK_FUJI).trim().to_ascii_lowercase();
+    if value == NETWORK_FUJI {
+        Ok(())
+    } else {
+        Err(format!(
+            "Only `{NETWORK_FUJI}` network is supported in this deployment."
+        ))
+    }
+}
+
 /// Token balance information.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TokenBalance {
@@ -106,4 +121,13 @@ pub const USDC_TOKEN: Erc20Token = Erc20Token {
     mainnet_address: Some("0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"),
     // Fuji testnet USDC (Circle's test token)
     fuji_address: Some("0x5425890298aed601595a70AB815c96711a31Bc65"),
+};
+
+/// Relational Euro (`rEUR`) token deployed on Fuji.
+pub const REUR_TOKEN: Erc20Token = Erc20Token {
+    symbol: "rEUR",
+    name: "Relational Euro",
+    decimals: 6,
+    mainnet_address: None,
+    fuji_address: Some("0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63"),
 };

@@ -54,7 +54,7 @@ pub use ownership::{OwnedResource, OwnershipEnforcer};
 pub use paths::StoragePaths;
 pub use repository::{
     BookmarkRepository, FiatDirection, FiatRequestRepository, FiatRequestStatus, InviteRepository,
-    RecurringRepository, StoredBookmark, StoredFiatRequest, StoredTransaction, TokenType,
-    TransactionRepository, TxStatus, WalletMetadata, WalletRepository, WalletResponse,
-    WalletStatus,
+    FiatServiceWalletMetadata, FiatServiceWalletRepository, RecurringRepository, StoredBookmark,
+    StoredFiatRequest, StoredTransaction, TokenType, TransactionRepository, TxStatus,
+    WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
 };

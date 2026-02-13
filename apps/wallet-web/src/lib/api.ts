@@ -40,7 +40,7 @@ export interface EstimateGasRequest {
   to: string;
   amount: string;
   token: string; // "native" or token contract address
-  network?: string; // "fuji" or "mainnet"
+  network?: string; // "fuji" only
 }
 
 export interface EstimateGasResponse {
@@ -55,7 +55,7 @@ export interface SendTransactionRequest {
   to: string;
   amount: string;
   token: string; // "native" or token contract address
-  network?: string;
+  network?: string; // "fuji" only
   gas_limit?: string;
   max_priority_fee_per_gas?: string;
 }
@@ -94,7 +94,14 @@ export interface TransactionStatusResponse {
 }
 
 export type FiatDirection = "on_ramp" | "off_ramp";
-export type FiatRequestStatus = "queued" | "provider_pending" | "completed" | "failed";
+export type FiatRequestStatus =
+  | "queued"
+  | "awaiting_provider"
+  | "awaiting_user_deposit"
+  | "settlement_pending"
+  | "provider_pending"
+  | "completed"
+  | "failed";
 
 export interface CreateFiatRequest {
   wallet_id: string;
@@ -113,8 +120,17 @@ export interface FiatRequest {
   provider: string;
   status: FiatRequestStatus;
   note?: string;
+  chain_network: string;
+  service_wallet_address?: string;
+  expected_amount_minor?: number;
   provider_reference?: string;
   provider_action_url?: string;
+  deposit_tx_hash?: string;
+  reserve_transfer_tx_hash?: string;
+  provider_event_id?: string;
+  failure_reason?: string;
+  last_provider_sync_at?: string;
+  last_chain_sync_at?: string;
   created_at: string;
   updated_at: string;
 }

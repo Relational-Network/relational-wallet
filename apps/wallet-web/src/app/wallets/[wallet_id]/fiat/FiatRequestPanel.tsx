@@ -24,7 +24,14 @@ function formatDate(value: string): string {
 function requestStatusClass(status: FiatRequest["status"]) {
   if (status === "completed") return "status-chip success";
   if (status === "failed") return "status-chip failed";
-  if (status === "provider_pending") return "status-chip warn";
+  if (
+    status === "provider_pending" ||
+    status === "awaiting_provider" ||
+    status === "awaiting_user_deposit" ||
+    status === "settlement_pending"
+  ) {
+    return "status-chip warn";
+  }
   return "status-chip pending";
 }
 
@@ -173,7 +180,9 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
 
       const payload: FiatRequest = await response.json();
       setSuccess(
-        `${direction === "on" ? "On-ramp" : "Off-ramp"} request created: ${payload.request_id}`
+        direction === "on"
+          ? `On-ramp request created: ${payload.request_id}`
+          : `Off-ramp request created: ${payload.request_id}. Send rEUR to ${payload.service_wallet_address ?? "the reserve wallet"} to continue.`
       );
       setProviderActionUrl(payload.provider_action_url || null);
       if (direction === "on") {
@@ -215,7 +224,8 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
       <article className="card pad">
         <h2 className="card-title">Provider</h2>
         <p className="card-subtitle">
-          On-ramp converts fiat to tokens. Off-ramp converts tokens back to fiat.
+          Fuji-only reserve flow. On-ramp releases rEUR after provider success; off-ramp pays out
+          after your rEUR deposit is detected.
         </p>
 
         <div className="field" style={{ marginTop: "0.8rem" }}>
@@ -341,6 +351,32 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
                 <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.4rem" }}>
                   {request.provider} • {formatDate(request.created_at)}
                 </p>
+                <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
+                  Network: {request.chain_network.toUpperCase()}
+                </p>
+                {request.service_wallet_address ? (
+                  <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
+                    Reserve wallet: <span className="mono">{request.service_wallet_address}</span>
+                  </p>
+                ) : null}
+                {request.deposit_tx_hash ? (
+                  <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
+                    Deposit tx: <span className="mono">{request.deposit_tx_hash}</span>
+                  </p>
+                ) : null}
+                {request.reserve_transfer_tx_hash ? (
+                  <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
+                    Settlement tx: <span className="mono">{request.reserve_transfer_tx_hash}</span>
+                  </p>
+                ) : null}
+                {request.failure_reason ? (
+                  <p
+                    className="helper-text"
+                    style={{ marginBottom: 0, marginTop: "0.2rem", color: "var(--bad-600)" }}
+                  >
+                    Failure: {request.failure_reason}
+                  </p>
+                ) : null}
                 {request.note ? (
                   <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
                     Note: {request.note}

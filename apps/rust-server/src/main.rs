@@ -81,6 +81,34 @@ async fn main() {
         .expect("Encrypted storage health check failed");
     info!("Encrypted storage initialized and verified");
 
+    // Bootstrap enclave-managed fiat reserve wallet (idempotent) unless disabled.
+    let fiat_bootstrap_enabled = env::var("FIAT_RESERVE_BOOTSTRAP_ENABLED")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(true);
+    if fiat_bootstrap_enabled {
+        let repo = storage::FiatServiceWalletRepository::new(&encrypted_storage);
+        match repo.bootstrap() {
+            Ok(metadata) => {
+                info!(
+                    wallet_id = %metadata.wallet_id,
+                    public_address = %metadata.public_address,
+                    "Fiat reserve service wallet ready"
+                );
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to bootstrap fiat reserve service wallet");
+            }
+        }
+    } else {
+        info!("FIAT_RESERVE_BOOTSTRAP_ENABLED=false, skipping reserve wallet bootstrap");
+    }
+
     // Seed invite if configured
     if let Ok(code) = env::var("SEED_INVITE_CODE") {
         use chrono::Utc;

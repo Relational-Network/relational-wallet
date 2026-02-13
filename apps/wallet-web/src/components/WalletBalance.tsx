@@ -94,6 +94,7 @@ export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletB
   }
 
   const usdcBalance = balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC");
+  const reurBalance = balance?.token_balances.find((token) => token.symbol.toUpperCase() === "REUR");
 
   return (
     <article className="card pad">
@@ -129,6 +130,14 @@ export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletB
             {isLoading && !balance ? "..." : usdcBalance ? formatBalance(usdcBalance.balance_formatted) : "0"}
           </span>
           <span className="mono">{usdcBalance?.contract_address || "Not detected"}</span>
+        </div>
+
+        <div className="token-tile">
+          <span className="helper-text">rEUR</span>
+          <span className="token-value">
+            {isLoading && !balance ? "..." : reurBalance ? formatBalance(reurBalance.balance_formatted) : "0"}
+          </span>
+          <span className="mono">{reurBalance?.contract_address || "Not detected"}</span>
         </div>
       </div>
 

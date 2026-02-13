@@ -277,6 +277,38 @@ impl TxBuilder {
         self.send_transaction(tx).await
     }
 
+    /// Send a generic contract call transaction.
+    pub async fn send_contract_call(
+        &self,
+        contract_address: &str,
+        data: Vec<u8>,
+        value: Option<U256>,
+        gas_limit: Option<u64>,
+        max_priority_fee: Option<u128>,
+    ) -> Result<SendResult, AvaxClientError> {
+        let contract_addr = Address::from_str(contract_address).map_err(|e| {
+            AvaxClientError::InvalidAddress(format!("Invalid contract address: {}", e))
+        })?;
+
+        let (max_fee_per_gas, default_priority_fee) = self.get_gas_prices().await?;
+        let priority_fee = max_priority_fee.unwrap_or(default_priority_fee);
+
+        let mut tx = TransactionRequest::default()
+            .to(contract_addr)
+            .input(data.into())
+            .max_fee_per_gas(max_fee_per_gas)
+            .max_priority_fee_per_gas(priority_fee);
+
+        if let Some(v) = value {
+            tx = tx.value(v);
+        }
+        if let Some(limit) = gas_limit {
+            tx = tx.gas_limit(limit);
+        }
+
+        self.send_transaction(tx).await
+    }
+
     /// Internal helper to send a transaction and return the hash.
     async fn send_transaction(
         &self,
