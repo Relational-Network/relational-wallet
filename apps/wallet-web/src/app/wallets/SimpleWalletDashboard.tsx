@@ -5,6 +5,7 @@
 
 import { UserButton } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   Bookmark,
   FiatProviderListResponse,
@@ -454,6 +455,13 @@ export function SimpleWalletDashboard() {
             Manage Wallet(s)
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Link
+              href="/wallets/bootstrap"
+              className="btn btn-ghost"
+              title="Bootstrap reserve wallet and fiat setup"
+            >
+              Bootstrap
+            </Link>
             {process.env.NODE_ENV === "development" && selectedWalletId ? (
               <a
                 href={`/wallets/${selectedWalletId}`}

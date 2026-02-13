@@ -48,7 +48,9 @@ async function proxyRequest(
 
   // Get auth token from Clerk (server-side)
   const { getToken } = await auth();
-  const token = await getToken();
+  // Prefer explicit default template so role metadata claims are propagated.
+  // Fallback to plain session token for environments without template config.
+  const token = (await getToken({ template: "default" })) ?? (await getToken());
 
   // Build headers
   const headers: HeadersInit = {

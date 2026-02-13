@@ -51,6 +51,13 @@ loader.env.TRUELAYER_AUTH_BASE_URL = { passthrough = true }
 loader.env.TRUELAYER_HOSTED_PAYMENTS_BASE_URL = { passthrough = true }
 loader.env.TRUELAYER_CURRENCY = { passthrough = true }
 
+# ========== FIAT RESERVE SETTLEMENT (FUJI) ==========
+loader.env.REUR_CONTRACT_ADDRESS_FUJI = { passthrough = true }
+loader.env.FIAT_RESERVE_BOOTSTRAP_ENABLED = { passthrough = true }
+loader.env.FIAT_RESERVE_INITIAL_TOPUP_EUR = { passthrough = true }
+loader.env.FIAT_MIN_CONFIRMATIONS = { passthrough = true }
+loader.env.TRUELAYER_WEBHOOK_SHARED_SECRET = { passthrough = true }
+
 fs.mounts = [
     { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
     { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
