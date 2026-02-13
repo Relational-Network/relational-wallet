@@ -17,7 +17,7 @@ export function AddressQRCode({ address, size = 160, label }: AddressQRCodeProps
       <div className="qr-frame">
         <QRCodeSVG value={address} size={size} level="M" marginSize={2} />
       </div>
-      <span className="text-muted">{label ?? "Scan to receive"}</span>
+      {/* <span className="text-muted">{label ?? "Scan to receive"}</span> */}
     </div>
   );
 }

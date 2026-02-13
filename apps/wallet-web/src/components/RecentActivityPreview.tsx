@@ -42,9 +42,16 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
       </div>
 
       {loading ? (
-        <div className="stack-sm">
-          <div className="skeleton" style={{ width: "100%", height: "2.5rem" }} />
-          <div className="skeleton" style={{ width: "80%", height: "2.5rem" }} />
+        <div>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="activity-row" style={{ opacity: 0.35 }}>
+              <div className="activity-icon" style={{ background: "var(--bg-subtle)" }} />
+              <div className="activity-details">
+                <div className="skeleton" style={{ width: i % 2 === 0 ? "55%" : "70%", height: "0.875rem", marginBottom: "0.25rem" }} />
+                <div className="skeleton" style={{ width: "45%", height: "0.625rem" }} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : items.length > 0 ? (
         <div>

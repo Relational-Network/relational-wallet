@@ -4,6 +4,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { ExternalLink } from "lucide-react";
 import type { TransactionSummary, TransactionListResponse } from "@/lib/api";
 
 interface TransactionListProps {
@@ -120,25 +121,33 @@ export function TransactionList({ walletId }: TransactionListProps) {
           <tbody>
             {transactions.map((tx) => (
               <tr key={tx.tx_hash}>
-                <td>
-                  <a href={tx.explorer_url} target="_blank" rel="noopener noreferrer" className="mono">
-                    {truncateHash(tx.tx_hash)}
+                <td data-label="Transaction" style={{ position: "relative" }}>
+                  <a
+                    href={tx.explorer_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="tx-link"
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                      <span className="mono">{truncateHash(tx.tx_hash)}</span>
+                      <ExternalLink size={12} style={{ flexShrink: 0, opacity: 0.5 }} />
+                    </div>
+                    <div className="helper-text">
+                      {tx.direction === "sent" ? "To" : "From"}: {truncateHash(tx.direction === "sent" ? tx.to : tx.from)}
+                    </div>
                   </a>
-                  <div className="helper-text">
-                    {tx.direction === "sent" ? "To" : "From"}: {truncateHash(tx.direction === "sent" ? tx.to : tx.from)}
-                  </div>
                 </td>
-                <td>
+                <td data-label="Direction">
                   <span className={`status-chip ${tx.direction === "sent" ? "warn" : "success"}`}>
                     {tx.direction === "sent" ? "Sent" : "Received"}
                   </span>
                 </td>
-                <td className="mono">{tx.direction === "sent" ? "-" : "+"}{tx.amount}</td>
-                <td>{tx.token === "native" ? "AVAX" : "USDC"}</td>
-                <td>
+                <td data-label="Amount" className="mono">{tx.direction === "sent" ? "-" : "+"}{tx.amount}</td>
+                <td data-label="Token">{tx.token === "native" ? "AVAX" : "USDC"}</td>
+                <td data-label="Status">
                   <span className={statusClass(tx.status)}>{tx.status}</span>
                 </td>
-                <td>{formatDate(tx.timestamp)}</td>
+                <td data-label="Date">{formatDate(tx.timestamp)}</td>
               </tr>
             ))}
           </tbody>

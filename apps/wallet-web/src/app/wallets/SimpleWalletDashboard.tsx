@@ -42,6 +42,7 @@ type ActiveDialog =
   | "off_ramp"
   | "activity"
   | "manage"
+  | "create_wallet"
   | null;
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
@@ -59,6 +60,63 @@ function mapActivity(response: TransactionListResponse): DashboardActivityItem[]
     status: transaction.status,
     timestamp: transaction.timestamp,
   }));
+}
+
+function CreateWalletDialog({
+  open,
+  onClose,
+  onCreateWallet,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreateWallet: (label?: string) => Promise<void>;
+}) {
+  const [label, setLabel] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const handleCreate = async () => {
+    setCreating(true);
+    setDialogError(null);
+    try {
+      await onCreateWallet(label.trim() || undefined);
+      setLabel("");
+      onClose();
+    } catch (err) {
+      setDialogError(err instanceof Error ? err.message : "Create failed");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <ActionDialog open={open} onClose={onClose} title="Create your first wallet">
+      <div className="stack">
+        <p className="text-muted" style={{ margin: 0, textAlign: "center" }}>
+          You need a wallet to send, receive, and manage funds on Avalanche.
+        </p>
+        <div className="field">
+          <label>Wallet label (optional)</label>
+          <input
+            className="input"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Personal, Savings"
+            disabled={creating}
+          />
+        </div>
+        {dialogError ? <div className="alert alert-error">{dialogError}</div> : null}
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+        >
+          {creating ? "Creating…" : "Create wallet"}
+        </button>
+      </div>
+    </ActionDialog>
+  );
 }
 
 export function SimpleWalletDashboard() {
@@ -188,6 +246,13 @@ export function SimpleWalletDashboard() {
     void fetchProviders();
   }, [fetchWallets, fetchProviders]);
 
+  // Auto-open create wallet dialog when user has no wallets
+  useEffect(() => {
+    if (!loadingWallets && wallets.length === 0) {
+      setActiveDialog("create_wallet");
+    }
+  }, [loadingWallets, wallets.length]);
+
   const fetchBookmarks = useCallback(async (walletId: string) => {
     try {
       const response = await fetch(
@@ -237,6 +302,20 @@ export function SimpleWalletDashboard() {
     }
 
     setSuccess("Wallet created.");
+  };
+
+  const deleteWallet = async (walletId: string) => {
+    const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Delete failed (${response.status})`);
+    }
+
+    await fetchWallets();
   };
 
   const createOnRamp = async () => {
@@ -322,35 +401,88 @@ export function SimpleWalletDashboard() {
     balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC")
       ?.balance_formatted ?? "0";
 
+  const showSkeleton = loadingWallets || !selectedWallet;
+
   return (
     <SimpleWalletShell>
       <div className="row-between">
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-manage"
           onClick={() => setActiveDialog("manage")}
-          style={{ fontWeight: 700, fontSize: "0.9375rem" }}
         >
-          {selectedWallet?.label || "Wallet"} &#9662;
+          Manage Wallet(s)
         </button>
-        <UserButton />
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          {process.env.NODE_ENV === "development" && selectedWalletId ? (
+            <a
+              href={`/wallets/${selectedWalletId}`}
+              style={{ fontSize: "0.6875rem", color: "var(--ink-muted)", textDecoration: "none", opacity: 0.6 }}
+              title="Dev: view wallet detail page"
+            >
+              details →
+            </a>
+          ) : null}
+          <div className="clerk-avatar-slot">
+            <UserButton />
+          </div>
+        </div>
       </div>
       {error ? <div className="alert alert-error">{error}</div> : null}
       {success ? <div className="alert alert-success">{success}</div> : null}
 
-      {!selectedWallet ? (
-        <div className="card card-pad empty-state">
-          <h3>No wallet yet</h3>
-          <p>Create your first wallet to unlock send, receive, and fiat actions.</p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ marginTop: "0.75rem" }}
-            onClick={() => setActiveDialog("manage")}
-          >
-            Create wallet
-          </button>
-        </div>
+      {showSkeleton ? (
+        <>
+          <article className="balance-card" style={{ opacity: 0.5 }}>
+            <div className="balance-card-label">Loading…</div>
+            <div className="balance-card-amount">$0.00</div>
+            <div className="balance-card-address">
+              <span className="address-placeholder">0x0000…0000</span>
+            </div>
+            <div className="balance-tokens">
+              <div className="balance-token-tile">
+                <div className="balance-token-label">AVAX</div>
+                <div className="balance-token-value">0</div>
+              </div>
+              <div className="balance-token-tile">
+                <div className="balance-token-label">USDC</div>
+                <div className="balance-token-value">0</div>
+              </div>
+            </div>
+          </article>
+
+          <div className="quick-actions" role="group">
+            <button type="button" disabled className="quick-action-btn">
+              <span className="icon-circle" /><span>Send</span>
+            </button>
+            <button type="button" disabled className="quick-action-btn">
+              <span className="icon-circle" /><span>Receive</span>
+            </button>
+            <button type="button" disabled className="quick-action-btn">
+              <span className="icon-circle" /><span>On-Ramp</span>
+            </button>
+            <button type="button" disabled className="quick-action-btn">
+              <span className="icon-circle" /><span>Off-Ramp</span>
+            </button>
+          </div>
+
+          <div className="card card-pad">
+            <div className="section-header" style={{ marginBottom: "0.5rem" }}>
+              <h3 className="section-title">Recent activity</h3>
+            </div>
+            <div>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="activity-row" style={{ opacity: 0.35 }}>
+                  <div className="activity-icon" style={{ background: "var(--bg-subtle)" }} />
+                  <div className="activity-details">
+                    <div className="skeleton" style={{ width: i % 2 === 0 ? "55%" : "70%", height: "0.875rem", marginBottom: "0.25rem" }} />
+                    <div className="skeleton" style={{ width: "45%", height: "0.625rem" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
       ) : (
         <>
           <PrimaryBalanceCard
@@ -443,8 +575,17 @@ export function SimpleWalletDashboard() {
           onCreateWallet={async (label) => {
             await createWallet(label);
           }}
+          onDeleteWallet={async (walletId) => {
+            await deleteWallet(walletId);
+          }}
         />
       </ActionDialog>
+
+      <CreateWalletDialog
+        open={activeDialog === "create_wallet"}
+        onClose={() => setActiveDialog(null)}
+        onCreateWallet={createWallet}
+      />
 
       {selectedWallet ? (
         <ActionDialog

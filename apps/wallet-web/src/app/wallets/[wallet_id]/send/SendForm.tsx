@@ -52,8 +52,12 @@ function isValidAddress(value: string) {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
+function normalizeAmount(value: string): string {
+  return value.replace(",", ".");
+}
+
 function isValidAmount(value: string) {
-  const parsed = Number.parseFloat(value);
+  const parsed = Number.parseFloat(normalizeAmount(value));
   return Number.isFinite(parsed) && parsed > 0;
 }
 
@@ -94,6 +98,7 @@ export function SendForm({
   const [saveRecipientMessage, setSaveRecipientMessage] = useState<string | null>(null);
 
   const [showQrScanner, setShowQrScanner] = useState(false);
+  const [recipientSearch, setRecipientSearch] = useState("");
   const [txState, setTxState] = useState<TransactionState>({ step: "form" });
   const [error, setError] = useState<string | null>(null);
   const [isEstimating, setIsEstimating] = useState(false);
@@ -180,7 +185,7 @@ export function SendForm({
     try {
       const request: EstimateGasRequest = {
         to: toAddress.trim(),
-        amount: amount.trim(),
+        amount: normalizeAmount(amount.trim()),
         token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
         network: "fuji",
       };
@@ -216,7 +221,7 @@ export function SendForm({
     try {
       const request: SendTransactionRequest = {
         to: toAddress.trim(),
-        amount: amount.trim(),
+        amount: normalizeAmount(amount.trim()),
         token: token === "usdc" ? USDC_FUJI_ADDRESS : "native",
         network: "fuji",
         gas_limit: gasLimitOverride.trim() || undefined,
@@ -307,14 +312,26 @@ export function SendForm({
 
   if (txState.step === "success") {
     return (
-      <div className="stack">
-        <div className="alert alert-success" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
-          <strong>Transaction confirmed &#x2713;</strong>
-          <span className="mono-sm">{txState.txHash}</span>
+      <div className="stack" style={{ minHeight: "16rem" }}>
+        <div style={{ textAlign: "center", padding: "1.5rem 0 0.5rem" }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem",
+            background: "var(--success-light)", display: "grid", placeItems: "center",
+          }}>
+            <span style={{ fontSize: "1.5rem" }}>✓</span>
+          </div>
+          <h3 style={{ margin: 0 }}>Transaction confirmed</h3>
+          <p className="text-muted" style={{ margin: "0.5rem 0 0" }}>
+            {amount} {token === "usdc" ? "USDC" : "AVAX"} sent successfully
+          </p>
+          <span className="mono-sm" style={{ display: "block", marginTop: "0.5rem", wordBreak: "break-all" }}>{txState.txHash}</span>
+          {txState.blockNumber ? (
+            <p className="text-muted" style={{ margin: "0.375rem 0 0", fontSize: "0.75rem" }}>Block #{txState.blockNumber}</p>
+          ) : null}
         </div>
-        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
           <a href={txState.explorerUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
-            <ExternalLink size={14} /> Explorer
+            <ExternalLink size={14} /> View on Explorer
           </a>
           {mode === "dialog" ? (
             <button type="button" className="btn btn-ghost" onClick={onRequestClose}>Close</button>
@@ -330,14 +347,20 @@ export function SendForm({
 
   if (txState.step === "failed") {
     return (
-      <div className="stack">
-        <div className="alert alert-error" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.5rem" }}>
-          <strong>Transaction failed</strong>
-          <span className="mono-sm">{txState.txHash}</span>
+      <div className="stack" style={{ minHeight: "16rem" }}>
+        <div style={{ textAlign: "center", padding: "1.5rem 0 0.5rem" }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem",
+            background: "var(--danger-light)", display: "grid", placeItems: "center",
+          }}>
+            <span style={{ fontSize: "1.5rem" }}>✕</span>
+          </div>
+          <h3 style={{ margin: 0 }}>Transaction failed</h3>
+          <span className="mono-sm" style={{ display: "block", marginTop: "0.5rem", wordBreak: "break-all" }}>{txState.txHash}</span>
         </div>
-        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
           <a href={txState.explorerUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
-            <ExternalLink size={14} /> Explorer
+            <ExternalLink size={14} /> View on Explorer
           </a>
           <button type="button" className="btn btn-ghost" onClick={() => setTxState({ step: "form" })}>Try again</button>
         </div>
@@ -349,14 +372,16 @@ export function SendForm({
 
   if (txState.step === "polling" || txState.step === "sending") {
     return (
-      <div className="stack" style={{ alignItems: "center", padding: "2rem 0", textAlign: "center" }}>
-        <div className="skeleton" style={{ width: 48, height: 48, borderRadius: "50%" }} />
-        <h3 style={{ margin: 0 }}>{txState.step === "sending" ? "Sending\u2026" : "Confirming\u2026"}</h3>
+      <div className="stack" style={{ minHeight: "16rem", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+        <div className="send-spinner" />
+        <h3 style={{ margin: 0 }}>{txState.step === "sending" ? "Signing & broadcasting…" : "Waiting for confirmation…"}</h3>
+        <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>
+          {txState.step === "sending"
+            ? "Your transaction is being signed inside the enclave."
+            : `Checking network status (${pollCount}/${MAX_POLLS})`}
+        </p>
         {txState.step === "polling" ? (
-          <>
-            <p className="text-muted" style={{ margin: 0 }}>Polling {pollCount}/{MAX_POLLS}</p>
-            <span className="mono-sm">{txState.txHash}</span>
-          </>
+          <span className="mono-sm" style={{ marginTop: "0.25rem", wordBreak: "break-all" }}>{txState.txHash}</span>
         ) : null}
       </div>
     );
@@ -410,8 +435,8 @@ export function SendForm({
   /* ── Main form ───────────────────────────────────────────────────── */
 
   return (
-    <div className="stack">
-      <div className="text-muted" style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
+    <div className="stack" style={{ maxWidth: "28rem", margin: "0 auto" }}>
+      <div className="text-muted" style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", justifyContent: "center" }}>
         From <strong style={{ color: "var(--ink)" }}>{walletLabel || "Wallet"}</strong>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
           {shortenAddr(publicAddress)}
@@ -441,9 +466,9 @@ export function SendForm({
         />
       </div>
 
-      <div className="row" style={{ gap: "0.375rem", flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-ghost" onClick={() => setShowQrScanner(true)}>
-          <Scan size={15} /> Scan QR
+      <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+        <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
+          <Scan size={16} /> Scan QR code
         </button>
         <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
           <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
@@ -453,8 +478,26 @@ export function SendForm({
       {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
 
       {savedRecipients.length > 0 ? (
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          {savedRecipients.map((recipient) => (
+        <div className="stack-sm">
+          {savedRecipients.length >= 4 ? (
+            <input
+              value={recipientSearch}
+              onChange={(event) => setRecipientSearch(event.target.value)}
+              placeholder="Search saved recipients…"
+              style={{ fontSize: "0.8125rem" }}
+            />
+          ) : null}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", maxHeight: "12rem", overflowY: "auto" }}>
+            {savedRecipients
+              .filter((recipient) => {
+                if (!recipientSearch.trim()) return true;
+                const query = recipientSearch.toLowerCase();
+                return (
+                  recipient.name.toLowerCase().includes(query) ||
+                  recipient.address.toLowerCase().includes(query)
+                );
+              })
+              .map((recipient) => (
             <button
               key={recipient.id}
               type="button"
@@ -473,6 +516,7 @@ export function SendForm({
               </div>
             </button>
           ))}
+          </div>
         </div>
       ) : null}
 

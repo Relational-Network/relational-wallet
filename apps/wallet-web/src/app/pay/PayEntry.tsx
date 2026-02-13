@@ -4,10 +4,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { WalletResponse } from "@/lib/api";
-import { RecipientQrScanner } from "@/components/RecipientQrScanner";
-import { buildPaymentRequestParams, type ParsedPaymentRequest } from "@/lib/paymentRequest";
+import type { ParsedPaymentRequest } from "@/lib/paymentRequest";
+import { SendForm } from "@/app/wallets/[wallet_id]/send/SendForm";
 
 interface PayEntryProps {
   wallets: WalletResponse[];
@@ -16,14 +15,12 @@ interface PayEntryProps {
 }
 
 export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
-  const router = useRouter();
-
   const [selectedWalletId, setSelectedWalletId] = useState<string>(wallets[0]?.wallet_id || "");
   const [to, setTo] = useState(prefill.to ?? "");
   const [amount, setAmount] = useState(prefill.amount ?? "");
   const [token, setToken] = useState<"native" | "usdc">(prefill.token);
   const [note, setNote] = useState(prefill.note ?? "");
-  const [showScanner, setShowScanner] = useState(false);
+  const [showSendForm, setShowSendForm] = useState(false);
 
   const canContinue = useMemo(
     () => Boolean(selectedWalletId && to.trim()),
@@ -34,31 +31,50 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
 
   const openSendFlow = () => {
     if (!canContinue) return;
-
-    const params = buildPaymentRequestParams(
-      {
-        to: to.trim(),
-        amount: amount.trim() || undefined,
-        token,
-        note: note.trim() || undefined,
-      },
-      { includeDefaultToken: true }
-    );
-
-    router.push(`/wallets/${encodeURIComponent(selectedWalletId)}/send?${params.toString()}`);
+    setShowSendForm(true);
   };
 
   const shortenAddr = (addr: string) =>
     addr.length > 14 ? `${addr.slice(0, 6)}\u2026${addr.slice(-4)}` : addr;
+
+  if (showSendForm && selectedWallet) {
+    return (
+      <main className="pay-layout">
+        <div className="pay-container">
+          <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
+            <span className="badge badge-brand">Payment Request</span>
+          </div>
+          <div className="card card-pad">
+            <SendForm
+              walletId={selectedWallet.wallet_id}
+              publicAddress={selectedWallet.public_address || ""}
+              walletLabel={selectedWallet.label ?? null}
+              prefill={{
+                to: to.trim(),
+                amount: amount.trim() || undefined,
+                token,
+                note: note.trim() || undefined,
+              }}
+              mode="dialog"
+              onRequestClose={() => setShowSendForm(false)}
+            />
+          </div>
+          <footer className="landing-footer">
+            © {new Date().getFullYear()} Relational Network ·{" "}
+            <a href="https://github.com/Relational-Network/relational-wallet" target="_blank" rel="noopener noreferrer">
+              Source code (AGPL-3.0)
+            </a>
+          </footer>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="pay-layout">
       <div className="pay-container">
         <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
           <span className="badge badge-brand">Payment Request</span>
-          <h1 style={{ margin: "0.75rem 0 0.25rem", fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.02em" }}>
-            Pay someone
-          </h1>
         </div>
 
         {warnings.length > 0 ? (
@@ -112,11 +128,7 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
                 />
               </div>
 
-              <div className="row" style={{ gap: "0.375rem" }}>
-                <button type="button" className="btn btn-ghost" onClick={() => setShowScanner(true)}>
-                  Scan QR
-                </button>
-              </div>
+              <hr className="divider" />
 
               <div className="field">
                 <label>Amount (optional)</label>
@@ -167,22 +179,14 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
           </div>
         )}
 
-        <footer className="app-footer">
-          \u00a9 {new Date().getFullYear()} Relational Network \u00b7{" "}
+        <footer className="landing-footer">
+          © {new Date().getFullYear()} Relational Network ·{" "}
           <a href="https://github.com/Relational-Network/relational-wallet" target="_blank" rel="noopener noreferrer">
-            Open source \u00b7 AGPL-3.0
+            Source code (AGPL-3.0)
           </a>
         </footer>
       </div>
 
-      <RecipientQrScanner
-        open={showScanner}
-        onClose={() => setShowScanner(false)}
-        onScan={(value) => {
-          const maybeAddressMatch = value.match(/0x[a-fA-F0-9]{40}/);
-          setTo(maybeAddressMatch?.[0] || value.trim());
-        }}
-      />
     </main>
   );
 }

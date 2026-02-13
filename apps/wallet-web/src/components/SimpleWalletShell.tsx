@@ -13,8 +13,10 @@ export function SimpleWalletShell({ topBar, children }: SimpleWalletShellProps) 
     <main className="app-container">
       {topBar && <header className="app-top-bar">{topBar}</header>}
       {children}
-      <footer className="app-footer">        \u00a9 {new Date().getFullYear()} Relational Network \u00b7{" "}        <a href="https://github.com/Relational-Network/relational-wallet" target="_blank" rel="noopener noreferrer">
-          Open source · AGPL-3.0
+      <footer className="landing-footer">
+        © {new Date().getFullYear()} Relational Network ·{" "}
+        <a href="https://github.com/Relational-Network/relational-wallet" target="_blank" rel="noopener noreferrer">
+          Source code (AGPL-3.0)
         </a>
       </footer>
     </main>
