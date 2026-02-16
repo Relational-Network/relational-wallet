@@ -98,6 +98,7 @@ impl FiatPoller {
                     info!(
                         request_id = %record.request_id,
                         status = ?record.status,
+                        provider_reference = ?record.provider_reference,
                         "Fiat poller: synced request"
                     );
                 }

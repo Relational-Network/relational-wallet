@@ -9,6 +9,7 @@ use std::{collections::HashMap, fs, time::Duration};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::debug;
 use truelayer_signing::{sign_with_pem, Method};
 use uuid::Uuid;
 
@@ -275,15 +276,38 @@ impl TrueLayerClient {
                     "type": "iban",
                     "iban": request.beneficiary_iban
                 },
-                "reference": format!("rw-offramp-{}", request.request_id)
+                "reference": format!("rw-offramp-{}", request.request_id),
+                "date_of_birth": "1990-01-31",
+                "address": {
+                    "address_line1": "1 Hardcoded St",
+                    "city": "London",
+                    "country_code": "GB",
+                    "zip": "EC2A 1PX",
+                    "state": "London"
+                }
             },
             "merchant_account_id": self.merchant_account_id,
+            "scheme_selection": {
+                "type": "instant_preferred"
+            },
             "metadata": metadata
         });
+
+        debug!(
+            request_id = %request.request_id,
+            payload = %payload,
+            "TrueLayer create_offramp: sending payout request"
+        );
 
         let response = self
             .signed_post_json("/v3/payouts", PAYMENTS_SCOPE, &payload, request.request_id)
             .await?;
+
+        debug!(
+            request_id = %request.request_id,
+            response = %response,
+            "TrueLayer create_offramp: payout response"
+        );
 
         let payout_id = response
             .get("id")
@@ -330,6 +354,13 @@ impl TrueLayerClient {
         let response = self
             .get_json(&format!("/v3/payouts/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
+
+        debug!(
+            provider_reference = %provider_reference,
+            response = %response,
+            "TrueLayer fetch_offramp_status: raw response"
+        );
+
         let status = extract_provider_status(&response).ok_or_else(|| {
             TrueLayerError::InvalidResponse("missing payout status in response".to_string())
         })?;
