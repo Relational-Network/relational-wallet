@@ -54,6 +54,14 @@ pub struct ProviderExecutionResult {
     pub status: ProviderExecutionStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct OffRampStatusDetails {
+    pub status: ProviderExecutionStatus,
+    pub raw_status: String,
+    pub scheme_id: Option<String>,
+    pub failure_reason: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TrueLayerError {
     #[error("TrueLayer configuration missing: {0}")]
@@ -276,15 +284,7 @@ impl TrueLayerClient {
                     "type": "iban",
                     "iban": request.beneficiary_iban
                 },
-                "reference": format!("rw-offramp-{}", request.request_id),
-                "date_of_birth": "1990-01-31",
-                "address": {
-                    "address_line1": "1 Hardcoded St",
-                    "city": "London",
-                    "country_code": "GB",
-                    "zip": "EC2A 1PX",
-                    "state": "London"
-                }
+                "reference": format!("rw-offramp-{}", request.request_id)
             },
             "merchant_account_id": self.merchant_account_id,
             "scheme_selection": {
@@ -350,7 +350,7 @@ impl TrueLayerClient {
     pub async fn fetch_offramp_status(
         &self,
         provider_reference: &str,
-    ) -> Result<ProviderExecutionStatus, TrueLayerError> {
+    ) -> Result<OffRampStatusDetails, TrueLayerError> {
         let response = self
             .get_json(&format!("/v3/payouts/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
@@ -364,7 +364,18 @@ impl TrueLayerClient {
         let status = extract_provider_status(&response).ok_or_else(|| {
             TrueLayerError::InvalidResponse("missing payout status in response".to_string())
         })?;
-        Ok(map_payout_status(status))
+        Ok(OffRampStatusDetails {
+            status: map_payout_status(status),
+            raw_status: status.to_string(),
+            scheme_id: response
+                .get("scheme_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            failure_reason: response
+                .get("failure_reason")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
     }
 
     fn resolve_return_uri(&self) -> String {

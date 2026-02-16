@@ -156,9 +156,13 @@ async fn main() {
                 "Failed to open transaction database — transaction indexing disabled"
             );
             // Continue without tx_db; handlers fall back to JSON-based storage
-            Arc::new(storage::TxDatabase::open(
-                &std::env::temp_dir().join(format!("fallback-tx-{}.redb", uuid::Uuid::new_v4()))
-            ).expect("Failed to create fallback tx database"))
+            Arc::new(
+                storage::TxDatabase::open(
+                    &std::env::temp_dir()
+                        .join(format!("fallback-tx-{}.redb", uuid::Uuid::new_v4())),
+                )
+                .expect("Failed to create fallback tx database"),
+            )
         }
     };
 

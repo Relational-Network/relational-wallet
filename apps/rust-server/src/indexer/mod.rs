@@ -34,9 +34,8 @@ use crate::storage::tx_database::TxDatabase;
 
 /// keccak256("Transfer(address,address,uint256)")
 const TRANSFER_TOPIC: FixedBytes<32> = FixedBytes::new([
-    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d,
-    0xaa, 0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23,
-    0xb3, 0xef,
+    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b, 0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
+    0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16, 0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef,
 ]);
 
 /// Default block chunk size per `eth_getLogs` query.
@@ -213,10 +212,7 @@ impl EventIndexer {
                 U256::ZERO
             };
 
-            let contract_addr = log
-                .address()
-                .to_string()
-                .to_lowercase();
+            let contract_addr = log.address().to_string().to_lowercase();
 
             let tx_hash = log
                 .transaction_hash
@@ -397,16 +393,16 @@ mod tests {
     #[test]
     fn identify_token_usdc() {
         let db = Arc::new(
-            TxDatabase::open(&std::env::temp_dir().join(format!(
-                "test-identify-{}.redb",
-                uuid::Uuid::new_v4()
-            )))
+            TxDatabase::open(
+                &std::env::temp_dir().join(format!("test-identify-{}.redb", uuid::Uuid::new_v4())),
+            )
             .unwrap(),
         );
         let cache = Arc::new(TxCache::new(10, Duration::from_secs(60)));
         let indexer = EventIndexer::new(db, cache, AVAX_FUJI, fuji_token_contracts());
 
-        let (symbol, decimals) = indexer.identify_token("0x5425890298aed601595a70AB815c96711a31Bc65");
+        let (symbol, decimals) =
+            indexer.identify_token("0x5425890298aed601595a70AB815c96711a31Bc65");
         assert_eq!(symbol, "USDC");
         assert_eq!(decimals, 6);
     }
@@ -414,16 +410,16 @@ mod tests {
     #[test]
     fn identify_token_reur() {
         let db = Arc::new(
-            TxDatabase::open(&std::env::temp_dir().join(format!(
-                "test-reur-{}.redb",
-                uuid::Uuid::new_v4()
-            )))
+            TxDatabase::open(
+                &std::env::temp_dir().join(format!("test-reur-{}.redb", uuid::Uuid::new_v4())),
+            )
             .unwrap(),
         );
         let cache = Arc::new(TxCache::new(10, Duration::from_secs(60)));
         let indexer = EventIndexer::new(db, cache, AVAX_FUJI, fuji_token_contracts());
 
-        let (symbol, decimals) = indexer.identify_token("0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63");
+        let (symbol, decimals) =
+            indexer.identify_token("0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63");
         assert_eq!(symbol, "rEUR");
         assert_eq!(decimals, 6);
     }

@@ -44,10 +44,7 @@ impl TxCache {
     /// Get the cached first page for a wallet address.
     ///
     /// Returns `None` if not cached or expired.
-    pub fn get_first_page(
-        &self,
-        wallet_address: &str,
-    ) -> Option<Vec<(StoredTransaction, String)>> {
+    pub fn get_first_page(&self, wallet_address: &str) -> Option<Vec<(StoredTransaction, String)>> {
         let key = wallet_address.to_lowercase();
         let mut cache = self.cache.lock().ok()?;
         if let Some(entry) = cache.get(&key) {
@@ -61,11 +58,7 @@ impl TxCache {
     }
 
     /// Store the first page for a wallet address.
-    pub fn put_first_page(
-        &self,
-        wallet_address: &str,
-        txs: Vec<(StoredTransaction, String)>,
-    ) {
+    pub fn put_first_page(&self, wallet_address: &str, txs: Vec<(StoredTransaction, String)>) {
         let key = wallet_address.to_lowercase();
         if let Ok(mut cache) = self.cache.lock() {
             cache.put(
@@ -85,7 +78,6 @@ impl TxCache {
             cache.pop(&key);
         }
     }
-
 }
 
 #[cfg(test)]

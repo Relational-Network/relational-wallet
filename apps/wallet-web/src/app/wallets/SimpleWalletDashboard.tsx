@@ -161,6 +161,9 @@ export function SimpleWalletDashboard() {
   } | null>(null);
   const [pendingKey, setPendingKey] = useState(0);
   const providerPopupRef = useRef<Window | null>(null);
+  const walletDetailsInFlightRef = useRef<Promise<void> | null>(null);
+  const walletDetailsInFlightWalletRef = useRef<string | null>(null);
+  const transferRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openProviderPopup = useCallback((url: string) => {
     const width = 500;
@@ -244,39 +247,59 @@ export function SimpleWalletDashboard() {
   }, []);
 
   const fetchWalletDetails = useCallback(async (walletId: string, silent = false) => {
-    if (!silent) setLoadingDetails(true);
-
-    try {
-      const [balanceResponse, txResponse] = await Promise.all([
-        fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/balance?network=fuji`, {
-          method: "GET",
-          credentials: "include",
-        }),
-        fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?network=fuji`, {
-          method: "GET",
-          credentials: "include",
-        }),
-      ]);
-
-      if (balanceResponse.ok) {
-        const nextBalance: BalanceResponse = await balanceResponse.json();
-        setBalance(nextBalance);
-      } else {
-        setBalance(null);
-      }
-
-      if (txResponse.ok) {
-        const nextTransactions: TransactionListResponse = await txResponse.json();
-        setActivity(mapActivity(nextTransactions));
-      } else {
-        setActivity([]);
-      }
-    } catch {
-      // Non-critical: keep existing balance/activity or show zeros.
-    } finally {
-      if (!silent) setLoadingDetails(false);
-      setDetailsLoaded(true);
+    if (
+      walletDetailsInFlightRef.current &&
+      walletDetailsInFlightWalletRef.current === walletId
+    ) {
+      await walletDetailsInFlightRef.current;
+      return;
     }
+
+    let currentFetch: Promise<void> | null = null;
+    currentFetch = (async () => {
+      if (!silent) setLoadingDetails(true);
+
+      try {
+        const [balanceResponse, txResponse] = await Promise.all([
+          fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/balance?network=fuji`, {
+            method: "GET",
+            credentials: "include",
+          }),
+          fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?network=fuji`, {
+            method: "GET",
+            credentials: "include",
+          }),
+        ]);
+
+        if (balanceResponse.ok) {
+          const nextBalance: BalanceResponse = await balanceResponse.json();
+          setBalance(nextBalance);
+        } else {
+          setBalance(null);
+        }
+
+        if (txResponse.ok) {
+          const nextTransactions: TransactionListResponse = await txResponse.json();
+          setActivity(mapActivity(nextTransactions));
+        } else {
+          setActivity([]);
+        }
+      } catch {
+        // Non-critical: keep existing balance/activity or show zeros.
+      } finally {
+        if (!silent) setLoadingDetails(false);
+        setDetailsLoaded(true);
+      }
+    })().finally(() => {
+      if (walletDetailsInFlightRef.current === currentFetch) {
+        walletDetailsInFlightRef.current = null;
+        walletDetailsInFlightWalletRef.current = null;
+      }
+    });
+
+    walletDetailsInFlightRef.current = currentFetch;
+    walletDetailsInFlightWalletRef.current = walletId;
+    await currentFetch;
   }, []);
 
   // Listen for postMessage from callback popup
@@ -486,10 +509,23 @@ export function SimpleWalletDashboard() {
   // plus a delayed re-fetch to catch blockchain confirmation lag.
   const handleTransferComplete = useCallback(() => {
     if (!selectedWalletId) return;
+    if (transferRefreshTimerRef.current) {
+      clearTimeout(transferRefreshTimerRef.current);
+      transferRefreshTimerRef.current = null;
+    }
     void fetchWalletDetails(selectedWalletId, true);
-    const timer = setTimeout(() => void fetchWalletDetails(selectedWalletId, true), 8000);
-    return () => clearTimeout(timer);
+    transferRefreshTimerRef.current = setTimeout(() => {
+      void fetchWalletDetails(selectedWalletId, true);
+      transferRefreshTimerRef.current = null;
+    }, 8000);
   }, [fetchWalletDetails, selectedWalletId]);
+
+  useEffect(() => () => {
+    if (transferRefreshTimerRef.current) {
+      clearTimeout(transferRefreshTimerRef.current);
+      transferRefreshTimerRef.current = null;
+    }
+  }, []);
 
   const avaxBalance = balance?.native_balance.balance_formatted ?? "0";
   const usdcBalance =
@@ -568,10 +604,10 @@ export function SimpleWalletDashboard() {
 
         {selectedWallet && selectedWallet.status === "active" ? (
           <PendingFiatRequests
-            key={pendingKey}
             walletId={selectedWallet.wallet_id}
             onProviderPopup={openProviderPopup}
             onTransferComplete={handleTransferComplete}
+            refreshNonce={pendingKey}
           />
         ) : null}
 

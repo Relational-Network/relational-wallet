@@ -7,8 +7,7 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Json,
-    Router,
+    Json, Router,
 };
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -139,10 +138,7 @@ pub fn router(state: AppState) -> Router {
             "/admin/fiat/service-wallet/bootstrap",
             post(fiat::bootstrap_fiat_service_wallet),
         )
-        .route(
-            "/admin/fiat/reserve/topup",
-            post(fiat::topup_fiat_reserve),
-        )
+        .route("/admin/fiat/reserve/topup", post(fiat::topup_fiat_reserve))
         .route(
             "/admin/fiat/reserve/transfer",
             post(fiat::transfer_fiat_reserve),
@@ -428,7 +424,12 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
-            .oneshot(Request::builder().uri("/docs/").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/docs/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);

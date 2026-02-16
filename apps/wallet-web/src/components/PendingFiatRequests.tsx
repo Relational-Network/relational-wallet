@@ -26,6 +26,7 @@ interface PendingFiatRequestsProps {
   walletId: string;
   onProviderPopup?: (url: string) => void;
   onTransferComplete?: () => void;
+  refreshNonce?: number;
 }
 
 function statusLabel(status: FiatRequest["status"]): string {
@@ -66,6 +67,7 @@ export function PendingFiatRequests({
   walletId,
   onProviderPopup,
   onTransferComplete,
+  refreshNonce,
 }: PendingFiatRequestsProps) {
   const [requests, setRequests] = useState<FiatRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,51 +83,81 @@ export function PendingFiatRequests({
 
   // Track previous active request IDs so we can detect completions
   const prevActiveIdsRef = useRef<Set<string>>(new Set());
+  const fetchInFlightRef = useRef<Promise<void> | null>(null);
+  const lastFetchAtRef = useRef(0);
+  const delayedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchRequests = useCallback(async () => {
-    try {
-      const response = await fetch(
-        `/api/proxy/v1/fiat/requests?wallet_id=${encodeURIComponent(walletId)}`,
-        { method: "GET", credentials: "include" }
-      );
-      if (!response.ok) return;
+  const fetchRequests = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force) {
+      if (fetchInFlightRef.current) {
+        await fetchInFlightRef.current;
+        return;
+      }
+      if (now - lastFetchAtRef.current < 2500) {
+        return;
+      }
+    }
 
-      const payload: FiatRequestListResponse = await response.json();
-      const active = payload.requests.filter((r) =>
-        ACTIVE_STATUSES.includes(r.status)
-      );
+    let currentFetch: Promise<void> | null = null;
+    currentFetch = (async () => {
+      try {
+        const response = await fetch(
+          `/api/proxy/v1/fiat/requests?wallet_id=${encodeURIComponent(walletId)}`,
+          { method: "GET", credentials: "include" }
+        );
+        if (!response.ok) return;
 
-      // Detect requests that were previously active but are no longer
-      const newActiveIds = new Set(active.map((r) => r.request_id));
-      const prevIds = prevActiveIdsRef.current;
-      if (prevIds.size > 0) {
-        let anyCompleted = false;
-        for (const id of prevIds) {
-          if (!newActiveIds.has(id)) {
-            anyCompleted = true;
-            break;
+        const payload: FiatRequestListResponse = await response.json();
+        const active = payload.requests.filter((r) =>
+          ACTIVE_STATUSES.includes(r.status)
+        );
+
+        // Detect requests that were previously active but are no longer
+        const newActiveIds = new Set(active.map((r) => r.request_id));
+        const prevIds = prevActiveIdsRef.current;
+        if (prevIds.size > 0) {
+          let anyCompleted = false;
+          for (const id of prevIds) {
+            if (!newActiveIds.has(id)) {
+              anyCompleted = true;
+              break;
+            }
+          }
+          if (anyCompleted) {
+            onTransferCompleteRef.current?.();
           }
         }
-        if (anyCompleted) {
-          onTransferCompleteRef.current?.();
-        }
-      }
-      prevActiveIdsRef.current = newActiveIds;
 
-      setRequests(active);
-    } catch {
-      // Non-critical.
-    } finally {
-      setLoading(false);
-    }
+        prevActiveIdsRef.current = newActiveIds;
+        setRequests(active);
+      } catch {
+        // Non-critical.
+      } finally {
+        setLoading(false);
+      }
+    })().finally(() => {
+      if (fetchInFlightRef.current === currentFetch) {
+        fetchInFlightRef.current = null;
+      }
+    });
+
+    fetchInFlightRef.current = currentFetch;
+    lastFetchAtRef.current = now;
+    await currentFetch;
   }, [walletId]);
 
   useEffect(() => {
-    void fetchRequests();
+    void fetchRequests(true);
   }, [fetchRequests]);
 
+  useEffect(() => {
+    if (refreshNonce === undefined) return;
+    void fetchRequests(true);
+  }, [fetchRequests, refreshNonce]);
+
   // Poll to pick up status changes.
-  // Use 30s interval when any request is settling, 60s otherwise.
+  // Use 45s interval when provider/settlement is active, 90s otherwise.
   // The backend FiatPoller syncs with TrueLayer every 30s, so faster
   // polling just re-fetches stale data.
   const hasSettling = requests.some(
@@ -135,10 +167,17 @@ export function PendingFiatRequests({
     if (requests.length === 0 && !loading) return;
     const interval = setInterval(
       () => void fetchRequests(),
-      hasSettling ? 30_000 : 60_000
+      hasSettling ? 45_000 : 90_000
     );
     return () => clearInterval(interval);
   }, [fetchRequests, requests.length, loading, hasSettling]);
+
+  useEffect(() => () => {
+    if (delayedRefreshTimerRef.current) {
+      clearTimeout(delayedRefreshTimerRef.current);
+      delayedRefreshTimerRef.current = null;
+    }
+  }, []);
 
   const fetchBalance = useCallback(async () => {
     setLoadingBalance(true);
@@ -200,8 +239,13 @@ export function PendingFiatRequests({
         message: "Transfer submitted. The off-ramp will continue once the transaction confirms.",
       });
       onTransferCompleteRef.current?.();
-      // Refresh after a short delay to pick up status changes
-      setTimeout(() => void fetchRequests(), 3000);
+      // Refresh after a delay to pick up chain confirmation + provider sync.
+      if (delayedRefreshTimerRef.current) {
+        clearTimeout(delayedRefreshTimerRef.current);
+      }
+      delayedRefreshTimerRef.current = setTimeout(() => {
+        void fetchRequests(true);
+      }, 8000);
     } catch (err) {
       setSendResult({
         success: false,
@@ -226,7 +270,7 @@ export function PendingFiatRequests({
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void fetchRequests()}
+            onClick={() => void fetchRequests(true)}
             style={{ fontSize: "0.75rem" }}
           >
             Refresh

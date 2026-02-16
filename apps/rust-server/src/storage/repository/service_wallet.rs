@@ -38,7 +38,8 @@ impl<'a> FiatServiceWalletRepository<'a> {
 
     /// Check if service-wallet metadata exists.
     pub fn exists(&self) -> bool {
-        self.storage.exists(self.storage.paths().fiat_service_wallet_meta())
+        self.storage
+            .exists(self.storage.paths().fiat_service_wallet_meta())
     }
 
     /// Load service-wallet metadata.
@@ -126,10 +127,8 @@ mod tests {
     use std::fs;
 
     fn test_storage() -> EncryptedStorage {
-        let test_dir = env::temp_dir().join(format!(
-            "test-service-wallet-repo-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let test_dir =
+            env::temp_dir().join(format!("test-service-wallet-repo-{}", uuid::Uuid::new_v4()));
         let paths = StoragePaths::new(&test_dir);
         let mut storage = EncryptedStorage::new(paths);
         storage.initialize().expect("initialize test storage");
@@ -168,4 +167,3 @@ mod tests {
         cleanup(&storage);
     }
 }
-

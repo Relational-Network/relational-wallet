@@ -4,8 +4,12 @@
 
 //! Fiat on-ramp/off-ramp API using a Fuji-only reserve wallet flow.
 
-use std::{env, str::FromStr, sync::Arc};
-use std::sync::OnceLock;
+use std::{
+    collections::HashSet,
+    env,
+    str::FromStr,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use alloy::{
     primitives::{Address, U256},
@@ -49,9 +53,11 @@ const REUR_CONTRACT_ENV: &str = "REUR_CONTRACT_ADDRESS_FUJI";
 const RESERVE_BOOTSTRAP_ENABLED_ENV: &str = "FIAT_RESERVE_BOOTSTRAP_ENABLED";
 const RESERVE_INITIAL_TOPUP_ENV: &str = "FIAT_RESERVE_INITIAL_TOPUP_EUR";
 const FIAT_MIN_CONFIRMATIONS_ENV: &str = "FIAT_MIN_CONFIRMATIONS";
+// Keep provider re-checks slower than the poller sweep interval to avoid
+// duplicate remote API calls for long-lived pending requests.
+const PROVIDER_SYNC_COOLDOWN_SECS: i64 = 55;
 /// TrueLayer sandbox JWKS URL for webhook signature verification.
-const TRUELAYER_SANDBOX_JWKS_URL: &str =
-    "https://webhooks.truelayer-sandbox.com/.well-known/jwks";
+const TRUELAYER_SANDBOX_JWKS_URL: &str = "https://webhooks.truelayer-sandbox.com/.well-known/jwks";
 
 /// Webhook path as registered in TrueLayer Console (must match exactly for signature verification).
 const WEBHOOK_PATH: &str = "/v1/fiat/providers/truelayer/webhook";
@@ -509,7 +515,10 @@ fn resolve_reur_contract_address() -> Result<String, ApiError> {
             ))
         })?;
 
-    if !value.starts_with("0x") || value.len() != 42 || !value[2..].chars().all(|c| c.is_ascii_hexdigit()) {
+    if !value.starts_with("0x")
+        || value.len() != 42
+        || !value[2..].chars().all(|c| c.is_ascii_hexdigit())
+    {
         return Err(ApiError::service_unavailable(format!(
             "{REUR_CONTRACT_ENV} is not a valid EVM address"
         )));
@@ -575,6 +584,35 @@ fn to_response(record: &StoredFiatRequest) -> FiatRequestResponse {
 
 /// Cached JWKS bytes fetched from TrueLayer.
 static CACHED_JWKS: OnceLock<Vec<u8>> = OnceLock::new();
+/// In-process guard against concurrent syncs for the same request.
+static IN_FLIGHT_SYNC_REQUESTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+struct FiatSyncInFlightGuard {
+    request_id: String,
+}
+
+impl FiatSyncInFlightGuard {
+    fn try_acquire(request_id: &str) -> Option<Self> {
+        let lock = IN_FLIGHT_SYNC_REQUESTS.get_or_init(|| Mutex::new(HashSet::new()));
+        let mut set = lock.lock().ok()?;
+        if !set.insert(request_id.to_string()) {
+            return None;
+        }
+        Some(Self {
+            request_id: request_id.to_string(),
+        })
+    }
+}
+
+impl Drop for FiatSyncInFlightGuard {
+    fn drop(&mut self) {
+        if let Some(lock) = IN_FLIGHT_SYNC_REQUESTS.get() {
+            if let Ok(mut set) = lock.lock() {
+                set.remove(&self.request_id);
+            }
+        }
+    }
+}
 
 /// Fetch JWKS JSON from TrueLayer's well-known endpoint, caching the result.
 async fn fetch_jwks_cached() -> Result<Vec<u8>, ApiError> {
@@ -601,10 +639,7 @@ async fn fetch_jwks_cached() -> Result<Vec<u8>, ApiError> {
 }
 
 /// Verify webhook Tl-Signature using TrueLayer's JWKS public keys.
-async fn verify_webhook_signature(
-    headers: &HeaderMap,
-    body: &[u8],
-) -> Result<(), ApiError> {
+async fn verify_webhook_signature(headers: &HeaderMap, body: &[u8]) -> Result<(), ApiError> {
     let tl_signature = headers
         .get("tl-signature")
         .and_then(|v| v.to_str().ok())
@@ -616,9 +651,7 @@ async fn verify_webhook_signature(
 
     if let Some(ref jku) = jws_header.jku {
         if jku.as_ref() != TRUELAYER_SANDBOX_JWKS_URL {
-            return Err(ApiError::forbidden(format!(
-                "Untrusted JKU: {jku}"
-            )));
+            return Err(ApiError::forbidden(format!("Untrusted JKU: {jku}")));
         }
     }
 
@@ -667,12 +700,7 @@ fn extract_webhook_status(payload: &TrueLayerWebhookPayload) -> Option<ProviderE
         .as_deref()
         .map(map_webhook_status)
         // Then try event type (e.g. "payout_executed", "payment_failed")
-        .or_else(|| {
-            payload
-                .event_type
-                .as_deref()
-                .map(map_webhook_status)
-        })
+        .or_else(|| payload.event_type.as_deref().map(map_webhook_status))
         // Then try data.status
         .or_else(|| {
             payload
@@ -684,7 +712,9 @@ fn extract_webhook_status(payload: &TrueLayerWebhookPayload) -> Option<ProviderE
         })
 }
 
-fn ensure_service_wallet(storage: &Arc<crate::storage::EncryptedStorage>) -> Result<FiatServiceWalletMetadata, ApiError> {
+fn ensure_service_wallet(
+    storage: &Arc<crate::storage::EncryptedStorage>,
+) -> Result<FiatServiceWalletMetadata, ApiError> {
     let repo = FiatServiceWalletRepository::new(storage);
     if repo.exists() {
         return repo
@@ -829,7 +859,9 @@ async fn detect_confirmed_deposit(
                 let receipt = chain
                     .get_transaction_receipt_status(&tx.tx_hash)
                     .await
-                    .map_err(|e| ApiError::service_unavailable(format!("Failed to read receipt: {e}")))?;
+                    .map_err(|e| {
+                        ApiError::service_unavailable(format!("Failed to read receipt: {e}"))
+                    })?;
 
                 if let Some(receipt) = receipt {
                     let _ = tx_repo.update_from_receipt(
@@ -913,8 +945,12 @@ async fn sync_onramp_request(
                 }
             };
 
-            match send_reserve_transfer(storage, &destination_wallet.public_address, &record.amount_eur)
-                .await
+            match send_reserve_transfer(
+                storage,
+                &destination_wallet.public_address,
+                &record.amount_eur,
+            )
+            .await
             {
                 Ok(result) => {
                     record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
@@ -925,10 +961,7 @@ async fn sync_onramp_request(
 
                     // Record the incoming rEUR transfer in the user's transaction history.
                     let reur_contract = resolve_reur_contract_address().unwrap_or_default();
-                    let service_addr = record
-                        .service_wallet_address
-                        .clone()
-                        .unwrap_or_default();
+                    let service_addr = record.service_wallet_address.clone().unwrap_or_default();
                     let tx_record = StoredTransaction::new_pending(
                         result.tx_hash.clone(),
                         record.wallet_id.clone(),
@@ -975,9 +1008,8 @@ async fn sync_offramp_request(
 
                 if !TrueLayerClient::is_configured() {
                     record.status = FiatRequestStatus::Failed;
-                    record.failure_reason = Some(
-                        "TrueLayer is not configured for off-ramp payout".to_string(),
-                    );
+                    record.failure_reason =
+                        Some("TrueLayer is not configured for off-ramp payout".to_string());
                     return;
                 }
 
@@ -986,9 +1018,8 @@ async fn sync_offramp_request(
                         Some(value) => value,
                         None => {
                             record.status = FiatRequestStatus::Failed;
-                            record.failure_reason = Some(
-                                "Missing beneficiary account holder name".to_string(),
-                            );
+                            record.failure_reason =
+                                Some("Missing beneficiary account holder name".to_string());
                             return;
                         }
                     };
@@ -996,8 +1027,7 @@ async fn sync_offramp_request(
                     Some(value) => value,
                     None => {
                         record.status = FiatRequestStatus::Failed;
-                        record.failure_reason =
-                            Some("Missing beneficiary IBAN".to_string());
+                        record.failure_reason = Some("Missing beneficiary IBAN".to_string());
                         return;
                     }
                 };
@@ -1089,12 +1119,32 @@ async fn sync_offramp_request(
         };
 
         match client.fetch_offramp_status(provider_reference).await {
-            Ok(status) => {
-                record.status = map_offramp_provider_status(status);
+            Ok(details) => {
+                record.status = map_offramp_provider_status(details.status);
                 record.last_provider_sync_at = Some(Utc::now());
                 record.updated_at = Utc::now();
-                if matches!(status, ProviderExecutionStatus::Failed) {
-                    record.failure_reason = Some("Provider reported payout failure".to_string());
+                match details.status {
+                    ProviderExecutionStatus::Failed => {
+                        record.failure_reason = Some(details.failure_reason.unwrap_or_else(|| {
+                            format!(
+                                "Provider reported payout failure (status: {})",
+                                details.raw_status
+                            )
+                        }));
+                    }
+                    ProviderExecutionStatus::Completed => {
+                        record.failure_reason = None;
+                    }
+                    ProviderExecutionStatus::Pending => {
+                        record.failure_reason = None;
+                        info!(
+                            request_id = %record.request_id,
+                            provider_reference = %provider_reference,
+                            raw_status = %details.raw_status,
+                            scheme_id = ?details.scheme_id,
+                            "off-ramp payout still pending at provider"
+                        );
+                    }
                 }
             }
             Err(error) => {
@@ -1131,6 +1181,18 @@ pub(crate) async fn sync_and_persist_request(
     request_id: &str,
 ) -> Result<StoredFiatRequest, ApiError> {
     let repo = FiatRequestRepository::new(storage);
+    let _sync_guard = if let Some(guard) = FiatSyncInFlightGuard::try_acquire(request_id) {
+        guard
+    } else {
+        info!(
+            request_id = %request_id,
+            "Fiat request sync skipped; request is already being synced"
+        );
+        return repo
+            .get(request_id)
+            .map_err(|_| ApiError::not_found("Fiat request not found"));
+    };
+
     let mut record = repo
         .get(request_id)
         .map_err(|_| ApiError::not_found("Fiat request not found"))?;
@@ -1177,17 +1239,22 @@ pub(crate) fn list_pending_request_ids(
         }
     };
 
+    let now = Utc::now();
+
     requests
         .into_iter()
-        .filter(|r| {
-            matches!(
-                r.status,
-                FiatRequestStatus::Queued
-                    | FiatRequestStatus::AwaitingProvider
-                    | FiatRequestStatus::AwaitingUserDeposit
-                    | FiatRequestStatus::SettlementPending
-                    | FiatRequestStatus::ProviderPending
-            )
+        .filter(|r| match r.status {
+            FiatRequestStatus::Queued
+            | FiatRequestStatus::AwaitingProvider
+            | FiatRequestStatus::ProviderPending => r
+                .last_provider_sync_at
+                .map(|last_sync| {
+                    now.signed_duration_since(last_sync).num_seconds()
+                        >= PROVIDER_SYNC_COOLDOWN_SECS
+                })
+                .unwrap_or(true),
+            FiatRequestStatus::AwaitingUserDeposit | FiatRequestStatus::SettlementPending => true,
+            FiatRequestStatus::Completed | FiatRequestStatus::Failed => false,
         })
         .map(|r| r.request_id)
         .collect()
@@ -1229,7 +1296,8 @@ async fn create_request(
     } = request;
 
     let (normalized_amount, amount_in_minor_provider) = parse_amount_to_minor(&amount_eur)?;
-    let expected_amount_token_minor = u256_to_u64(parse_amount_to_token_minor_u256(&normalized_amount)?)?;
+    let expected_amount_token_minor =
+        u256_to_u64(parse_amount_to_token_minor_u256(&normalized_amount)?)?;
     let storage = state.storage();
 
     // Ensure settlement prerequisites are available.
@@ -1674,7 +1742,8 @@ pub async fn topup_fiat_reserve(
         .unwrap_or_else(reserve_initial_topup_amount);
 
     let amount_minor = parse_amount_to_token_minor_u256(&amount)?;
-    let tx = mint_to_address_from_service_wallet(storage, &service_wallet.public_address, &amount).await?;
+    let tx = mint_to_address_from_service_wallet(storage, &service_wallet.public_address, &amount)
+        .await?;
 
     Ok(Json(ReserveTransactionResponse {
         tx_hash: tx.tx_hash,
@@ -1804,7 +1873,13 @@ mod tests {
             map_webhook_status("executed"),
             ProviderExecutionStatus::Completed
         );
-        assert_eq!(map_webhook_status("failed"), ProviderExecutionStatus::Failed);
-        assert_eq!(map_webhook_status("pending"), ProviderExecutionStatus::Pending);
+        assert_eq!(
+            map_webhook_status("failed"),
+            ProviderExecutionStatus::Failed
+        );
+        assert_eq!(
+            map_webhook_status("pending"),
+            ProviderExecutionStatus::Pending
+        );
     }
 }

@@ -211,7 +211,9 @@ impl<'a> FiatRequestRepository<'a> {
 
     /// List all requests for user.
     pub fn list_by_owner(&self, owner_user_id: &str) -> StorageResult<Vec<StoredFiatRequest>> {
-        let ids = self.storage.list_files(self.storage.paths().fiat_dir(), "json")?;
+        let ids = self
+            .storage
+            .list_files(self.storage.paths().fiat_dir(), "json")?;
 
         let mut requests = Vec::new();
         for id in ids {
@@ -228,7 +230,9 @@ impl<'a> FiatRequestRepository<'a> {
 
     /// List all requests (admin/system use).
     pub fn list_all(&self) -> StorageResult<Vec<StoredFiatRequest>> {
-        let ids = self.storage.list_files(self.storage.paths().fiat_dir(), "json")?;
+        let ids = self
+            .storage
+            .list_files(self.storage.paths().fiat_dir(), "json")?;
         let mut requests = Vec::new();
         for id in ids {
             if let Ok(record) = self.get(&id) {

@@ -55,10 +55,10 @@ pub use encrypted_fs::{EncryptedStorage, StorageError, StorageResult};
 pub use ownership::{OwnedResource, OwnershipEnforcer};
 pub use paths::StoragePaths;
 pub use repository::{
-    BookmarkRepository, FiatDirection, FiatRequestRepository, FiatRequestStatus, InviteRepository,
-    FiatServiceWalletMetadata, FiatServiceWalletRepository, RecurringRepository, StoredBookmark,
-    StoredFiatRequest, StoredTransaction, TokenType, TransactionRepository, TxStatus,
-    WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
+    BookmarkRepository, FiatDirection, FiatRequestRepository, FiatRequestStatus,
+    FiatServiceWalletMetadata, FiatServiceWalletRepository, InviteRepository, RecurringRepository,
+    StoredBookmark, StoredFiatRequest, StoredTransaction, TokenType, TransactionRepository,
+    TxStatus, WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
 };
 pub use tx_cache::TxCache;
 pub use tx_database::{migrate_from_json, TxDatabase};

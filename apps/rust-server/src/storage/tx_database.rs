@@ -376,10 +376,7 @@ impl TxDatabase {
 /// Migrate existing JSON-based transaction history into redb.
 ///
 /// This is idempotent — if already migrated, it returns immediately.
-pub fn migrate_from_json(
-    db: &TxDatabase,
-    storage: &EncryptedStorage,
-) -> TxDbResult<()> {
+pub fn migrate_from_json(db: &TxDatabase, storage: &EncryptedStorage) -> TxDbResult<()> {
     if db.is_migrated()? {
         tracing::info!("Transaction database already migrated, skipping");
         return Ok(());
@@ -459,7 +456,8 @@ pub fn migrate_from_json(
                     };
 
                     // Determine direction
-                    let direction = if tx.from.to_lowercase() == meta.public_address.to_lowercase() {
+                    let direction = if tx.from.to_lowercase() == meta.public_address.to_lowercase()
+                    {
                         "sent"
                     } else {
                         "received"
@@ -528,8 +526,8 @@ fn extract_tx_hash_from_key(key: &[u8]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::repository::transactions::TokenType;
+    use super::*;
     use chrono::Utc;
 
     fn temp_db() -> (TxDatabase, tempfile::TempDir) {
@@ -556,7 +554,10 @@ mod tests {
     fn upsert_and_get_transaction() {
         let (db, _dir) = temp_db();
         let tx = sample_tx("0xaaa");
-        let dirs = vec![("0x1111111111111111111111111111111111111111".to_string(), "sent")];
+        let dirs = vec![(
+            "0x1111111111111111111111111111111111111111".to_string(),
+            "sent",
+        )];
         db.upsert_transaction(&tx, &dirs).unwrap();
 
         let retrieved = db.get_transaction("0xaaa").unwrap().unwrap();
@@ -597,10 +598,14 @@ mod tests {
     fn update_status_works() {
         let (db, _dir) = temp_db();
         let tx = sample_tx("0xbbb");
-        let dirs = vec![("0x1111111111111111111111111111111111111111".to_string(), "sent")];
+        let dirs = vec![(
+            "0x1111111111111111111111111111111111111111".to_string(),
+            "sent",
+        )];
         db.upsert_transaction(&tx, &dirs).unwrap();
 
-        db.update_status("0xbbb", TxStatus::Confirmed, Some(12345), Some(21000)).unwrap();
+        db.update_status("0xbbb", TxStatus::Confirmed, Some(12345), Some(21000))
+            .unwrap();
 
         let updated = db.get_transaction("0xbbb").unwrap().unwrap();
         assert_eq!(updated.status, TxStatus::Confirmed);
@@ -618,9 +623,7 @@ mod tests {
         assert_eq!(result, Some("wallet-42".to_string()));
 
         // Case insensitive
-        let result2 = db
-            .get_wallet_id_for_address(&addr.to_lowercase())
-            .unwrap();
+        let result2 = db.get_wallet_id_for_address(&addr.to_lowercase()).unwrap();
         assert_eq!(result2, Some("wallet-42".to_string()));
     }
 
