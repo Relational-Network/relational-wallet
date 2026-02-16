@@ -241,11 +241,14 @@ pub struct FiatSyncResponse {
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
+#[allow(dead_code)] // Fields deserialized from TrueLayer webhook JSON; used via serde + logging
 pub struct TrueLayerWebhookPayload {
     #[serde(default, rename = "type")]
     event_type: Option<String>,
     #[serde(default)]
     event_id: Option<String>,
+    #[serde(default)]
+    event_version: Option<u32>,
     #[serde(default)]
     status: Option<String>,
     #[serde(default)]
@@ -254,6 +257,21 @@ pub struct TrueLayerWebhookPayload {
     payout_id: Option<String>,
     #[serde(default)]
     reference: Option<String>,
+    /// Reason for payout failure (from `payout_failed` webhook).
+    #[serde(default)]
+    failure_reason: Option<String>,
+    /// Timestamp when payout was executed (from `payout_executed` webhook).
+    #[serde(default)]
+    executed_at: Option<String>,
+    /// Timestamp when payout failed (from `payout_failed` webhook).
+    #[serde(default)]
+    failed_at: Option<String>,
+    /// Payment scheme used (e.g. `faster_payments_service`, `sepa_credit_transfer`).
+    #[serde(default)]
+    scheme_id: Option<String>,
+    /// Merchant account the payout was made from.
+    #[serde(default)]
+    merchant_account_id: Option<String>,
     #[serde(default)]
     data: Option<serde_json::Value>,
 }
@@ -1363,7 +1381,7 @@ pub async fn list_fiat_requests(
     let storage = state.storage();
     let repo = FiatRequestRepository::new(storage);
 
-    let mut requests = match query.wallet_id.as_deref() {
+    let requests = match query.wallet_id.as_deref() {
         Some(wallet_id) => repo
             .list_by_wallet_for_owner(&user.user_id, wallet_id)
             .map_err(|e| ApiError::internal(format!("Failed to list fiat requests: {e}")))?,
@@ -1372,16 +1390,8 @@ pub async fn list_fiat_requests(
             .map_err(|e| ApiError::internal(format!("Failed to list fiat requests: {e}")))?,
     };
 
-    for request in &mut requests {
-        sync_request_internal(storage, request).await;
-        if let Err(error) = repo.update(request) {
-            warn!(
-                request_id = %request.request_id,
-                error = %error,
-                "failed to persist synced fiat request"
-            );
-        }
-    }
+    // Serve cached status — the background FiatPoller handles provider syncing
+    // every 30 s. This avoids inline TrueLayer API calls on every page view.
 
     let mapped: Vec<FiatRequestResponse> = requests.iter().map(to_response).collect();
 
@@ -1414,7 +1424,7 @@ pub async fn get_fiat_request(
 ) -> Result<Json<FiatRequestResponse>, ApiError> {
     let storage = state.storage();
     let repo = FiatRequestRepository::new(storage);
-    let mut record = repo
+    let record = repo
         .get(&request_id)
         .map_err(|_| ApiError::not_found("Fiat request not found"))?;
 
@@ -1424,9 +1434,7 @@ pub async fn get_fiat_request(
         ));
     }
 
-    sync_request_internal(storage, &mut record).await;
-    repo.update(&record)
-        .map_err(|e| ApiError::internal(format!("Failed to persist fiat request: {e}")))?;
+    // Serve cached status — the background FiatPoller handles provider syncing.
 
     Ok(Json(to_response(&record)))
 }
@@ -1502,9 +1510,27 @@ pub async fn truelayer_webhook(
         if !is_terminal {
             record.status = new_mapped;
             if matches!(new_status, ProviderExecutionStatus::Failed) {
-                record.failure_reason = Some("Webhook reported provider failure".to_string());
+                // Use failure_reason from TrueLayer webhook when available,
+                // fall back to generic message.
+                record.failure_reason = Some(
+                    payload
+                        .failure_reason
+                        .clone()
+                        .unwrap_or_else(|| "Webhook reported provider failure".to_string()),
+                );
             }
         }
+
+        info!(
+            request_id = %record.request_id,
+            event_type = ?payload.event_type,
+            provider_status = ?new_status,
+            mapped_status = ?new_mapped,
+            scheme_id = ?payload.scheme_id,
+            failure_reason = ?payload.failure_reason,
+            is_terminal,
+            "Webhook status transition"
+        );
     }
 
     if let Some(event_id) = payload.event_id.clone() {
@@ -1513,7 +1539,10 @@ pub async fn truelayer_webhook(
 
     record.last_provider_sync_at = Some(Utc::now());
     record.updated_at = Utc::now();
-    sync_request_internal(storage, record).await;
+    // NOTE: We do NOT call sync_request_internal here — the webhook already
+    // provides the definitive status from TrueLayer. Calling sync would
+    // re-poll the provider API inline, duplicating work the FiatPoller
+    // background task already handles.
 
     repo.update(record)
         .map_err(|e| ApiError::internal(format!("Failed to persist webhook update: {e}")))?;
