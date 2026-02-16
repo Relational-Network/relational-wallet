@@ -20,14 +20,6 @@ pub struct NetworkConfig {
     pub explorer_url: &'static str,
 }
 
-/// Avalanche C-Chain Mainnet configuration.
-pub const AVAX_MAINNET: NetworkConfig = NetworkConfig {
-    name: "Avalanche C-Chain",
-    chain_id: 43114,
-    rpc_url: "https://api.avax.network/ext/bc/C/rpc",
-    explorer_url: "https://snowtrace.io",
-};
-
 /// Avalanche Fuji Testnet configuration.
 pub const AVAX_FUJI: NetworkConfig = NetworkConfig {
     name: "Avalanche Fuji Testnet",

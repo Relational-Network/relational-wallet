@@ -62,11 +62,6 @@ impl AvaxClient {
         Self::new(AVAX_FUJI).await
     }
 
-    /// Create a client for Avalanche mainnet.
-    pub async fn mainnet() -> Result<Self, AvaxClientError> {
-        Self::new(AVAX_MAINNET).await
-    }
-
     /// Get the native AVAX balance for an address.
     pub async fn get_native_balance(&self, address: &str) -> Result<TokenBalance, AvaxClientError> {
         let addr = Address::from_str(address)

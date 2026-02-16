@@ -47,6 +47,8 @@ pub mod encrypted_fs;
 pub mod ownership;
 pub mod paths;
 pub mod repository;
+pub mod tx_cache;
+pub mod tx_database;
 
 pub use audit::{AuditEvent, AuditEventType, AuditRepository};
 pub use encrypted_fs::{EncryptedStorage, StorageError, StorageResult};
@@ -58,3 +60,5 @@ pub use repository::{
     StoredFiatRequest, StoredTransaction, TokenType, TransactionRepository, TxStatus,
     WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
 };
+pub use tx_cache::TxCache;
+pub use tx_database::{migrate_from_json, TxDatabase};

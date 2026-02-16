@@ -36,6 +36,8 @@
 use std::sync::Arc;
 
 use crate::auth::JwksManager;
+use crate::storage::tx_cache::TxCache;
+use crate::storage::tx_database::TxDatabase;
 use crate::storage::EncryptedStorage;
 
 // =============================================================================
@@ -108,6 +110,15 @@ pub struct AppState {
 
     /// Authentication configuration for JWT verification.
     pub auth_config: AuthConfig,
+
+    /// Embedded ACID transaction database (redb).
+    ///
+    /// Provides indexed, paginated transaction queries instead of
+    /// scanning individual JSON files.
+    pub tx_db: Option<Arc<TxDatabase>>,
+
+    /// In-process LRU cache for hot wallet transaction lookups.
+    pub tx_cache: Option<Arc<TxCache>>,
 }
 
 impl AppState {
@@ -128,6 +139,8 @@ impl AppState {
         Self {
             storage: Arc::new(encrypted_storage),
             auth_config: AuthConfig::default(),
+            tx_db: None,
+            tx_cache: None,
         }
     }
 
@@ -143,6 +156,18 @@ impl AppState {
     /// ```
     pub fn with_auth_config(mut self, auth_config: AuthConfig) -> Self {
         self.auth_config = auth_config;
+        self
+    }
+
+    /// Configure the transaction database.
+    pub fn with_tx_db(mut self, tx_db: Arc<TxDatabase>) -> Self {
+        self.tx_db = Some(tx_db);
+        self
+    }
+
+    /// Configure the transaction cache.
+    pub fn with_tx_cache(mut self, tx_cache: Arc<TxCache>) -> Self {
+        self.tx_cache = Some(tx_cache);
         self
     }
 

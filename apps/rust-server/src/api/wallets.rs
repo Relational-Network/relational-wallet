@@ -107,6 +107,17 @@ pub async fn create_wallet(
     repo.create(&metadata, private_key_pem.as_bytes())
         .map_err(|e| ApiError::internal(&format!("Failed to store wallet: {}", e)))?;
 
+    // Register address → wallet_id in redb for the event indexer
+    if let Some(tx_db) = &state.tx_db {
+        if let Err(e) = tx_db.register_address(&public_address, &wallet_id) {
+            tracing::warn!(
+                error = %e,
+                wallet_id = %wallet_id,
+                "Failed to register wallet address in tx database"
+            );
+        }
+    }
+
     // Audit log
     audit_log!(
         &storage,

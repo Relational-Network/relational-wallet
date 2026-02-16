@@ -107,6 +107,10 @@ pub struct TransactionListQuery {
     /// Maximum number of results (default: 50)
     #[param(default = 50)]
     pub limit: Option<usize>,
+    /// Cursor for pagination (returned as `next_cursor` in previous response).
+    pub cursor: Option<String>,
+    /// Direction filter: "sent" or "received". If omitted, returns both.
+    pub direction: Option<String>,
 }
 
 /// Transaction list response.
@@ -114,6 +118,9 @@ pub struct TransactionListQuery {
 pub struct TransactionListResponse {
     /// List of transactions
     pub transactions: Vec<TransactionSummary>,
+    /// Cursor for the next page (null if no more pages).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// Transaction summary for list view.
@@ -482,6 +489,22 @@ pub async fn send_transaction(
         tracing::warn!("Failed to store transaction record: {}", e);
     }
 
+    // Dual-write: upsert into redb transaction database
+    if let Some(tx_db) = &state.tx_db {
+        let mut directions = vec![(wallet.public_address.clone(), "sent")];
+        if let Some(ref _rcpt_id) = recipient_wallet_id {
+            directions.push((request.to.clone(), "received"));
+        }
+        if let Err(e) = tx_db.upsert_transaction(&stored_tx, &directions) {
+            tracing::warn!(error = %e, "Failed to dual-write transaction to redb");
+        }
+        // Invalidate cache for sender
+        if let Some(tx_cache) = &state.tx_cache {
+            tx_cache.invalidate(&wallet.public_address);
+            tx_cache.invalidate(&request.to);
+        }
+    }
+
     // Mirror recipient-side transaction record for internal transfers.
     if let Some(recipient_id) = recipient_wallet_id {
         if recipient_id != wallet_id {
@@ -502,6 +525,14 @@ pub async fn send_transaction(
                     "Failed to store mirrored recipient transaction record: {}",
                     e
                 );
+            }
+
+            // Dual-write mirrored record to redb
+            if let Some(tx_db) = &state.tx_db {
+                let directions = vec![(request.to.clone(), "received")];
+                if let Err(e) = tx_db.upsert_transaction(&mirrored_tx, &directions) {
+                    tracing::warn!(error = %e, "Failed to dual-write mirrored tx to redb");
+                }
             }
         }
     }
@@ -563,12 +594,79 @@ pub async fn list_transactions(
         return Err(ApiError::forbidden("You do not own this wallet"));
     }
 
-    let tx_repo = TransactionRepository::new(&storage);
-    let mut summaries: Vec<TransactionSummary> = Vec::new();
+    // Filter by network if specified
+    if let Some(network) = &query.network {
+        ensure_fuji_network(Some(network.as_str())).map_err(ApiError::bad_request)?;
+    }
+
+    let limit = query.limit.unwrap_or(50).min(200);
     let wallet_address = wallet.public_address.to_lowercase();
 
-    // List wallet-local transaction records only.
-    // Direction is derived by comparing addresses.
+    // Try redb-backed query (fast path)
+    if let Some(tx_db) = &state.tx_db {
+        // Check cache for first page (no cursor, no direction filter)
+        if query.cursor.is_none() && query.direction.is_none() {
+            if let Some(tx_cache) = &state.tx_cache {
+                if let Some(cached) = tx_cache.get_first_page(&wallet_address) {
+                    let summaries: Vec<TransactionSummary> = cached
+                        .iter()
+                        .take(limit)
+                        .map(|(tx, dir)| to_summary_with_direction(tx, dir))
+                        .collect();
+                    let next_cursor = if cached.len() > limit {
+                        // We have more — but cache only holds first page; client should
+                        // re-request with cursor from the last item if they want more.
+                        None
+                    } else {
+                        None
+                    };
+                    return Ok(Json(TransactionListResponse {
+                        transactions: summaries,
+                        next_cursor,
+                    }));
+                }
+            }
+        }
+
+        // Query redb
+        match tx_db.list_by_wallet(&wallet_address, query.cursor.as_deref(), limit) {
+            Ok((results, next_cursor)) => {
+                let mut summaries: Vec<TransactionSummary> = results
+                    .iter()
+                    .map(|(tx, dir)| to_summary_with_direction(tx, dir))
+                    .collect();
+
+                // Apply direction filter if specified
+                if let Some(ref direction) = query.direction {
+                    summaries.retain(|s| s.direction == *direction);
+                }
+
+                // Fuji-only: filter non-fuji records
+                summaries.retain(|tx| tx.network == "fuji");
+
+                // Populate cache for first page (no cursor, no direction filter)
+                if query.cursor.is_none() && query.direction.is_none() {
+                    if let Some(tx_cache) = &state.tx_cache {
+                        tx_cache.put_first_page(&wallet_address, results);
+                    }
+                }
+
+                return Ok(Json(TransactionListResponse {
+                    transactions: summaries,
+                    next_cursor,
+                }));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "redb query failed, falling back to JSON storage");
+                // Fall through to JSON-based path below
+            }
+        }
+    }
+
+    // Fallback: JSON-based transaction listing (original path)
+    let tx_repo = TransactionRepository::new(&storage);
+    let mut summaries: Vec<TransactionSummary> = Vec::new();
+
     let wallet_txs = tx_repo
         .list_by_wallet(&wallet_id)
         .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
@@ -590,18 +688,17 @@ pub async fn list_transactions(
     // Sort all by timestamp descending (newest first)
     summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
-    // Filter by network if specified
-    if let Some(network) = &query.network {
-        ensure_fuji_network(Some(network.as_str())).map_err(ApiError::bad_request)?;
-        summaries.retain(|tx| tx.network == *network);
+    // Apply direction filter
+    if let Some(ref direction) = query.direction {
+        summaries.retain(|s| s.direction == *direction);
     }
 
     // Apply limit
-    let limit = query.limit.unwrap_or(50);
     summaries.truncate(limit);
 
     Ok(Json(TransactionListResponse {
         transactions: summaries,
+        next_cursor: None,
     }))
 }
 
@@ -696,6 +793,24 @@ pub async fn get_transaction_status(
                     receipt.gas_used,
                     receipt.success,
                 );
+            }
+
+            // Update redb status + invalidate cache
+            if let Some(tx_db) = &state.tx_db {
+                let new_status = if receipt.success {
+                    TxStatus::Confirmed
+                } else {
+                    TxStatus::Failed
+                };
+                let _ = tx_db.update_status(
+                    &tx_hash,
+                    new_status,
+                    Some(receipt.block_number),
+                    Some(receipt.gas_used),
+                );
+                if let Some(tx_cache) = &state.tx_cache {
+                    tx_cache.invalidate(&wallet.public_address);
+                }
             }
 
             let confirmations = current_block.saturating_sub(receipt.block_number);
@@ -841,6 +956,8 @@ mod tests {
             Query(TransactionListQuery {
                 network: None,
                 limit: None,
+                cursor: None,
+                direction: None,
             }),
         )
         .await

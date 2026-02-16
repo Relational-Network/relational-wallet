@@ -7,6 +7,7 @@ mod auth;
 mod blockchain;
 mod config;
 mod error;
+mod indexer;
 mod models;
 mod providers;
 mod state;
@@ -28,6 +29,8 @@ use state::{AppState, AuthConfig};
 use storage::EncryptedStorage;
 #[cfg(not(test))]
 use tls::load_ratls_credentials;
+#[cfg(not(test))]
+use tokio_util::sync::CancellationToken;
 #[cfg(not(test))]
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
@@ -137,6 +140,58 @@ async fn main() {
     }
 
     let state = AppState::new(encrypted_storage).with_auth_config(auth_config);
+
+    // ========== Initialize Transaction Database (redb) ==========
+    info!("Opening transaction database...");
+    let tx_db_path = state.storage().paths().root().join("tx.redb");
+    let tx_db = match storage::TxDatabase::open(&tx_db_path) {
+        Ok(db) => {
+            info!(path = %tx_db_path.display(), "Transaction database opened");
+            Arc::new(db)
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                "Failed to open transaction database — transaction indexing disabled"
+            );
+            // Continue without tx_db; handlers fall back to JSON-based storage
+            Arc::new(storage::TxDatabase::open(
+                &std::env::temp_dir().join(format!("fallback-tx-{}.redb", uuid::Uuid::new_v4()))
+            ).expect("Failed to create fallback tx database"))
+        }
+    };
+
+    // Run JSON → redb migration (idempotent)
+    if let Err(e) = storage::migrate_from_json(&tx_db, state.storage()) {
+        warn!(error = %e, "Transaction migration failed — some history may be incomplete");
+    }
+
+    // Create LRU cache
+    let tx_cache = Arc::new(storage::TxCache::new(1000, Duration::from_secs(300)));
+
+    // Wire tx_db and tx_cache into state
+    let state = state
+        .with_tx_db(tx_db.clone())
+        .with_tx_cache(tx_cache.clone());
+
+    // ========== Spawn Event Indexer ==========
+    let shutdown = CancellationToken::new();
+    let token_contracts = indexer::fuji_token_contracts();
+    if !token_contracts.is_empty() {
+        let event_indexer = indexer::EventIndexer::new(
+            tx_db.clone(),
+            tx_cache.clone(),
+            blockchain::AVAX_FUJI,
+            token_contracts,
+        );
+        let shutdown_clone = shutdown.clone();
+        tokio::spawn(async move {
+            event_indexer.run(shutdown_clone).await;
+        });
+        info!("ERC-20 event indexer spawned");
+    } else {
+        info!("No token contracts configured — event indexer not started");
+    }
 
     // Build router with tracing middleware for request IDs
     let app = router(state)
