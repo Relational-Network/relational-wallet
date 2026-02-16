@@ -4,7 +4,7 @@
 "use client";
 
 import { UserButton } from "@clerk/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type {
   Bookmark,
@@ -18,6 +18,7 @@ import { AddressQRCode } from "@/components/AddressQRCode";
 import { CopyAddress } from "@/components/CopyAddress";
 import { ActionDialog } from "@/components/ActionDialog";
 import { ManageWalletsSheet } from "@/components/ManageWalletsSheet";
+import { PendingFiatRequests } from "@/components/PendingFiatRequests";
 import { PaymentRequestBuilder } from "@/app/wallets/[wallet_id]/receive/PaymentRequestBuilder";
 import { SendForm } from "@/app/wallets/[wallet_id]/send/SendForm";
 import { TransactionList } from "@/app/wallets/[wallet_id]/transactions/TransactionList";
@@ -158,6 +159,26 @@ export function SimpleWalletDashboard() {
     serviceWalletAddress: string | null;
     failureReason: string | null;
   } | null>(null);
+  const [pendingKey, setPendingKey] = useState(0);
+  const providerPopupRef = useRef<Window | null>(null);
+
+  const openProviderPopup = useCallback((url: string) => {
+    const width = 500;
+    const height = 700;
+    const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+    const popup = window.open(
+      url,
+      "fiat-provider",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=yes`
+    );
+    if (popup) {
+      providerPopupRef.current = popup;
+    } else {
+      // Popup blocked — fall back to new tab
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, []);
 
   const selectedWallet = useMemo(
     () => wallets.find((wallet) => wallet.wallet_id === selectedWalletId) ?? null,
@@ -222,8 +243,8 @@ export function SimpleWalletDashboard() {
     }
   }, []);
 
-  const fetchWalletDetails = useCallback(async (walletId: string) => {
-    setLoadingDetails(true);
+  const fetchWalletDetails = useCallback(async (walletId: string, silent = false) => {
+    if (!silent) setLoadingDetails(true);
 
     try {
       const [balanceResponse, txResponse] = await Promise.all([
@@ -253,10 +274,29 @@ export function SimpleWalletDashboard() {
     } catch {
       // Non-critical: keep existing balance/activity or show zeros.
     } finally {
-      setLoadingDetails(false);
+      if (!silent) setLoadingDetails(false);
       setDetailsLoaded(true);
     }
   }, []);
+
+  // Listen for postMessage from callback popup
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "fiat-callback-complete") {
+        providerPopupRef.current?.close();
+        providerPopupRef.current = null;
+        if (selectedWalletId) {
+          void fetchWalletDetails(selectedWalletId);
+        }
+        setPendingKey((k) => k + 1);
+        setActiveDialog(null);
+        setFiatResult(null);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [selectedWalletId, fetchWalletDetails]);
 
   useEffect(() => {
     void fetchWallets();
@@ -293,6 +333,15 @@ export function SimpleWalletDashboard() {
     setBookmarks([]);
     setBookmarksWalletId(null);
     void fetchWalletDetails(selectedWalletId);
+  }, [selectedWalletId, fetchWalletDetails]);
+
+  // Periodic balance polling — keeps AVAX/rEUR in sync with on-chain state.
+  useEffect(() => {
+    if (!selectedWalletId) return;
+    const interval = setInterval(() => {
+      void fetchWalletDetails(selectedWalletId, true);
+    }, 30_000);
+    return () => clearInterval(interval);
   }, [selectedWalletId, fetchWalletDetails]);
 
   useEffect(() => {
@@ -373,6 +422,11 @@ export function SimpleWalletDashboard() {
         failureReason: payload.failure_reason || null,
       });
       setOnRampNote("");
+      // Auto-open provider popup if URL is available
+      if (payload.provider_action_url) {
+        openProviderPopup(payload.provider_action_url);
+      }
+      setPendingKey((k) => k + 1);
     } catch (onRampError) {
       setError(onRampError instanceof Error ? onRampError.message : "On-ramp request failed");
     } finally {
@@ -419,12 +473,22 @@ export function SimpleWalletDashboard() {
       setOffRampNote("");
       setOffRampName("");
       setOffRampIban("");
+      setPendingKey((k) => k + 1);
     } catch (offRampError) {
       setError(offRampError instanceof Error ? offRampError.message : "Off-ramp request failed");
     } finally {
       setFiatSubmitting(null);
     }
   };
+
+  // Stable callback for PendingFiatRequests — refreshes balance immediately
+  // plus a delayed re-fetch to catch blockchain confirmation lag.
+  const handleTransferComplete = useCallback(() => {
+    if (!selectedWalletId) return;
+    void fetchWalletDetails(selectedWalletId, true);
+    const timer = setTimeout(() => void fetchWalletDetails(selectedWalletId, true), 8000);
+    return () => clearTimeout(timer);
+  }, [fetchWalletDetails, selectedWalletId]);
 
   const avaxBalance = balance?.native_balance.balance_formatted ?? "0";
   const usdcBalance =
@@ -500,6 +564,15 @@ export function SimpleWalletDashboard() {
           onOnRamp={() => setActiveDialog("on_ramp")}
           onOffRamp={() => setActiveDialog("off_ramp")}
         />
+
+        {selectedWallet && selectedWallet.status === "active" ? (
+          <PendingFiatRequests
+            key={pendingKey}
+            walletId={selectedWallet.wallet_id}
+            onProviderPopup={openProviderPopup}
+            onTransferComplete={handleTransferComplete}
+          />
+        ) : null}
 
         <RecentActivityPreview
           items={activity}
@@ -602,9 +675,13 @@ export function SimpleWalletDashboard() {
                 <div className="alert alert-error">{fiatResult.failureReason}</div>
               ) : null}
               {fiatResult.actionUrl ? (
-                <a href={fiatResult.actionUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
-                  Continue with provider →
-                </a>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => openProviderPopup(fiatResult.actionUrl!)}
+                >
+                  Authorize with bank
+                </button>
               ) : null}
               <button type="button" className="btn btn-secondary" onClick={() => { setActiveDialog(null); setFiatResult(null); }}>
                 Done

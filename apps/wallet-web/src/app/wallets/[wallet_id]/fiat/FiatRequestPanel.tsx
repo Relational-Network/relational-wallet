@@ -3,19 +3,22 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import type {
   FiatProviderListResponse,
   FiatProviderSummary,
   FiatRequest,
   FiatRequestListResponse,
 } from "@/lib/api";
+import { ActionDialog } from "@/components/ActionDialog";
 
 interface FiatRequestPanelProps {
   walletId: string;
 }
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
+const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString();
@@ -24,15 +27,24 @@ function formatDate(value: string): string {
 function requestStatusClass(status: FiatRequest["status"]) {
   if (status === "completed") return "status-chip success";
   if (status === "failed") return "status-chip failed";
+  if (status === "awaiting_user_deposit") return "status-chip action";
   if (
     status === "provider_pending" ||
     status === "awaiting_provider" ||
-    status === "awaiting_user_deposit" ||
     status === "settlement_pending"
   ) {
     return "status-chip warn";
   }
   return "status-chip pending";
+}
+
+function shortenAddress(address: string): string {
+  if (address.length < 16) return address;
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
+interface BalanceResponse {
+  token_balances: Array<{ symbol: string; balance_formatted: string }>;
 }
 
 export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
@@ -60,7 +72,33 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
   const [isOffRampDialogOpen, setIsOffRampDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [providerActionUrl, setProviderActionUrl] = useState<string | null>(null);
+
+  // Deposit confirmation state
+  const [depositRequest, setDepositRequest] = useState<FiatRequest | null>(null);
+  const [reurBalance, setReurBalance] = useState<string | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Provider popup
+  const providerPopupRef = useRef<Window | null>(null);
+
+  const openProviderPopup = useCallback((url: string) => {
+    const width = 500;
+    const height = 700;
+    const left = Math.round(window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.round(window.screenY + (window.outerHeight - height) / 2);
+    const popup = window.open(
+      url,
+      "fiat-provider",
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=yes`
+    );
+    if (popup) {
+      providerPopupRef.current = popup;
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, []);
 
   const fetchRequests = useCallback(async () => {
     setIsLoading(true);
@@ -128,10 +166,94 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
     void fetchProviders();
   }, [fetchProviders]);
 
+  // Listen for postMessage from callback popup
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "fiat-callback-complete") {
+        providerPopupRef.current?.close();
+        providerPopupRef.current = null;
+        setSuccess("Bank authorization completed. Refreshing...");
+        void fetchRequests();
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [fetchRequests]);
+
+  const fetchBalance = useCallback(async () => {
+    setLoadingBalance(true);
+    try {
+      const response = await fetch(
+        `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/balance?network=fuji`,
+        { method: "GET", credentials: "include" }
+      );
+      if (response.ok) {
+        const data: BalanceResponse = await response.json();
+        const reur = data.token_balances.find(
+          (t) => t.symbol.toUpperCase() === "REUR"
+        );
+        setReurBalance(reur?.balance_formatted ?? "0");
+      }
+    } catch {
+      // Keep null.
+    } finally {
+      setLoadingBalance(false);
+    }
+  }, [walletId]);
+
+  const openDepositDialog = (request: FiatRequest) => {
+    setDepositRequest(request);
+    setSendResult(null);
+    void fetchBalance();
+  };
+
+  const confirmDeposit = async () => {
+    if (!depositRequest?.service_wallet_address) return;
+
+    setSending(true);
+    setSendResult(null);
+
+    try {
+      const response = await fetch(
+        `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/send`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: depositRequest.service_wallet_address,
+            amount: depositRequest.amount_eur,
+            token: REUR_FUJI_ADDRESS,
+            network: "fuji",
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        setSendResult({ success: false, message: text || `Transfer failed (${response.status})` });
+        return;
+      }
+
+      setSendResult({
+        success: true,
+        message: "Transfer submitted. The off-ramp will continue once confirmed.",
+      });
+      setTimeout(() => void fetchRequests(), 3000);
+    } catch (err) {
+      setSendResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Network error",
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
   const createRequest = async (direction: "on" | "off") => {
     setError(null);
     setSuccess(null);
-    setProviderActionUrl(null);
 
     const amount = direction === "on" ? amountOnRamp : amountOffRamp;
     const note = direction === "on" ? noteOnRamp : noteOffRamp;
@@ -179,16 +301,19 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
       }
 
       const payload: FiatRequest = await response.json();
-      setSuccess(
-        direction === "on"
-          ? `On-ramp request created: ${payload.request_id}`
-          : `Off-ramp request created: ${payload.request_id}. Send rEUR to ${payload.service_wallet_address ?? "the reserve wallet"} to continue.`
-      );
-      setProviderActionUrl(payload.provider_action_url || null);
+
       if (direction === "on") {
+        setSuccess(`On-ramp request created: ${payload.request_id}`);
         setNoteOnRamp("");
         setIsOnRampDialogOpen(false);
+        // Auto-open provider popup if available
+        if (payload.provider_action_url) {
+          openProviderPopup(payload.provider_action_url);
+        }
       } else {
+        setSuccess(
+          `Off-ramp request created: ${payload.request_id}. Use the "Transfer rEUR" button below to continue.`
+        );
         setNoteOffRamp("");
         setBeneficiaryNameOffRamp("");
         setBeneficiaryIbanOffRamp("");
@@ -218,6 +343,10 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
     : !selectedProviderConfig?.supports_off_ramp
       ? "Off-ramp is disabled for this provider."
       : null;
+
+  const parsedBalance = reurBalance !== null ? Number.parseFloat(reurBalance) : null;
+  const depositAmount = depositRequest ? Number.parseFloat(depositRequest.amount_eur) : 0;
+  const insufficient = parsedBalance !== null && parsedBalance < depositAmount;
 
   return (
     <section className="page-row">
@@ -265,14 +394,13 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               onClick={() => {
                 setError(null);
                 setSuccess(null);
-                setProviderActionUrl(null);
                 setIsOnRampDialogOpen(true);
               }}
               title={onRampDisabledReason ?? undefined}
               disabled={isSubmitting !== null || !canCreateOnRamp}
               className="btn btn-primary"
             >
-              Open On-Ramp Dialog
+              New On-Ramp
             </button>
           </div>
         </article>
@@ -291,14 +419,13 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
               onClick={() => {
                 setError(null);
                 setSuccess(null);
-                setProviderActionUrl(null);
                 setIsOffRampDialogOpen(true);
               }}
               title={offRampDisabledReason ?? undefined}
               disabled={isSubmitting !== null || !canCreateOffRamp}
               className="btn btn-soft"
             >
-              Open Off-Ramp Dialog
+              New Off-Ramp
             </button>
           </div>
         </article>
@@ -313,23 +440,8 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
       {error && <div className="alert error">{error}</div>}
       {success && <div className="alert success">{success}</div>}
 
-      {providerActionUrl && (
-        <article className="card pad">
-          <h3 className="card-title">Continue with bank authorization</h3>
-          <p className="card-subtitle">Open provider session in a new tab and complete consent.</p>
-          <div className="inline-actions" style={{ marginTop: "0.75rem" }}>
-            <a href={providerActionUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
-              Continue in provider
-            </a>
-          </div>
-          <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.65rem" }}>
-            Note: If the URL has expired in sandbox, create a fresh request.
-          </p>
-        </article>
-      )}
-
       <article className="card pad">
-        <h3 className="card-title">Recent fiat requests</h3>
+        <h3 className="card-title">Fiat requests</h3>
         {isLoading ? (
           <div className="list-stack" style={{ marginTop: "0.65rem" }}>
             <div className="skeleton-line" />
@@ -381,6 +493,32 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
                   <p className="helper-text" style={{ marginBottom: 0, marginTop: "0.2rem" }}>
                     Note: {request.note}
                   </p>
+                ) : null}
+
+                {/* Action buttons for pending requests */}
+                {request.status === "awaiting_user_deposit" && request.service_wallet_address ? (
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ fontSize: "0.8125rem" }}
+                      onClick={() => openDepositDialog(request)}
+                    >
+                      Transfer {request.amount_eur} rEUR
+                    </button>
+                  </div>
+                ) : null}
+                {request.status === "awaiting_provider" && request.provider_action_url ? (
+                  <div style={{ marginTop: "0.5rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: "0.8125rem" }}
+                      onClick={() => openProviderPopup(request.provider_action_url!)}
+                    >
+                      Authorize with bank
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
@@ -485,6 +623,101 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
           </div>
         </div>
       ) : null}
+
+      <ActionDialog
+        open={depositRequest !== null}
+        onClose={() => {
+          if (!sending) setDepositRequest(null);
+        }}
+        title="Confirm rEUR Transfer"
+      >
+        {depositRequest && (
+          <div className="stack">
+            {sendResult?.success ? (
+              <>
+                <div className="alert alert-success">{sendResult.message}</div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setDepositRequest(null)}
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-secondary" style={{ margin: 0 }}>
+                  Transfer rEUR to the reserve wallet to continue your off-ramp.
+                </p>
+
+                <div className="confirm-summary">
+                  <div className="confirm-row">
+                    <span className="confirm-label">Amount</span>
+                    <span className="confirm-value large">
+                      {depositRequest.amount_eur} rEUR
+                    </span>
+                  </div>
+                  <div className="confirm-row">
+                    <span className="confirm-label">Your balance</span>
+                    <span
+                      className={`confirm-value${insufficient ? " insufficient" : ""}`}
+                    >
+                      {loadingBalance
+                        ? "..."
+                        : reurBalance !== null
+                          ? `${reurBalance} rEUR`
+                          : "unavailable"}
+                    </span>
+                  </div>
+                  <div className="confirm-row">
+                    <span className="confirm-label">To</span>
+                    <span className="confirm-value mono">
+                      {shortenAddress(depositRequest.service_wallet_address ?? "")}
+                    </span>
+                  </div>
+                  <div className="confirm-row">
+                    <span className="confirm-label">Network</span>
+                    <span className="confirm-value">Fuji testnet</span>
+                  </div>
+                </div>
+
+                {insufficient && (
+                  <div className="alert alert-warning" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <AlertCircle size={16} />
+                    Insufficient rEUR balance. You need {depositRequest.amount_eur} rEUR but have {reurBalance}.
+                  </div>
+                )}
+
+                {sendResult && !sendResult.success && (
+                  <div className="alert alert-error">{sendResult.message}</div>
+                )}
+
+                <div
+                  className="inline-actions"
+                  style={{ justifyContent: "flex-end", marginTop: "0.25rem" }}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setDepositRequest(null)}
+                    disabled={sending}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void confirmDeposit()}
+                    disabled={sending || insufficient}
+                  >
+                    {sending ? "Sending..." : `Transfer ${depositRequest.amount_eur} rEUR`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </ActionDialog>
     </section>
   );
 }

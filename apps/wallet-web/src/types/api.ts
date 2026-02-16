@@ -87,6 +87,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/fiat/requests/{request_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manual fiat request sync. */
+        post: operations["sync_fiat_request_admin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/fiat/reserve/topup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mint rEUR into reserve wallet. */
+        post: operations["topup_fiat_reserve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/fiat/reserve/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transfer rEUR from reserve wallet to destination. */
+        post: operations["transfer_fiat_reserve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/fiat/service-wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get fiat reserve service-wallet status. */
+        get: operations["get_fiat_service_wallet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/fiat/service-wallet/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Idempotently bootstrap fiat reserve service wallet. */
+        post: operations["bootstrap_fiat_service_wallet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/health": {
         parameters: {
             query?: never;
@@ -299,6 +384,23 @@ export interface paths {
         get: operations["list_fiat_providers"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/fiat/providers/truelayer/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** TrueLayer webhook callback endpoint. */
+        post: operations["truelayer_webhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -826,7 +928,7 @@ export interface components {
         EstimateGasRequest: {
             /** @description Amount to send in human-readable format (e.g., "1.5") */
             amount: string;
-            /** @description Network: "fuji" (default) or "mainnet" */
+            /** @description Network: "fuji" only. */
             network?: string;
             /** @description Recipient address (0x + 40 hex chars) */
             to: string;
@@ -884,20 +986,41 @@ export interface components {
         FiatRequestResponse: {
             /** @description Amount in EUR. */
             amount_eur: string;
+            /** @description Settlement network. */
+            chain_network: string;
             /** @description Creation time. */
             created_at: string;
+            /** @description Optional detected deposit tx hash. */
+            deposit_tx_hash?: string | null;
             /** @description `on_ramp` or `off_ramp`. */
             direction: components["schemas"]["FiatDirection"];
+            /**
+             * Format: int64
+             * @description Expected token amount in minor units.
+             */
+            expected_amount_minor?: number | null;
+            /** @description Optional failure reason. */
+            failure_reason?: string | null;
+            /** @description Optional last chain sync time. */
+            last_chain_sync_at?: string | null;
+            /** @description Optional last provider sync time. */
+            last_provider_sync_at?: string | null;
             /** @description Optional note. */
             note?: string | null;
             /** @description Provider identifier. */
             provider: string;
             /** @description Optional provider action URL (for redirect/continue flow). */
             provider_action_url?: string | null;
+            /** @description Optional provider event id. */
+            provider_event_id?: string | null;
             /** @description Optional provider reference/session ID. */
             provider_reference?: string | null;
             /** @description Request ID. */
             request_id: string;
+            /** @description Optional reserve transfer tx hash. */
+            reserve_transfer_tx_hash?: string | null;
+            /** @description Optional service-wallet address. */
+            service_wallet_address?: string | null;
             /** @description Current status. */
             status: components["schemas"]["FiatRequestStatus"];
             /** @description Last update time. */
@@ -909,7 +1032,31 @@ export interface components {
          * @description Fiat request lifecycle status.
          * @enum {string}
          */
-        FiatRequestStatus: "queued" | "provider_pending" | "completed" | "failed";
+        FiatRequestStatus: "queued" | "awaiting_provider" | "awaiting_user_deposit" | "settlement_pending" | "provider_pending" | "completed" | "failed";
+        /** @description Reserve-wallet status response. */
+        FiatServiceWalletStatusResponse: {
+            /** @description Native AVAX balance (formatted). */
+            avax_balance: string;
+            /** @description Whether wallet was present/bootstrapped. */
+            bootstrapped: boolean;
+            /** @description Fuji-only network value. */
+            chain_network: string;
+            /** @description Public address. */
+            public_address: string;
+            /** @description rEUR balance (formatted). */
+            reur_balance: string;
+            /** @description rEUR balance in raw minor units. */
+            reur_balance_raw: string;
+            /** @description Configured rEUR contract. */
+            reur_contract_address: string;
+            /** @description Stable service-wallet id. */
+            wallet_id: string;
+        };
+        /** @description Manual sync response. */
+        FiatSyncResponse: {
+            /** @description Synchronized request. */
+            request: components["schemas"]["FiatRequestResponse"];
+        };
         /** @description Individual health check results. */
         HealthChecks: {
             /** @description Data directory availability (if configured). */
@@ -1003,6 +1150,29 @@ export interface components {
             /** @description The invite ID to redeem. */
             invite_id: string;
         };
+        /** @description Reserve top-up request. */
+        ReserveTopUpRequest: {
+            /** @description Optional amount in EUR decimal format. */
+            amount_eur?: string | null;
+        };
+        /** @description Reserve transaction response. */
+        ReserveTransactionResponse: {
+            /** @description Amount used for operation. */
+            amount_eur: string;
+            /** @description Amount in token minor units. */
+            amount_minor: string;
+            /** @description Explorer URL for tx. */
+            explorer_url: string;
+            /** @description Submitted transaction hash. */
+            tx_hash: string;
+        };
+        /** @description Reserve transfer request. */
+        ReserveTransferRequest: {
+            /** @description Amount in EUR decimal format. */
+            amount_eur: string;
+            /** @description Destination EVM address. */
+            to: string;
+        };
         /**
          * @description User roles for authorization.
          *
@@ -1023,7 +1193,7 @@ export interface components {
             gas_limit?: string | null;
             /** @description Optional max priority fee per gas override (in wei) */
             max_priority_fee_per_gas?: string | null;
-            /** @description Network: "fuji" (default) or "mainnet" */
+            /** @description Network: "fuji" only. */
             network?: string;
             /** @description Recipient address (0x + 40 hex chars) */
             to: string;
@@ -1054,13 +1224,38 @@ export interface components {
         StoredFiatRequest: {
             /** @description Requested fiat amount in EUR (human-readable decimal string). */
             amount_eur: string;
+            /** @description Beneficiary account holder name for off-ramp payout. */
+            beneficiary_account_holder_name?: string | null;
+            /** @description Beneficiary IBAN for off-ramp payout. */
+            beneficiary_iban?: string | null;
+            /** @description Chain network for settlement operations (Fuji-only in current deployment). */
+            chain_network?: string;
             /**
              * Format: date-time
              * @description Creation timestamp.
              */
             created_at: string;
+            /** @description Detected user deposit tx hash for off-ramp flow. */
+            deposit_tx_hash?: string | null;
             /** @description On-ramp vs off-ramp direction. */
             direction: components["schemas"]["FiatDirection"];
+            /**
+             * Format: int64
+             * @description Expected token amount in minor units.
+             */
+            expected_amount_minor?: number | null;
+            /** @description Failure reason for terminal failed state. */
+            failure_reason?: string | null;
+            /**
+             * Format: date-time
+             * @description Last chain synchronization timestamp.
+             */
+            last_chain_sync_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Last provider synchronization timestamp.
+             */
+            last_provider_sync_at?: string | null;
             /** @description Optional user note. */
             note?: string | null;
             /** @description Owner user ID. */
@@ -1069,10 +1264,16 @@ export interface components {
             provider: string;
             /** @description Optional URL where user can continue provider authorization. */
             provider_action_url?: string | null;
+            /** @description Last provider webhook event id processed. */
+            provider_event_id?: string | null;
             /** @description Optional provider reference/session ID. */
             provider_reference?: string | null;
             /** @description Unique request identifier. */
             request_id: string;
+            /** @description Reserve transfer tx hash for on-ramp settlement. */
+            reserve_transfer_tx_hash?: string | null;
+            /** @description Service-wallet address used for reserve flows. */
+            service_wallet_address?: string | null;
             /** @description Current status. */
             status: components["schemas"]["FiatRequestStatus"];
             /**
@@ -1228,6 +1429,14 @@ export interface components {
             token: string;
             /** @description Transaction hash */
             tx_hash: string;
+        };
+        TrueLayerWebhookPayload: {
+            data?: unknown;
+            event_id?: string | null;
+            payment_id?: string | null;
+            payout_id?: string | null;
+            reference?: string | null;
+            status?: string | null;
         };
         /**
          * @description Transaction status.
@@ -1480,6 +1689,208 @@ export interface operations {
                 content?: never;
             };
             /** @description Not authorized (admin required) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sync_fiat_request_admin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Fiat request ID */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fiat request synchronized */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatSyncResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    topup_fiat_reserve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReserveTopUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Reserve top-up submitted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReserveTransactionResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    transfer_fiat_reserve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReserveTransferRequest"];
+            };
+        };
+        responses: {
+            /** @description Reserve transfer submitted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReserveTransactionResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_fiat_service_wallet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fiat reserve wallet status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatServiceWalletStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bootstrap_fiat_service_wallet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fiat reserve wallet bootstrapped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FiatServiceWalletStatusResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1972,6 +2383,49 @@ export interface operations {
             };
         };
     };
+    truelayer_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrueLayerWebhookPayload"];
+            };
+        };
+        responses: {
+            /** @description Webhook accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Webhook disabled */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_fiat_requests: {
         parameters: {
             query?: {
@@ -2400,7 +2854,7 @@ export interface operations {
     get_wallet_balance: {
         parameters: {
             query?: {
-                /** @description Network to query: "fuji" (testnet) or "mainnet" */
+                /** @description Network to query. Only "fuji" is supported. */
                 network?: string | null;
                 /** @description Additional token contract addresses to query (comma-separated) */
                 tokens?: string | null;
@@ -2456,7 +2910,7 @@ export interface operations {
     get_native_balance: {
         parameters: {
             query?: {
-                /** @description Network to query: "fuji" (testnet) or "mainnet" */
+                /** @description Network to query. Only "fuji" is supported. */
                 network?: string | null;
                 /** @description Additional token contract addresses to query (comma-separated) */
                 tokens?: string | null;
@@ -2643,7 +3097,7 @@ export interface operations {
     list_transactions: {
         parameters: {
             query?: {
-                /** @description Network filter: "fuji" or "mainnet" */
+                /** @description Network filter (must be "fuji" if provided). */
                 network?: string | null;
                 /** @description Maximum number of results (default: 50) */
                 limit?: number | null;

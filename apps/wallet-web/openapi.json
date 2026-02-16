@@ -235,6 +235,206 @@
         ]
       }
     },
+    "/v1/admin/fiat/requests/{request_id}/sync": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Manual fiat request sync.",
+        "operationId": "sync_fiat_request_admin",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "description": "Fiat request ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fiat request synchronized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatSyncResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/fiat/reserve/topup": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Mint rEUR into reserve wallet.",
+        "operationId": "topup_fiat_reserve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReserveTopUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reserve top-up submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReserveTransactionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "Service unavailable"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/fiat/reserve/transfer": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Transfer rEUR from reserve wallet to destination.",
+        "operationId": "transfer_fiat_reserve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReserveTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Reserve transfer submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReserveTransactionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/fiat/service-wallet": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Get fiat reserve service-wallet status.",
+        "operationId": "get_fiat_service_wallet",
+        "responses": {
+          "200": {
+            "description": "Fiat reserve wallet status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatServiceWalletStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/v1/admin/fiat/service-wallet/bootstrap": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Idempotently bootstrap fiat reserve service wallet.",
+        "operationId": "bootstrap_fiat_service_wallet",
+        "responses": {
+          "200": {
+            "description": "Fiat reserve wallet bootstrapped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FiatServiceWalletStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
     "/v1/admin/health": {
       "get": {
         "tags": [
@@ -704,6 +904,39 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/v1/fiat/providers/truelayer/webhook": {
+      "post": {
+        "tags": [
+          "Fiat"
+        ],
+        "summary": "TrueLayer webhook callback endpoint.",
+        "operationId": "truelayer_webhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrueLayerWebhookPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Webhook accepted"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "Webhook disabled"
+          }
+        }
       }
     },
     "/v1/fiat/requests": {
@@ -1230,7 +1463,7 @@
           {
             "name": "network",
             "in": "query",
-            "description": "Network to query: \"fuji\" (testnet) or \"mainnet\"",
+            "description": "Network to query. Only \"fuji\" is supported.",
             "required": false,
             "schema": {
               "type": [
@@ -1304,7 +1537,7 @@
           {
             "name": "network",
             "in": "query",
-            "description": "Network to query: \"fuji\" (testnet) or \"mainnet\"",
+            "description": "Network to query. Only \"fuji\" is supported.",
             "required": false,
             "schema": {
               "type": [
@@ -1507,7 +1740,7 @@
           {
             "name": "network",
             "in": "query",
-            "description": "Network filter: \"fuji\" or \"mainnet\"",
+            "description": "Network filter (must be \"fuji\" if provided).",
             "required": false,
             "schema": {
               "type": [
@@ -2116,7 +2349,7 @@
           },
           "network": {
             "type": "string",
-            "description": "Network: \"fuji\" (default) or \"mainnet\""
+            "description": "Network: \"fuji\" only."
           },
           "to": {
             "type": "string",
@@ -2260,6 +2493,7 @@
           "amount_eur",
           "provider",
           "status",
+          "chain_network",
           "created_at",
           "updated_at"
         ],
@@ -2268,13 +2502,54 @@
             "type": "string",
             "description": "Amount in EUR."
           },
+          "chain_network": {
+            "type": "string",
+            "description": "Settlement network."
+          },
           "created_at": {
             "type": "string",
             "description": "Creation time."
           },
+          "deposit_tx_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional detected deposit tx hash."
+          },
           "direction": {
             "$ref": "#/components/schemas/FiatDirection",
             "description": "`on_ramp` or `off_ramp`."
+          },
+          "expected_amount_minor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Expected token amount in minor units.",
+            "minimum": 0
+          },
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional failure reason."
+          },
+          "last_chain_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional last chain sync time."
+          },
+          "last_provider_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional last provider sync time."
           },
           "note": {
             "type": [
@@ -2294,6 +2569,13 @@
             ],
             "description": "Optional provider action URL (for redirect/continue flow)."
           },
+          "provider_event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional provider event id."
+          },
           "provider_reference": {
             "type": [
               "string",
@@ -2304,6 +2586,20 @@
           "request_id": {
             "type": "string",
             "description": "Request ID."
+          },
+          "reserve_transfer_tx_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional reserve transfer tx hash."
+          },
+          "service_wallet_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional service-wallet address."
           },
           "status": {
             "$ref": "#/components/schemas/FiatRequestStatus",
@@ -2324,10 +2620,74 @@
         "description": "Fiat request lifecycle status.",
         "enum": [
           "queued",
+          "awaiting_provider",
+          "awaiting_user_deposit",
+          "settlement_pending",
           "provider_pending",
           "completed",
           "failed"
         ]
+      },
+      "FiatServiceWalletStatusResponse": {
+        "type": "object",
+        "description": "Reserve-wallet status response.",
+        "required": [
+          "wallet_id",
+          "public_address",
+          "bootstrapped",
+          "chain_network",
+          "reur_contract_address",
+          "avax_balance",
+          "reur_balance",
+          "reur_balance_raw"
+        ],
+        "properties": {
+          "avax_balance": {
+            "type": "string",
+            "description": "Native AVAX balance (formatted)."
+          },
+          "bootstrapped": {
+            "type": "boolean",
+            "description": "Whether wallet was present/bootstrapped."
+          },
+          "chain_network": {
+            "type": "string",
+            "description": "Fuji-only network value."
+          },
+          "public_address": {
+            "type": "string",
+            "description": "Public address."
+          },
+          "reur_balance": {
+            "type": "string",
+            "description": "rEUR balance (formatted)."
+          },
+          "reur_balance_raw": {
+            "type": "string",
+            "description": "rEUR balance in raw minor units."
+          },
+          "reur_contract_address": {
+            "type": "string",
+            "description": "Configured rEUR contract."
+          },
+          "wallet_id": {
+            "type": "string",
+            "description": "Stable service-wallet id."
+          }
+        }
+      },
+      "FiatSyncResponse": {
+        "type": "object",
+        "description": "Manual sync response.",
+        "required": [
+          "request"
+        ],
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/FiatRequestResponse",
+            "description": "Synchronized request."
+          }
+        }
       },
       "HealthChecks": {
         "type": "object",
@@ -2511,6 +2871,65 @@
           }
         }
       },
+      "ReserveTopUpRequest": {
+        "type": "object",
+        "description": "Reserve top-up request.",
+        "properties": {
+          "amount_eur": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional amount in EUR decimal format."
+          }
+        }
+      },
+      "ReserveTransactionResponse": {
+        "type": "object",
+        "description": "Reserve transaction response.",
+        "required": [
+          "tx_hash",
+          "explorer_url",
+          "amount_eur",
+          "amount_minor"
+        ],
+        "properties": {
+          "amount_eur": {
+            "type": "string",
+            "description": "Amount used for operation."
+          },
+          "amount_minor": {
+            "type": "string",
+            "description": "Amount in token minor units."
+          },
+          "explorer_url": {
+            "type": "string",
+            "description": "Explorer URL for tx."
+          },
+          "tx_hash": {
+            "type": "string",
+            "description": "Submitted transaction hash."
+          }
+        }
+      },
+      "ReserveTransferRequest": {
+        "type": "object",
+        "description": "Reserve transfer request.",
+        "required": [
+          "to",
+          "amount_eur"
+        ],
+        "properties": {
+          "amount_eur": {
+            "type": "string",
+            "description": "Amount in EUR decimal format."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination EVM address."
+          }
+        }
+      },
       "Role": {
         "type": "string",
         "description": "User roles for authorization.\n\n## Role Hierarchy\n\n- `Admin` - Full access to all endpoints and wallets\n- `Client` - Normal user, can only access own wallets\n- `Support` - Read-only access to metadata (no private keys)\n- `Auditor` - Read-only access to audit logs",
@@ -2549,7 +2968,7 @@
           },
           "network": {
             "type": "string",
-            "description": "Network: \"fuji\" (default) or \"mainnet\""
+            "description": "Network: \"fuji\" only."
           },
           "to": {
             "type": "string",
@@ -2632,14 +3051,71 @@
             "type": "string",
             "description": "Requested fiat amount in EUR (human-readable decimal string)."
           },
+          "beneficiary_account_holder_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Beneficiary account holder name for off-ramp payout."
+          },
+          "beneficiary_iban": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Beneficiary IBAN for off-ramp payout."
+          },
+          "chain_network": {
+            "type": "string",
+            "description": "Chain network for settlement operations (Fuji-only in current deployment)."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
             "description": "Creation timestamp."
           },
+          "deposit_tx_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Detected user deposit tx hash for off-ramp flow."
+          },
           "direction": {
             "$ref": "#/components/schemas/FiatDirection",
             "description": "On-ramp vs off-ramp direction."
+          },
+          "expected_amount_minor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Expected token amount in minor units.",
+            "minimum": 0
+          },
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Failure reason for terminal failed state."
+          },
+          "last_chain_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Last chain synchronization timestamp."
+          },
+          "last_provider_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Last provider synchronization timestamp."
           },
           "note": {
             "type": [
@@ -2663,6 +3139,13 @@
             ],
             "description": "Optional URL where user can continue provider authorization."
           },
+          "provider_event_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Last provider webhook event id processed."
+          },
           "provider_reference": {
             "type": [
               "string",
@@ -2673,6 +3156,20 @@
           "request_id": {
             "type": "string",
             "description": "Unique request identifier."
+          },
+          "reserve_transfer_tx_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reserve transfer tx hash for on-ramp settlement."
+          },
+          "service_wallet_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Service-wallet address used for reserve flows."
           },
           "status": {
             "$ref": "#/components/schemas/FiatRequestStatus",
@@ -3044,6 +3541,44 @@
           "tx_hash": {
             "type": "string",
             "description": "Transaction hash"
+          }
+        }
+      },
+      "TrueLayerWebhookPayload": {
+        "type": "object",
+        "properties": {
+          "data": {
+
+          },
+          "event_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payout_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

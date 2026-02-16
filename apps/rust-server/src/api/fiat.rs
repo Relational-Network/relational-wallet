@@ -36,7 +36,8 @@ use crate::{
     storage::{
         AuditEventType, FiatDirection, FiatRequestRepository, FiatRequestStatus,
         FiatServiceWalletMetadata, FiatServiceWalletRepository, StoredFiatRequest,
-        TokenType, TransactionRepository, TxStatus, WalletRepository, WalletStatus,
+        StoredTransaction, TokenType, TransactionRepository, TxStatus, WalletRepository,
+        WalletStatus,
     },
 };
 
@@ -834,11 +835,40 @@ async fn sync_onramp_request(
                 .await
             {
                 Ok(result) => {
-                    record.reserve_transfer_tx_hash = Some(result.tx_hash);
+                    record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
                     record.last_chain_sync_at = Some(Utc::now());
                     record.status = FiatRequestStatus::Completed;
                     record.failure_reason = None;
                     record.updated_at = Utc::now();
+
+                    // Record the incoming rEUR transfer in the user's transaction history.
+                    let reur_contract = resolve_reur_contract_address().unwrap_or_default();
+                    let service_addr = record
+                        .service_wallet_address
+                        .clone()
+                        .unwrap_or_default();
+                    let tx_record = StoredTransaction::new_pending(
+                        result.tx_hash.clone(),
+                        record.wallet_id.clone(),
+                        None,
+                        service_addr,
+                        destination_wallet.public_address.clone(),
+                        record.amount_eur.clone(),
+                        TokenType::Erc20(reur_contract),
+                        record.chain_network.clone(),
+                        result.explorer_url.clone(),
+                    );
+                    // The transfer already succeeded on-chain — mark confirmed.
+                    let mut tx_record = tx_record;
+                    tx_record.status = TxStatus::Confirmed;
+                    let tx_repo = TransactionRepository::new(storage);
+                    if let Err(e) = tx_repo.create(&tx_record) {
+                        warn!(
+                            request_id = %record.request_id,
+                            tx_hash = %result.tx_hash,
+                            "failed to store on-ramp settlement transaction record: {e}"
+                        );
+                    }
                 }
                 Err(error) => {
                     record.status = FiatRequestStatus::Failed;

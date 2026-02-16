@@ -24,6 +24,7 @@ export function PrimaryBalanceCard({
 }: PrimaryBalanceCardProps) {
   // Show $0.00 immediately — don't block with skeleton for blank wallets
   const primaryAmount = loading ? "$0.00" : `EUR ${reurBalance}`;
+  const dimmed = loading || refreshing;
 
   return (
     <article className="balance-card">
@@ -35,7 +36,7 @@ export function PrimaryBalanceCard({
           </span>
         ) : null}
       </div>
-      <div className="balance-card-amount" style={loading ? { opacity: 0.5 } : undefined}>{primaryAmount}</div>
+      <div className="balance-card-amount" style={dimmed ? { opacity: 0.5 } : undefined}>{primaryAmount}</div>
       <div className="balance-card-address">
         <CopyAddress address={walletAddress} showAddress />
       </div>
@@ -43,19 +44,19 @@ export function PrimaryBalanceCard({
       <div className="balance-tokens">
         <div className="balance-token-tile">
           <div className="balance-token-label">AVAX</div>
-          <div className="balance-token-value" style={loading ? { opacity: 0.5 } : undefined}>
+          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
             {loading ? "0" : avaxBalance}
           </div>
         </div>
         <div className="balance-token-tile">
           <div className="balance-token-label">USDC</div>
-          <div className="balance-token-value" style={loading ? { opacity: 0.5 } : undefined}>
+          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
             {loading ? "0" : usdcBalance}
           </div>
         </div>
         <div className="balance-token-tile">
           <div className="balance-token-label">rEUR</div>
-          <div className="balance-token-value" style={loading ? { opacity: 0.5 } : undefined}>
+          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
             {loading ? "0" : reurBalance}
           </div>
         </div>
