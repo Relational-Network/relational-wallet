@@ -336,11 +336,12 @@ export function SimpleWalletDashboard() {
   }, [selectedWalletId, fetchWalletDetails]);
 
   // Periodic balance polling — keeps AVAX/rEUR in sync with on-chain state.
+  // 60s interval is sufficient; balance changes are infrequent.
   useEffect(() => {
     if (!selectedWalletId) return;
     const interval = setInterval(() => {
       void fetchWalletDetails(selectedWalletId, true);
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(interval);
   }, [selectedWalletId, fetchWalletDetails]);
 

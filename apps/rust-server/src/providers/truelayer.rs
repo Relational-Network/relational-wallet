@@ -9,7 +9,7 @@ use std::{collections::HashMap, fs, time::Duration};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tracing::debug;
+use tracing::info;
 use truelayer_signing::{sign_with_pem, Method};
 use uuid::Uuid;
 
@@ -293,7 +293,7 @@ impl TrueLayerClient {
             "metadata": metadata
         });
 
-        debug!(
+        info!(
             request_id = %request.request_id,
             payload = %payload,
             "TrueLayer create_offramp: sending payout request"
@@ -303,7 +303,7 @@ impl TrueLayerClient {
             .signed_post_json("/v3/payouts", PAYMENTS_SCOPE, &payload, request.request_id)
             .await?;
 
-        debug!(
+        info!(
             request_id = %request.request_id,
             response = %response,
             "TrueLayer create_offramp: payout response"
@@ -355,7 +355,7 @@ impl TrueLayerClient {
             .get_json(&format!("/v3/payouts/{provider_reference}"), PAYMENTS_SCOPE)
             .await?;
 
-        debug!(
+        info!(
             provider_reference = %provider_reference,
             response = %response,
             "TrueLayer fetch_offramp_status: raw response"

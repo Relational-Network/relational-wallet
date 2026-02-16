@@ -125,7 +125,9 @@ export function PendingFiatRequests({
   }, [fetchRequests]);
 
   // Poll to pick up status changes.
-  // Use 5s interval when any request is settling, 15s otherwise.
+  // Use 30s interval when any request is settling, 60s otherwise.
+  // The backend FiatPoller syncs with TrueLayer every 30s, so faster
+  // polling just re-fetches stale data.
   const hasSettling = requests.some(
     (r) => r.status === "settlement_pending" || r.status === "provider_pending"
   );
@@ -133,7 +135,7 @@ export function PendingFiatRequests({
     if (requests.length === 0 && !loading) return;
     const interval = setInterval(
       () => void fetchRequests(),
-      hasSettling ? 5_000 : 15_000
+      hasSettling ? 30_000 : 60_000
     );
     return () => clearInterval(interval);
   }, [fetchRequests, requests.length, loading, hasSettling]);
