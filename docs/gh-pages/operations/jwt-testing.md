@@ -7,458 +7,213 @@ nav_order: 2
 
 # JWT Testing Guide
 
-This guide explains how to obtain and use JWT tokens to test all API endpoints and roles in the Relational Wallet enclave.
+How to obtain a Clerk JWT and test enclave API routes.
 
 ## Prerequisites
 
-1. A [Clerk](https://clerk.dev) account with the application configured
-2. The enclave backend running (see [Installation](/installation/rust-server))
-3. `curl` or a similar HTTP client
+1. Running backend (`https://localhost:8080`)
+2. Clerk app configured for wallet-web and rust-server
+3. `curl`
 
-## Understanding Roles
+## Roles
 
-The wallet backend supports four hierarchical roles:
+Current role parsing supports:
 
-| Role | Access Level | Use Case |
-|------|--------------|----------|
-| **Admin** | Full access to all data and endpoints | System administrators |
-| **Support** | Read-only metadata access (planned) | Customer support |
-| **Auditor** | Read-only audit access (planned) | Compliance |
-| **Client** | Own resources only | Regular users |
+- `admin`
+- `client`
+- `support`
+- `auditor`
 
-Roles are hierarchical: **Admin > Support > Auditor > Client**
+Admin-only routes are under `/v1/admin/*`.
 
-## Method 1: Using the Frontend (Recommended for Client Role)
+## Getting a Token
 
-The easiest way to get a JWT is through the wallet-web frontend:
+### From wallet-web session
 
-1. Start the frontend: `cd apps/wallet-web && pnpm dev`
-2. Sign in at `http://localhost:3000/sign-in`
-3. Open browser Developer Tools → Network tab
-4. Navigate to any page that makes API calls (e.g., `/wallets`)
-5. Find a request to `/api/proxy/*`
-6. In the Request Headers, copy the cookie value
+1. Start frontend and sign in at `http://localhost:3000/sign-in`
+2. Open DevTools -> Network
+3. Inspect `/api/proxy/*` requests and reuse the authenticated session via cookie for proxy tests
 
-However, for direct API testing, you'll need the raw JWT token.
+### Programmatic (server-side)
 
-## Method 2: Clerk Dashboard (Admin Portal)
-
-Get tokens directly from Clerk's dashboard:
-
-1. Go to [Clerk Dashboard](https://dashboard.clerk.com)
-2. Select your application
-3. Navigate to **Users**
-4. Click on a user
-5. Go to **Sessions** tab
-6. Click **Create Token** or **Get Token**
-7. Copy the JWT
-
-## Method 3: Frontend SDK (Programmatic)
-
-Add this code to a test page or component:
-
-```typescript
-// In a client component
-import { useAuth } from "@clerk/nextjs";
-
-function TokenDisplay() {
-  const { getToken } = useAuth();
-  
-  const copyToken = async () => {
-    const token = await getToken();
-    console.log("JWT Token:", token);
-    navigator.clipboard.writeText(token || "");
-    alert("Token copied to clipboard!");
-  };
-
-  return <button onClick={copyToken}>Copy JWT Token</button>;
-}
-```
-
-Or in a server component:
-
-```typescript
-// In a server component or API route
+```ts
 import { auth } from "@clerk/nextjs/server";
 
-export async function GET() {
-  const { getToken } = await auth();
-  const token = await getToken();
-  console.log("JWT Token:", token);
-  // Use the token...
-}
+const { getToken } = await auth();
+const token = (await getToken({ template: "default" })) ?? (await getToken());
 ```
 
-## Method 4: Clerk Backend SDK (Node.js)
-
-Install the Clerk SDK and create a token programmatically:
+### Export token
 
 ```bash
-npm install @clerk/clerk-sdk-node
+export JWT="<your-jwt>"
 ```
 
-```typescript
-import { clerkClient } from "@clerk/clerk-sdk-node";
-
-// Create a session token for testing
-async function getTestToken(userId: string) {
-  const token = await clerkClient.signInTokens.createSignInToken({
-    userId,
-    expiresInSeconds: 3600, // 1 hour
-  });
-  return token.token;
-}
-```
-
-## Assigning Roles to Users
-
-### Via Clerk Dashboard
-
-1. Go to Clerk Dashboard → Users
-2. Select the user
-3. Click **Public metadata**
-4. Add JSON:
-   ```json
-   {
-     "role": "admin"
-   }
-   ```
-5. Save changes
-
-### Via Clerk API
-
-```typescript
-import { clerkClient } from "@clerk/clerk-sdk-node";
-
-await clerkClient.users.updateUser(userId, {
-  publicMetadata: {
-    role: "admin", // or "support", "auditor", "client"
-  },
-});
-```
-
-## Testing API Endpoints
-
-### Export Your Token
+## Core Health
 
 ```bash
-export JWT="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImlxWk..."
-```
-
-### Health Check (No Auth Required)
-
-```bash
-# Basic health
 curl -k https://localhost:8080/health
-
-# Liveness probe
 curl -k https://localhost:8080/health/live
-
-# Readiness probe
 curl -k https://localhost:8080/health/ready
 ```
 
-### User Endpoints
+## User + Wallet
 
 ```bash
-# Get current user info
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/users/me
+# Current user
+curl -k https://localhost:8080/v1/users/me \
+  -H "Authorization: Bearer $JWT"
+
+# Create wallet
+curl -k -X POST https://localhost:8080/v1/wallets \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"Test Wallet"}'
+
+# List wallets
+curl -k https://localhost:8080/v1/wallets \
+  -H "Authorization: Bearer $JWT"
 ```
 
-### Wallet Endpoints (Client Role)
+## Balance + Transfers (Fuji)
 
 ```bash
-# List your wallets
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/wallets
+# Native balance
+curl -k "https://localhost:8080/v1/wallets/<wallet_id>/balance/native?network=fuji" \
+  -H "Authorization: Bearer $JWT"
 
-# Create a wallet
-curl -k -X POST -H "Authorization: Bearer $JWT" \
+# Full balance
+curl -k "https://localhost:8080/v1/wallets/<wallet_id>/balance?network=fuji" \
+  -H "Authorization: Bearer $JWT"
+
+# Gas estimate
+curl -k -X POST https://localhost:8080/v1/wallets/<wallet_id>/estimate \
+  -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
-  -d '{"label": "Test Wallet"}' \
-  https://localhost:8080/v1/wallets
+  -d '{"to":"0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23","amount":"0.01","token":"native","network":"fuji"}'
 
-# Get a specific wallet
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/wallets/{wallet_id}
-
-# Delete a wallet (soft delete)
-curl -k -X DELETE -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/wallets/{wallet_id}
+# Send
+curl -k -X POST https://localhost:8080/v1/wallets/<wallet_id>/send \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23","amount":"0.01","token":"native","network":"fuji"}'
 ```
 
-### Balance Endpoints (Client Role)
+## History + Bookmarks + Invites
 
 ```bash
-# Get native AVAX balance
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/wallets/{wallet_id}/balance/native?network=fuji"
+# Transactions
+curl -k "https://localhost:8080/v1/wallets/<wallet_id>/transactions?network=fuji" \
+  -H "Authorization: Bearer $JWT"
 
-# Get full balance (AVAX + tokens)
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/wallets/{wallet_id}/balance?network=fuji"
+# Bookmarks list (wallet_id query required)
+curl -k "https://localhost:8080/v1/bookmarks?wallet_id=<wallet_id>" \
+  -H "Authorization: Bearer $JWT"
+
+# Create bookmark
+curl -k -X POST https://localhost:8080/v1/bookmarks \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"wallet_id":"<wallet_id>","name":"Savings","address":"0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00"}'
+
+# Invite lookup
+curl -k "https://localhost:8080/v1/invite?invite_code=INVITE123"
+
+# Invite redeem (invite_id body)
+curl -k -X POST https://localhost:8080/v1/invite/redeem \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"invite_id":"<invite_id>"}'
 ```
 
-### Transaction Endpoints (Client Role)
+## Recurring
 
 ```bash
-# Estimate gas for native AVAX transfer
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
-    "amount": "0.01",
-    "token": "native",
-    "network": "fuji"
-  }' \
-  https://localhost:8080/v1/wallets/{wallet_id}/estimate
+# List recurring for a wallet
+curl -k "https://localhost:8080/v1/recurring/payments?wallet_id=<wallet_id>" \
+  -H "Authorization: Bearer $JWT"
 
-# Estimate gas for USDC transfer
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
-    "amount": "10.00",
-    "token": "0x5425890298aed601595a70AB815c96711a31Bc65",
-    "network": "fuji"
-  }' \
-  https://localhost:8080/v1/wallets/{wallet_id}/estimate
-
-# Send native AVAX transaction
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
-    "amount": "0.01",
-    "token": "native",
-    "network": "fuji"
-  }' \
-  https://localhost:8080/v1/wallets/{wallet_id}/send
-
-# Send USDC transaction
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
-    "amount": "10.00",
-    "token": "0x5425890298aed601595a70AB815c96711a31Bc65",
-    "network": "fuji"
-  }' \
-  https://localhost:8080/v1/wallets/{wallet_id}/send
-
-# List transaction history
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/wallets/{wallet_id}/transactions?network=fuji"
-
-# Get transaction status (for polling)
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/wallets/{wallet_id}/transactions/{tx_hash}"
-```
-
-### Bookmark Endpoints (Client Role)
-
-```bash
-# List bookmarks
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/bookmarks
-
-# Create a bookmark
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"wallet_id": "wallet_id", "name": "My Bookmark", "address": "0x..."}' \
-  https://localhost:8080/v1/bookmarks
-
-# Delete a bookmark
-curl -k -X DELETE -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/bookmarks/{bookmark_id}
-```
-
-### Invite Endpoints
-
-```bash
-# Check if invite code is valid
-curl -k https://localhost:8080/v1/invite?code=INVITE123
-
-# Redeem an invite code
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"code": "INVITE123"}' \
-  https://localhost:8080/v1/invite/redeem
-```
-
-### Recurring Payment Endpoints (Client Role)
-
-```bash
-# List recurring payments
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/recurring/payments
-
-# Create a recurring payment
-curl -k -X POST -H "Authorization: Bearer $JWT" \
+# Create recurring
+curl -k -X POST https://localhost:8080/v1/recurring/payments \
+  -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
   -d '{
-    "wallet_id": "wallet_id",
-    "recipient_address": "0x...",
-    "amount_cents": 1000,
-    "currency": "EUR",
-    "frequency": "monthly",
-    "next_payment_date": "2026-02-01"
-  }' \
-  https://localhost:8080/v1/recurring/payments
-
-# Get payments due today
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/recurring/payments/today
+    "wallet_id":"<wallet_id>",
+    "wallet_public_key":"pubkey",
+    "recipient":"0x742d35Cc6634C0532925a3b844Bc9e7595f8fB23",
+    "amount":10.0,
+    "currency_code":"rEUR",
+    "payment_start_date":739500,
+    "frequency":30,
+    "payment_end_date":739860
+  }'
 ```
 
-### Admin Endpoints (Admin Role Required)
-
-⚠️ **These require a user with `role: "admin"` in their public metadata**
+## Fiat Flows
 
 ```bash
-# Get system statistics
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/stats
+# Providers
+curl -k https://localhost:8080/v1/fiat/providers \
+  -H "Authorization: Bearer $JWT"
 
-# List all wallets (all users)
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/wallets
+# Create on-ramp request
+curl -k -X POST https://localhost:8080/v1/fiat/onramp/requests \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"wallet_id":"<wallet_id>","amount_eur":"25.00","provider":"truelayer_sandbox"}'
 
-# List all users
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/users
+# Create off-ramp request
+curl -k -X POST https://localhost:8080/v1/fiat/offramp/requests \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wallet_id":"<wallet_id>",
+    "amount_eur":"10.00",
+    "provider":"truelayer_sandbox",
+    "beneficiary_account_holder_name":"Relational Test User",
+    "beneficiary_iban":"GB79CLRB04066800102649"
+  }'
 
-# Query audit logs
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/admin/audit/events?limit=50"
-
-# Filter audit logs by user
-curl -k -H "Authorization: Bearer $JWT" \
-  "https://localhost:8080/v1/admin/audit/events?user_id=user_xxx&limit=10"
-
-# Detailed health check
-curl -k -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/health
-
-# Suspend a wallet
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/wallets/{wallet_id}/suspend
-
-# Activate a wallet
-curl -k -X POST -H "Authorization: Bearer $JWT" \
-  https://localhost:8080/v1/admin/wallets/{wallet_id}/activate
+# List fiat requests (optionally filter by wallet_id)
+curl -k "https://localhost:8080/v1/fiat/requests?wallet_id=<wallet_id>" \
+  -H "Authorization: Bearer $JWT"
 ```
 
-## Testing Role Enforcement
-
-### Test Client Cannot Access Admin Endpoints
+## Admin + Reserve (Admin role required)
 
 ```bash
-# Using a regular user token (should return 403)
-curl -k -H "Authorization: Bearer $CLIENT_JWT" \
-  https://localhost:8080/v1/admin/stats
-# Expected: {"error": "Forbidden", "status": 403}
-```
+# Stats
+curl -k https://localhost:8080/v1/admin/stats \
+  -H "Authorization: Bearer $JWT"
 
-### Test Users Cannot Access Other Users' Wallets
+# Service wallet status
+curl -k https://localhost:8080/v1/admin/fiat/service-wallet \
+  -H "Authorization: Bearer $JWT"
 
-```bash
-# Using User A's token to access User B's wallet (should return 403)
-curl -k -H "Authorization: Bearer $USER_A_JWT" \
-  https://localhost:8080/v1/wallets/{user_b_wallet_id}
-# Expected: {"error": "Forbidden", "status": 403}
-```
+# Bootstrap service wallet
+curl -k -X POST https://localhost:8080/v1/admin/fiat/service-wallet/bootstrap \
+  -H "Authorization: Bearer $JWT"
 
-## Development Mode vs Production Mode
+# Reserve topup
+curl -k -X POST https://localhost:8080/v1/admin/fiat/reserve/topup \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"amount_eur":"250.00"}'
 
-### Development Mode (No JWKS URL)
+# Reserve transfer
+curl -k -X POST https://localhost:8080/v1/admin/fiat/reserve/transfer \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00","amount_eur":"25.00"}'
 
-When `CLERK_JWKS_URL` is not set, the backend:
-- Accepts any well-formed JWT
-- Does NOT verify signatures
-- Logs warnings about disabled verification
-
-```bash
-# Check if running in dev mode
-curl -k https://localhost:8080/health/ready
-# Look for "jwks": "unconfigured" in response
-```
-
-### Production Mode (JWKS URL Set)
-
-When `CLERK_JWKS_URL` is configured:
-- JWT signatures are verified against Clerk JWKS
-- Issuer is validated against `CLERK_ISSUER`
-- Audience is validated against `CLERK_AUDIENCE` (if set)
-- Invalid tokens return 401
-
-Configure for production:
-
-```bash
-export CLERK_JWKS_URL="https://your-clerk-instance.clerk.accounts.dev/.well-known/jwks.json"
-export CLERK_ISSUER="https://your-clerk-instance.clerk.accounts.dev"
+# Manual request sync
+curl -k -X POST https://localhost:8080/v1/admin/fiat/requests/<request_id>/sync \
+  -H "Authorization: Bearer $JWT"
 ```
 
 ## Troubleshooting
 
-### 401 Unauthorized
-
-- **Cause**: Missing or invalid token
-- **Check**: Token is included in `Authorization: Bearer <token>` header
-- **Check**: Token hasn't expired (Clerk tokens typically expire in 60 seconds)
-- **Check**: In production mode, verify JWKS URL is correct
-
-### 403 Forbidden
-
-- **Cause**: Valid token, but insufficient permissions
-- **Check**: User has correct role in public metadata
-- **Check**: For wallet operations, verify user owns the resource
-
-### Network Error
-
-- **Cause**: Backend not running or not reachable
-- **Check**: `curl -k https://localhost:8080/health`
-- **Check**: Enclave is running: `gramine-sgx rust-server`
-
-### Self-Signed Certificate Warning
-
-The `-k` flag in curl skips certificate verification. This is expected for development with RA-TLS self-signed certificates.
-
-## Interactive API Testing with Swagger
-
-The backend includes Swagger UI for interactive testing:
-
-1. Open `https://localhost:8080/docs` in your browser
-2. Accept the self-signed certificate warning
-3. Click **Authorize** button
-4. Enter your JWT token
-5. Test endpoints interactively
-
-## JWT Token Structure
-
-A Clerk JWT contains these claims:
-
-```json
-{
-  "azp": "your_clerk_client_id",
-  "exp": 1706454321,
-  "iat": 1706454261,
-  "iss": "https://your-clerk-instance.clerk.accounts.dev",
-  "nbf": 1706454251,
-  "sid": "sess_xxx",
-  "sub": "user_xxx"
-}
-```
-
-The backend extracts:
-- `sub` → User ID
-- `sid` → Session ID
-- `publicMetadata.role` → Role (via Clerk's custom claims)
-
-## Security Notes
-
-- **Never commit JWTs to version control**
-- **Tokens expire quickly** - get a fresh one for each test session
-- **Production should always validate signatures** via JWKS
-- **Use HTTPS** even in development (RA-TLS provides this)
+- `401`: token missing/invalid/expired
+- `403`: role or ownership restriction
+- `400`: payload or query mismatch
+- `503`: dependency not configured/available (provider, chain, webhook disabled)

@@ -1,68 +1,78 @@
 ---
 layout: default
 title: Operations
-nav_order: 6
+nav_order: 7
 has_children: true
 permalink: /operations/
 ---
 
 # Operations
 
-Operational guides for deploying and maintaining the Relational Wallet.
+Runbooks for local operation, admin checks, and docs publishing.
 
-## Development Workflow
+## Standard Dev Loop
 
-### Starting the System
+### Backend (SGX)
 
 ```bash
-# Terminal 1: Backend (SGX)
 cd apps/rust-server
-make                    # Build for SGX
-gramine-sgx rust-server # Start at https://localhost:8080
-
-# Terminal 2: Frontend
-cd apps/wallet-web
-pnpm dev               # Start at http://localhost:3000
+make dev-check
+make dev-test
+make
+make start-rust-server
 ```
 
-### Verifying Health
+### Frontend
 
 ```bash
-# Backend health check
-curl -k https://localhost:8080/health
-
-# Response:
-{
-  "status": "ok",
-  "checks": {
-    "service": "ok",
-    "data_dir": "ok",
-    "jwks": "ok"
-  }
-}
+cd apps/wallet-web
+pnpm install
+pnpm dev
 ```
 
-## Environment Configuration
+## Health Checks
 
-### Backend (rust-server)
+```bash
+curl -k https://localhost:8080/health
+curl -k https://localhost:8080/health/live
+curl -k https://localhost:8080/health/ready
+```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `CLERK_JWKS_URL` | Yes (prod) | Clerk JWKS endpoint |
-| `CLERK_ISSUER` | Yes (prod) | Clerk issuer URL |
-| `CLERK_AUDIENCE` | No | Expected JWT audience |
-| `DATA_DIR` | No | Data directory (default: `/data`) |
-| `LOG_FORMAT` | No | `json` or `pretty` |
+## Key Runtime Env Vars
 
-### Frontend (wallet-web)
+### rust-server
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk frontend key |
-| `CLERK_SECRET_KEY` | Yes | Clerk backend secret |
-| `WALLET_API_BASE_URL` | Yes | Backend URL |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `CLERK_JWKS_URL` | Yes (prod) | JWT signature verification |
+| `CLERK_ISSUER` | Yes (prod) | JWT issuer validation |
+| `CLERK_AUDIENCE` | Optional | JWT audience validation |
+| `CORS_ALLOWED_ORIGINS` | Recommended | Restrictive CORS in non-dev |
+| `TRUELAYER_CLIENT_ID` | Fiat | TrueLayer OAuth client |
+| `TRUELAYER_CLIENT_SECRET` | Fiat | TrueLayer OAuth secret |
+| `TRUELAYER_SIGNING_KEY_ID` | Fiat | TrueLayer signing key id |
+| `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` / `_PEM` | Fiat | TrueLayer signing key |
+| `TRUELAYER_MERCHANT_ACCOUNT_ID` | Fiat | TrueLayer merchant account |
+| `TRUELAYER_WEBHOOK_SHARED_SECRET` | Optional | Enables webhook auth/check |
+| `REUR_CONTRACT_ADDRESS_FUJI` | Fiat reserve | Fuji `rEUR` contract |
+| `FIAT_RESERVE_BOOTSTRAP_ENABLED` | Optional | Reserve wallet bootstrap behavior |
+| `FIAT_RESERVE_INITIAL_TOPUP_EUR` | Optional | Default reserve top-up |
+| `FIAT_MIN_CONFIRMATIONS` | Optional | Off-ramp deposit confirmation threshold |
+
+### wallet-web
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk client key |
+| `CLERK_SECRET_KEY` | Yes | Clerk server key |
+| `WALLET_API_BASE_URL` | Yes | Backend URL for proxy |
+| `NODE_TLS_REJECT_UNAUTHORIZED` | Dev-only | Allow self-signed RA-TLS certs |
+
+## Operator Route
+
+- `/wallets/bootstrap` provides admin-oriented reserve wallet and fiat request controls through the frontend proxy.
 
 ## Sub-pages
 
-- **JWT Testing** — How to obtain and use JWTs for testing API endpoints
-- **Publishing** — GitHub Pages deployment workflow 
+- **Docs Publishing** - Jekyll/GitHub Pages publishing flow
+- **JWT Testing Guide** - Token handling and route validation examples

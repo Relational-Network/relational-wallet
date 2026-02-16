@@ -7,137 +7,67 @@ nav_order: 1
 
 # System Overview
 
-The Relational Wallet is a secure wallet system designed for managing cryptographic keys and signing transactions. All sensitive operations run inside an Intel SGX enclave with DCAP remote attestation.
+Relational Wallet is a SGX-backed custodial wallet system with a Next.js frontend and a Rust enclave backend.
 
 ## Components
 
-### 1. Wallet Enclave (rust-server)
+## 1. Rust Server (`apps/rust-server`)
 
-The core backend running inside Gramine SGX:
+- Axum API with `/v1/*` wallet, transaction, bookmark, invite, recurring, fiat, and admin routes
+- Runs in Gramine SGX with RA-TLS certificates
+- Encrypted persistent storage under `/data`
+- Clerk JWT verification (JWKS in production, dev-mode decode when `dev` feature is used)
+- Fuji-focused chain integration (AVAX + ERC-20 including `rEUR`)
 
-- **Framework**: Axum async web framework
-- **Security**: DCAP RA-TLS for encrypted connections with attestation
-- **Storage**: Encrypted file-based persistence in `/data`
-- **Authentication**: Clerk JWT verification with JWKS
-- **Cryptography**: secp256k1 keypairs (Ethereum/Avalanche compatible)
-- **Blockchain**: Avalanche C-Chain integration via alloy
+## 2. Wallet Web (`apps/wallet-web`)
 
-**Key Features**:
-- Health checks (liveness, readiness, component status)
-- Structured logging with request correlation IDs
-- Role-based access control (client/admin)
-- Audit logging for all operations
+- Next.js 16 App Router + Clerk auth UI
+- Proxy route `src/app/api/proxy/[...path]/route.ts`
+- Route surfaces include `/wallets`, `/wallets/[wallet_id]/fiat`, `/wallets/bootstrap`, `/pay`, `/callback`, `/account`
+- Proxy adds bearer token and forwards to enclave backend
 
-### 2. Wallet Web (wallet-web)
+## 3. External Integrations
 
-Browser client built with Next.js 16:
+- Avalanche Fuji RPC for balances/transfers
+- Deployed `rEUR` contract for reserve settlement
+- TrueLayer sandbox for on-ramp/off-ramp provider actions and payout flow
 
-- **Framework**: Next.js App Router
-- **Authentication**: Clerk for user management
-- **API Integration**: Server-side proxy to handle RA-TLS certificates
-- **Type Safety**: OpenAPI-generated TypeScript types
+## 4. Contracts (`apps/contracts`)
 
-**Architecture Pattern**:
-```
-Browser → /api/proxy/* → Next.js Server → SGX Enclave
-```
+- Foundry workspace for `RelationalEuro (rEUR)`
+- Role-managed mint/burn/pause model
+- Deployment + tests tracked in contract workspace
 
-The proxy pattern is necessary because browsers reject self-signed RA-TLS certificates. The Next.js server-side route can accept the certificate and forward requests.
+## Data Flow (Example: Fiat On-Ramp)
 
-### 3. Avalanche C-Chain Integration
-
-On-chain ledger for AVAX and stablecoin transfers:
-- **Balance queries**: Native AVAX and ERC-20 tokens (USDC)
-- **Transaction signing**: Sign transactions with enclave-held keys
-- **Transfer execution**: Send AVAX and USDC via Fuji testnet or mainnet
-- **Gas estimation**: Dynamic RPC-based estimation with optional override
-
-### 4. Contracts Workspace (`apps/contracts`)
-
-Foundry-based smart contract workspace for the Euro stablecoin:
-
-- **Contract**: `RelationalEuro (rEUR)`
-- **Controls**: `mint`, `burn`, `pause/unpause`, role-based access (`AccessControl`)
-- **Tests**: Forge test suite under `apps/contracts/test/`
-- **Deployment**: `apps/contracts/script/DeployFuji.s.sol`
-
-## Data Flow
-
-### Wallet Creation
-
-```
-1. User clicks "Create Wallet" in browser
-2. Browser calls /api/proxy/v1/wallets (POST)
-3. Next.js proxy adds Clerk JWT, forwards to enclave
-4. Enclave verifies JWT via JWKS
-5. Enclave generates secp256k1 keypair inside SGX
-6. Wallet data encrypted and saved to /data
-7. Ethereum-compatible address returned to user
+```text
+1. User creates on-ramp request in wallet-web
+2. Frontend calls /api/proxy/v1/fiat/onramp/requests
+3. Proxy adds Clerk JWT and forwards to enclave
+4. Enclave validates user + wallet ownership
+5. Enclave initializes provider request (TrueLayer sandbox)
+6. Status progresses via webhook/polling and settlement sync
+7. Reserve wallet transfer updates request with settlement tx hash
 ```
 
-### Authentication Flow
+## Data Flow (Example: Standard Transfer)
 
-```
-1. User signs in via Clerk
-2. Clerk issues JWT with user_id claim
-3. Frontend stores JWT in session
-4. API requests include Authorization: Bearer <jwt>
-5. Enclave fetches JWKS from Clerk
-6. Enclave verifies JWT signature with RS256
-7. User identity extracted from claims
+```text
+1. User opens /wallets and selects send flow
+2. Frontend requests gas estimate via proxy
+3. Enclave signs tx with wallet private key in SGX
+4. Tx broadcasts to Fuji and tx hash is persisted
+5. Frontend polls tx status and updates activity timeline
 ```
 
-## Directory Structure
+## Storage Domains
 
-```
-relational-wallet/
-├── apps/
-│   ├── rust-server/          # Enclave backend
-│   │   ├── src/
-│   │   │   ├── main.rs       # Entry point
-│   │   │   ├── config.rs     # Configuration
-│   │   │   ├── state.rs      # Application state
-│   │   │   ├── api/          # HTTP handlers
-│   │   │   │   ├── mod.rs    # Router setup
-│   │   │   │   ├── wallets.rs
-│   │   │   │   ├── balance.rs
-│   │   │   │   ├── transactions.rs
-│   │   │   │   └── admin.rs
-│   │   │   ├── auth/         # JWT verification
-│   │   │   ├── blockchain/   # Avalanche integration
-│   │   │   │   ├── client.rs # RPC client
-│   │   │   │   ├── erc20.rs  # Token interface
-│   │   │   │   ├── signing.rs
-│   │   │   │   └── transactions.rs
-│   │   │   └── storage/      # Encrypted persistence
-│   │   ├── rust-server.manifest.template
-│   │   └── Makefile
-│   └── wallet-web/           # Next.js frontend
-│       ├── src/
-│       │   ├── app/          # App Router pages
-│       │   │   ├── wallets/  # Wallet pages
-│       │   │   └── api/proxy/  # Backend proxy
-│       │   ├── components/   # React components
-│       │   └── lib/          # API client
-│       └── package.json
-│   └── contracts/            # Foundry smart contracts workspace
-│       ├── src/              # Solidity contracts
-│       ├── script/           # Deployment scripts
-│       ├── test/             # Forge tests
-│       ├── foundry.toml
-│       └── README.md
-├── docs/
-│   ├── gh-pages/             # This documentation
-│   └── architecture/         # PlantUML diagrams
-└── scripts/                  # Build utilities
-```
+Under `/data` (encrypted mount), main domains include:
 
-## Security Boundaries
-
-| Boundary | Protection |
-|----------|------------|
-| Network → Enclave | DCAP RA-TLS encryption |
-| Enclave → Storage | AES encryption |
-| User → API | Clerk JWT authentication |
-| JWT → Enclave | JWKS signature verification |
-| Admin → System | Role-based access control |
+- `wallets/`
+- `bookmarks/`
+- `invites/`
+- `recurring/`
+- `fiat/`
+- `system/fiat_service_wallet/`
+- `audit/`

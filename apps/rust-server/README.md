@@ -31,17 +31,24 @@
 ## Quick Start (Development)
 
 ```bash
-cargo build --release
-cargo test
+cargo dev-check
+cargo dev-build
+cargo dev-test
+# or Makefile wrappers:
+make dev-check
+make dev-test
 ```
 
 > **Note**: The server requires RA-TLS credentials (`/tmp/ra-tls.crt.pem`, `/tmp/ra-tls.key.pem`) which are only generated inside the SGX enclave by `gramine-ratls`. Running `cargo run` outside SGX will fail.
+> Use `cargo build --release` only for production packaging.
 
 ## Testing
 
 ### Unit Tests
 ```bash
-cargo test
+cargo dev-test
+# or:
+make dev-test
 ```
 
 ### Testing with JWT Authentication
@@ -130,7 +137,9 @@ gramine-sgx-gen-private-key
 
 ### Build and Run (SGX-only)
 ```bash
+make help               # List available targets
 make                    # Build for SGX (generates .sig and .manifest.sgx)
+DEBUG=1 make            # Build with verbose Gramine logs in manifest
 make start-rust-server  # Run inside SGX enclave with DCAP RA-TLS
 ```
 
@@ -145,6 +154,22 @@ Notes:
 - `sgx.debug` in manifest is parameterized: `true` for local dev (`make`), `false` for production (`docker-build`)
 - TLS is mandatory — server will not start without valid RA-TLS credentials
 - **Encrypted /data** — Sealed to enclave MRSIGNER, survives restarts
+
+## Makefile Targets
+
+```bash
+make help
+```
+
+Key targets:
+- `make dev-check` — Fast host compile check (`cargo check --features dev`) without SGX runtime.
+- `make dev-build` — Host dev build to `target/debug/`.
+- `make dev-test` — Run Rust tests with the `dev` feature.
+- `make` — Build SGX artifacts (`rust-server.manifest`, `.manifest.sgx`, `.sig`).
+- `make start-rust-server` — Launch inside SGX enclave (loads `.env`, validates no `<...>` placeholders).
+- `make docker-build` / `make docker-run` / `make docker-stop` — Docker SGX flow.
+- `make docker-sigstruct` — Extract and inspect Docker image SIGSTRUCT.
+- `make clean` / `make distclean` — Clean generated artifacts (`distclean` also removes `target/` and `Cargo.lock`).
 
 ## Docker (SGX with DCAP)
 Build and run the SGX-enabled container (Ubuntu 20.04):

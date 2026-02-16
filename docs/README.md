@@ -33,6 +33,7 @@ The generated output will appear in the `seq-diagrams/` directory.
 ## 2. GitHub Pages Content
 
 Broader Wallet SDK documentation under [`docs/gh-pages/`](gh-pages/).
+This includes installation, API, contracts, architecture, operations, and legal sections.
 
 ### Local Preview
 

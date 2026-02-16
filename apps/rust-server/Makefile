@@ -42,6 +42,21 @@ DEV_STORAGE_KEY = $(shell xxd -p -c 16 $(DEV_KEY_FILE) 2>/dev/null || echo "")
 .PHONY: all
 all: $(SELF_EXE) $(DEV_KEY_FILE) rust-server.manifest rust-server.manifest.sgx rust-server.sig
 
+.PHONY: help
+help:
+	@echo "Common targets:"
+	@echo "  make dev-check         - fast host compile check (no SGX runtime)"
+	@echo "  make dev-build         - host dev build (target/debug)"
+	@echo "  make dev-test          - run Rust tests with --features dev"
+	@echo "  make                   - build SGX artifacts (.manifest/.sgx/.sig)"
+	@echo "  make start-rust-server - run inside SGX enclave (loads .env if present)"
+	@echo "  make docker-build      - build SGX Docker image"
+	@echo "  make docker-run        - run SGX Docker image"
+	@echo "  make docker-stop       - stop running SGX Docker container"
+	@echo "  make docker-sigstruct  - inspect SIGSTRUCT from Docker image"
+	@echo "  make clean             - remove generated manifest/signing artifacts"
+	@echo "  make distclean         - clean + remove target/ and Cargo.lock"
+
 # Generate a persistent 16-byte dev storage key if it doesn't exist
 $(DEV_KEY_FILE): | $(DATA_DIR)
 	@if [ ! -f "$(DEV_KEY_FILE)" ]; then \
@@ -53,7 +68,19 @@ $(DEV_KEY_FILE): | $(DATA_DIR)
 # Production release builds are handled by Docker (see docker/build.sh).
 -include $(SELF_EXE).d # See also: .cargo/config.toml
 $(SELF_EXE): Cargo.toml Cargo.lock $(SRCS)
-	cargo build --features dev
+	cargo dev-build
+
+.PHONY: dev-build
+dev-build:
+	cargo dev-build
+
+.PHONY: dev-check
+dev-check:
+	cargo dev-check
+
+.PHONY: dev-test
+dev-test:
+	cargo dev-test
 
 # Create data directory for encrypted storage
 $(DATA_DIR):

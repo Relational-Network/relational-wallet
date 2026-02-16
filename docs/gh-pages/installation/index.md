@@ -8,49 +8,53 @@ permalink: /installation/
 
 # Installation
 
-The Relational Wallet consists of two main components:
+Relational Wallet has two runtime components in this repo:
 
-## Components
+| Component | Path | Purpose |
+|-----------|------|---------|
+| Rust Server (enclave backend) | `apps/rust-server` | Axum API running in Gramine SGX with RA-TLS |
+| Wallet Web (frontend) | `apps/wallet-web` | Next.js + Clerk app and API proxy |
 
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **rust-server** | Axum + Gramine SGX | Backend running in SGX enclave with DCAP RA-TLS |
-| **wallet-web** | Next.js 16 + Clerk | Frontend with authentication and API proxy |
+## Prerequisites
+
+1. Intel SGX-capable host with `/dev/sgx/enclave` and `/dev/sgx/provision`
+2. Gramine + `gramine-ratls-dcap`
+3. Rust toolchain (see `apps/rust-server/rust-toolchain.toml`)
+4. Node.js 20+ and `pnpm`
+5. Clerk app credentials
 
 ## Quick Start
 
-### Prerequisites
-
-1. Intel SGX hardware with `/dev/sgx/enclave` and `/dev/sgx/provision`
-2. [Gramine](https://gramine.readthedocs.io/) installed
-3. Node.js 18+ and pnpm
-4. [Clerk](https://clerk.dev) account
-
-### Start the System
+### Terminal 1: Rust server in SGX
 
 ```bash
-# Terminal 1: Start the enclave backend
 cd apps/rust-server
-make                    # Build for SGX
-gramine-sgx rust-server # Start server (https://localhost:8080)
-
-# Terminal 2: Start the frontend
-cd apps/wallet-web
-pnpm install
-cp .env.local.example .env.local  # Configure Clerk keys
-pnpm dev                # Start dev server (http://localhost:3000)
+cp .env.example .env
+# fill required values in .env
+make
+make start-rust-server
 ```
 
-### Verify Setup
+### Terminal 2: Wallet web
 
-1. Open [http://localhost:3000](http://localhost:3000)
-2. Sign in with Clerk
-3. Navigate to "Create Wallet"
-4. Verify wallet appears in your list
+```bash
+cd apps/wallet-web
+pnpm install
+# create .env.local with Clerk + backend URL settings
+pnpm dev
+```
+
+Open `http://localhost:3000`, sign in, then go to `/wallets`.
+
+## Verify
+
+1. Backend health: `curl -k https://localhost:8080/health`
+2. Frontend route: `http://localhost:3000/wallets`
+3. Optional admin/operator flow: `http://localhost:3000/wallets/bootstrap`
 
 ## Sub-pages
 
-Each sub-page provides detailed setup instructions:
+- **Rust Server** - SGX build/run flow, env vars, dev commands
+- **Wallet Web** - Next.js setup, proxy behavior, Clerk config
 
-- **Rust Server** — SGX build, Docker deployment, environment variables
-- **Wallet Web** — Next.js setup, Clerk configuration, proxy architecture
+For contract workspace setup/deployment, see the **Contracts** section (`/contracts`).

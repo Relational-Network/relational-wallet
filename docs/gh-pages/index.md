@@ -7,73 +7,54 @@ description: Overview of the Relational Wallet documentation space.
 
 # Relational Wallet Documentation
 
-Welcome to the documentation hub for the Relational Wallet—a secure wallet system running inside Intel SGX enclaves with DCAP remote attestation.
+Relational Wallet is a custodial Avalanche wallet platform with SGX-backed key custody, Clerk auth, and Fuji `rEUR` settlement flows.
 
-## Project Status
+## Project Overview
 
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **rust-server** | ✅ Complete | Axum REST API running in Gramine SGX with DCAP RA-TLS |
-| **wallet-web** | ✅ Complete | Next.js 16 frontend with Clerk authentication |
-| **contracts** | ✅ Active | Foundry workspace with managed `rEUR` smart contract |
-| **Integration** | ✅ Working | Frontend proxies API calls to enclave backend |
+| Area | Notes |
+|------|-------|
+| apps/rust-server  | SGX Axum API with wallet, transfer, admin, fiat reserve flows |
+| apps/wallet-web  | Next.js 16 app shell with `/wallets`, `/pay`, `/callback`, `/wallets/bootstrap` |
+| apps/contracts  | Foundry workspace with deployed Fuji `rEUR` |
+| docs/sequence | Sequence diagrams |
 
-## Key Features
+## Key Functional Coverage
 
-- **SGX Enclave Security**: All sensitive operations run inside Intel SGX trusted execution environment
-- **DCAP Attestation**: Remote attestation with DCAP RA-TLS certificates
-- **Clerk Authentication**: JWT-based auth with JWKS signature verification
-- **P256 Key Management**: Cryptographic keys generated and stored securely in enclave
-- **Euro Stablecoin Contract**: `rEUR` managed ERC-20 (mint, burn, pause, roles)
-- **Structured Logging**: Request tracing with correlation IDs
-
-## What's Inside
-
-- **Installation** — Environment setup guides for the trusted execution environment [`(wallet-enclave)`](/installation/wallet-enclave) and the user-facing client [`(wallet-web)`](/installation/wallet-web).
-- **API Documentation** — Component-level REST references with OpenAPI specs.
-- **Contracts** — `apps/contracts` deployment and verification workflow for `rEUR`.
-- **Architecture** — System overview, security model, and sequence diagrams.
-- **Operations** — CI/CD, GitHub Pages publishing guidance, and operational runbooks.
-- **Legal** — Privacy Policy and Terms of Service _placeholders_.
+- Wallet creation/list/delete and ownership enforcement
+- Push transfers, pull transfer entry (`/pay`), and mirrored transaction history
+- Cash exchange UX guidance across send/receive/history
+- Fiat on-ramp and off-ramp request lifecycle (`truelayer_sandbox`)
+- Admin reserve wallet bootstrap/topup/transfer/manual sync (`/wallets/bootstrap` UI + `/v1/admin/fiat/*` APIs)
 
 ## Quick Start
 
 ```bash
-# Start the enclave backend
+# Backend
 cd apps/rust-server
-gramine-sgx rust-server
+cp .env.example .env
+make
+make start-rust-server
 
-# In another terminal, start the frontend
+# Frontend
 cd apps/wallet-web
+cp .env.example .env
+pnpm install
 pnpm dev
-
-# Open http://localhost:3000
 ```
 
-## Architecture Overview
+Open `http://localhost:3000`.
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────────────┐
-│  Browser/User   │────▶│  Next.js App    │────▶│   SGX Enclave (Gramine) │
-│                 │     │  /api/proxy/*   │     │   Axum REST API         │
-└─────────────────┘     └─────────────────┘     └─────────────────────────┘
-                              │                           │
-                              │ Clerk JWT                 │ DCAP RA-TLS
-                              ▼                           ▼
-                        ┌─────────────────┐     ┌─────────────────────────┐
-                        │   Clerk JWKS    │     │   Intel DCAP Services   │
-                        │   (Auth)        │     │   (Attestation)         │
-                        └─────────────────┘     └─────────────────────────┘
-```
+## Documentation Sections
 
-## Contributing to Docs
+- **Installation** - Rust server + wallet-web setup
+- **API Documentation** - Enclave and proxy route contracts
+- **Contracts** - `rEUR` contract overview, testing, and Fuji deployment runbook
+- **Architecture** - Component boundaries and security model
+- **Operations** - JWT testing and docs publishing
+- **Legal** - Policy placeholders
 
-- Keep pages in Markdown with front matter defining `title`, `nav_order`, and parent metadata.
-- Diagram source files live under `../architecture/` and `../sequence/`.
-- Update them with PlantUML and regenerate assets via `../render.sh`.
+## Contract Snapshot
 
-## Contract Deployment Snapshot
-
-- **Network**: Avalanche Fuji (chain `43113`)
-- **rEUR Address**: `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`
-- **Deploy Tx**: `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14`
+- Network: Avalanche Fuji (`43113`)
+- `rEUR`: `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`
+- Deployment Tx: `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14`

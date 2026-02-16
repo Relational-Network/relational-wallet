@@ -7,74 +7,74 @@ nav_order: 3
 
 # Rust Server (Gramine SGX)
 
-This guide covers two supported setups:
+Backend API for Relational Wallet. Runs inside Intel SGX using Gramine and RA-TLS.
 
-- **Docker (SGX)** — Run inside a Gramine SGX container on Ubuntu 20.04.
-- **Native (SGX)** — Build and run on the host with Gramine SGX.
+## Prerequisites
 
-## Prerequisites (both modes)
+- SGX host with `/dev/sgx/enclave` and `/dev/sgx/provision`
+- Gramine + `gramine-ratls-dcap`
+- Enclave signing key (`$HOME/.config/gramine/enclave-key.pem`), or custom key path
+- Rust toolchain from `rust-toolchain.toml`
 
-- Intel SGX-capable host with `/dev/sgx/enclave` and `/dev/sgx/provision`.
-- Gramine installed on the host.
-- Gramine SGX signing key on the host:
-  ```bash
-  gramine-sgx-gen-private-key
-  ```
-  This creates `$HOME/.config/gramine/enclave-key.pem`.
+Generate signing key once (if missing):
 
-## Docker (SGX)
+```bash
+gramine-sgx-gen-private-key
+```
 
-### Prerequisites
+## Configure Environment
 
-- Docker installed and available to `sudo`.
+```bash
+cd apps/rust-server
+cp .env.example .env
+```
 
-### Build the image
+Set at least:
 
-From the repo root:
+- `CLERK_JWKS_URL`
+- `CLERK_ISSUER`
+- Fiat/reserve envs as needed for on-ramp/off-ramp flows
+
+## Development Commands
+
+```bash
+cd apps/rust-server
+make dev-check
+make dev-test
+```
+
+Equivalent cargo aliases:
+
+```bash
+cargo dev-check
+cargo dev-build
+cargo dev-test
+```
+
+## Build + Run In SGX
+
+```bash
+cd apps/rust-server
+make
+make start-rust-server
+```
+
+- `make` builds SGX artifacts (`rust-server.manifest`, `.manifest.sgx`, `.sig`)
+- `make start-rust-server` loads `.env` and starts `gramine-sgx rust-server`
+
+Health check:
+
+```bash
+curl -k https://localhost:8080/health
+```
+
+## Docker SGX Flow
 
 ```bash
 cd apps/rust-server
 make docker-build
-```
-
-This builds `relationalnetwork/rust-server:focal` (Ubuntu 20.04).
-
-### Run the container
-
-```bash
-cd apps/rust-server
 make docker-run
-```
-
-The container binds to `0.0.0.0:8080` and publishes port `8080` to the host.
-
-### Stop the container
-
-```bash
-cd apps/rust-server
 make docker-stop
 ```
 
-### Custom key path
-
-If your key is not in the default location, mount it and set `GRAMINE_SGX_SIGNING_KEY` in the run command. See `apps/rust-server/docker/README.md` for a full example.
-
-## Native (SGX)
-
-### Build
-
-```bash
-cd apps/rust-server
-make SGX=1
-```
-
-This generates `rust-server.manifest`, `rust-server.manifest.sgx`, and `rust-server.sig`.
-
-### Run
-
-```bash
-cd apps/rust-server
-gramine-sgx rust-server
-```
-
-The server binds to `127.0.0.1:8080` by default. Override with `HOST`/`PORT` as needed.
+See `apps/rust-server/docker/README.md` for DCAP and host-specific setup details.

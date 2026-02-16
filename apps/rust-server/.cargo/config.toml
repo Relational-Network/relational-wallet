@@ -5,5 +5,10 @@
 CC = "clang"
 CXX = "clang++"
 
+[alias]
+dev-check = "check --features dev"
+dev-build = "build --features dev"
+dev-test = "test --features dev"
+
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
