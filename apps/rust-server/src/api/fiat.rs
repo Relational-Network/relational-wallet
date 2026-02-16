@@ -1136,6 +1136,28 @@ pub(crate) async fn sync_and_persist_request(
         .map_err(|_| ApiError::not_found("Fiat request not found"))?;
 
     sync_request_internal(storage, &mut record).await;
+
+    // Re-read from storage to avoid overwriting webhook-driven terminal status.
+    // While we were calling the provider API (~200ms), the webhook handler may
+    // have already set this record to Failed/Completed. Honour that.
+    if let Ok(current) = repo.get(request_id) {
+        if matches!(
+            current.status,
+            FiatRequestStatus::Completed | FiatRequestStatus::Failed
+        ) && !matches!(
+            record.status,
+            FiatRequestStatus::Completed | FiatRequestStatus::Failed
+        ) {
+            info!(
+                request_id = %request_id,
+                stored_status = ?current.status,
+                polled_status = ?record.status,
+                "Skipping poller persist — webhook already set terminal status"
+            );
+            return Ok(current);
+        }
+    }
+
     repo.update(&record)
         .map_err(|e| ApiError::internal(format!("Failed to persist fiat request sync: {e}")))?;
 
