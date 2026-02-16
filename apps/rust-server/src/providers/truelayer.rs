@@ -253,6 +253,8 @@ impl TrueLayerClient {
         &self,
         request: CreateOffRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
+        let scheme_selection = resolve_payout_scheme_selection(&self.currency);
+
         let mut metadata = serde_json::Map::new();
         metadata.insert(
             "wallet_id".to_string(),
@@ -287,9 +289,7 @@ impl TrueLayerClient {
                 "reference": format!("rw-offramp-{}", request.request_id)
             },
             "merchant_account_id": self.merchant_account_id,
-            "scheme_selection": {
-                "type": "instant_preferred"
-            },
+            "scheme_selection": scheme_selection,
             "metadata": metadata
         });
 
@@ -520,6 +520,22 @@ pub fn map_payout_status(raw_status: &str) -> ProviderExecutionStatus {
         "executed" | "settled" | "successful" => ProviderExecutionStatus::Completed,
         "failed" | "cancelled" | "rejected" => ProviderExecutionStatus::Failed,
         _ => ProviderExecutionStatus::Pending,
+    }
+}
+
+fn resolve_payout_scheme_selection(currency: &str) -> Value {
+    match currency.to_ascii_uppercase().as_str() {
+        // UK payouts settle consistently in sandbox when using FPS.
+        "GBP" => json!({
+            "type": "preselected",
+            "scheme_id": "faster_payments_service"
+        }),
+        // EUR payouts should route via SEPA in sandbox.
+        "EUR" => json!({
+            "type": "preselected",
+            "scheme_id": "sepa_credit_transfer"
+        }),
+        _ => json!({ "type": "instant_preferred" }),
     }
 }
 

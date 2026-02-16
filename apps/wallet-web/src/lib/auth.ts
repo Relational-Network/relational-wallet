@@ -18,9 +18,9 @@ import { auth } from "@clerk/nextjs/server";
  */
 export async function getSessionToken(): Promise<string | null> {
   const { getToken } = await auth();
-  // TODO: Enable real token retrieval once enclave backend is available
-  // For now, return the token from Clerk (will be used when backend is running)
-  return getToken();
+  // Match proxy token behavior so role metadata claims are consistent across
+  // server components and API routes.
+  return (await getToken({ template: "default" })) ?? (await getToken());
 }
 
 /**

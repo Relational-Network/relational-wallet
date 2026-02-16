@@ -47,9 +47,16 @@ struct JwtClaims {
     #[serde(default)]
     #[allow(dead_code)]
     aud: Option<serde_json::Value>,
-    /// Clerk public metadata containing role
-    #[serde(default, rename = "publicMetadata")]
+    /// Clerk public metadata containing role.
+    /// Accept both Clerk camelCase and snake_case naming.
+    #[serde(default, rename = "publicMetadata", alias = "public_metadata")]
     public_metadata: Option<PublicMetadata>,
+    /// Optional generic metadata container used by some JWT templates.
+    #[serde(default)]
+    metadata: Option<PublicMetadata>,
+    /// Optional top-level role claim used by custom templates.
+    #[serde(default)]
+    role: Option<String>,
 }
 
 /// Clerk public metadata structure.
@@ -184,8 +191,10 @@ async fn verify_jwt_production(
     let role = claims
         .public_metadata
         .as_ref()
-        .and_then(|m| m.role.as_ref())
-        .and_then(|r| Role::from_str(r))
+        .and_then(|m| m.role.as_deref())
+        .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
+        .or_else(|| claims.role.as_deref())
+        .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 
     Ok(AuthenticatedUser {
@@ -224,8 +233,10 @@ fn verify_jwt_development(token: &str) -> Result<AuthenticatedUser, AuthError> {
     let role = claims
         .public_metadata
         .as_ref()
-        .and_then(|m| m.role.as_ref())
-        .and_then(|r| Role::from_str(r))
+        .and_then(|m| m.role.as_deref())
+        .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
+        .or_else(|| claims.role.as_deref())
+        .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 
     Ok(AuthenticatedUser {

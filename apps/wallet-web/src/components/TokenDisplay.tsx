@@ -12,9 +12,13 @@ export function TokenDisplay() {
   const [token, setToken] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
 
+  const fetchPreferredToken = async () => {
+    return (await getToken({ template: "default" })) ?? (await getToken());
+  };
+
   const copyToken = async () => {
     try {
-      const jwt = await getToken();
+      const jwt = await fetchPreferredToken();
       if (jwt) {
         await navigator.clipboard.writeText(jwt);
         setToken(jwt);
@@ -28,7 +32,7 @@ export function TokenDisplay() {
 
   const toggleShowToken = async () => {
     if (!showToken && !token) {
-      const jwt = await getToken();
+      const jwt = await fetchPreferredToken();
       setToken(jwt);
     }
     setShowToken(!showToken);

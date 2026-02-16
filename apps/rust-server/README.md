@@ -214,7 +214,7 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `FIAT_MIN_CONFIRMATIONS` | Required confirmations for off-ramp deposit detection | `1` |
 | `TRUELAYER_WEBHOOK_SHARED_SECRET` | Enables webhook endpoint and verifies webhook secret header | — |
 
-TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp return URL is hardcoded to `http://localhost:3000/callback` and must be allow-listed in TrueLayer Console. Off-ramp beneficiary account holder + IBAN are supplied per API request from the frontend dialog. If `TRUELAYER_WEBHOOK_SHARED_SECRET` is unset, webhook ingestion is disabled (`POST /v1/fiat/providers/truelayer/webhook` returns `503`) and request syncing falls back to polling on fiat list/detail endpoints.
+TrueLayer note: OAuth client credentials must be granted the `payments` scope. On-ramp return URL is hardcoded to `http://localhost:3000/callback` and must be allow-listed in TrueLayer Console. Off-ramp beneficiary account holder + IBAN are supplied per API request from the frontend dialog. Payout scheme defaults are hardcoded and currency-aware (`GBP -> faster_payments_service`, `EUR -> sepa_credit_transfer`) to avoid ambiguous sandbox routing. If `TRUELAYER_WEBHOOK_SHARED_SECRET` is unset, webhook ingestion is disabled (`POST /v1/fiat/providers/truelayer/webhook` returns `503`) and request syncing falls back to polling on fiat list/detail endpoints.
 
 ## Route Map (all prefixed with /v1, HTTPS only)
 
