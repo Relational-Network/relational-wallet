@@ -7,6 +7,7 @@ mod auth;
 mod blockchain;
 mod config;
 mod error;
+mod fiat_poller;
 mod indexer;
 mod models;
 mod providers;
@@ -191,6 +192,16 @@ async fn main() {
         info!("ERC-20 event indexer spawned");
     } else {
         info!("No token contracts configured — event indexer not started");
+    }
+
+    // ========== Spawn Fiat Request Poller ==========
+    {
+        let fiat_poller = fiat_poller::FiatPoller::new(state.storage().clone());
+        let shutdown_clone = shutdown.clone();
+        tokio::spawn(async move {
+            fiat_poller.run(shutdown_clone).await;
+        });
+        info!("Fiat request poller spawned");
     }
 
     // Build router with tracing middleware for request IDs

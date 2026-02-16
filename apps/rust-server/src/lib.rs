@@ -61,6 +61,7 @@ pub mod auth;
 pub mod blockchain;
 pub mod config;
 pub mod error;
+pub mod fiat_poller;
 pub mod indexer;
 pub mod models;
 pub mod providers;

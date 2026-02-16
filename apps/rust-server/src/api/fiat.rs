@@ -5,6 +5,7 @@
 //! Fiat on-ramp/off-ramp API using a Fuji-only reserve wallet flow.
 
 use std::{env, str::FromStr, sync::Arc};
+use std::sync::OnceLock;
 
 use alloy::{
     primitives::{Address, U256},
@@ -18,7 +19,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
@@ -48,7 +49,12 @@ const REUR_CONTRACT_ENV: &str = "REUR_CONTRACT_ADDRESS_FUJI";
 const RESERVE_BOOTSTRAP_ENABLED_ENV: &str = "FIAT_RESERVE_BOOTSTRAP_ENABLED";
 const RESERVE_INITIAL_TOPUP_ENV: &str = "FIAT_RESERVE_INITIAL_TOPUP_EUR";
 const FIAT_MIN_CONFIRMATIONS_ENV: &str = "FIAT_MIN_CONFIRMATIONS";
-const WEBHOOK_SHARED_SECRET_ENV: &str = "TRUELAYER_WEBHOOK_SHARED_SECRET";
+/// TrueLayer sandbox JWKS URL for webhook signature verification.
+const TRUELAYER_SANDBOX_JWKS_URL: &str =
+    "https://webhooks.truelayer-sandbox.com/.well-known/jwks";
+
+/// Webhook path as registered in TrueLayer Console (must match exactly for signature verification).
+const WEBHOOK_PATH: &str = "/v1/fiat/providers/truelayer/webhook";
 
 sol! {
     #[sol(rpc)]
@@ -236,6 +242,8 @@ pub struct FiatSyncResponse {
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct TrueLayerWebhookPayload {
+    #[serde(default, rename = "type")]
+    event_type: Option<String>,
     #[serde(default)]
     event_id: Option<String>,
     #[serde(default)]
@@ -547,28 +555,75 @@ fn to_response(record: &StoredFiatRequest) -> FiatRequestResponse {
     }
 }
 
-fn verify_webhook_secret(headers: &HeaderMap) -> Result<(), ApiError> {
-    let expected_secret = env::var(WEBHOOK_SHARED_SECRET_ENV)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            ApiError::service_unavailable(format!(
-                "Webhook endpoint disabled: set {WEBHOOK_SHARED_SECRET_ENV} to enable callback ingestion"
-            ))
-        })?;
+/// Cached JWKS bytes fetched from TrueLayer.
+static CACHED_JWKS: OnceLock<Vec<u8>> = OnceLock::new();
 
-    let provided = headers
-        .get("x-truelayer-webhook-secret")
-        .or_else(|| headers.get("x-webhook-secret"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
-
-    if provided == expected_secret {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden("Invalid webhook secret"))
+/// Fetch JWKS JSON from TrueLayer's well-known endpoint, caching the result.
+async fn fetch_jwks_cached() -> Result<Vec<u8>, ApiError> {
+    if let Some(cached) = CACHED_JWKS.get() {
+        return Ok(cached.clone());
     }
+
+    info!(url = %TRUELAYER_SANDBOX_JWKS_URL, "Fetching TrueLayer webhook JWKS");
+    let response = reqwest::Client::new()
+        .get(TRUELAYER_SANDBOX_JWKS_URL)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to fetch TrueLayer JWKS: {e}")))?;
+
+    let jwks_bytes = response
+        .bytes()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to read JWKS response: {e}")))?
+        .to_vec();
+
+    let _ = CACHED_JWKS.set(jwks_bytes.clone());
+    Ok(jwks_bytes)
+}
+
+/// Verify webhook Tl-Signature using TrueLayer's JWKS public keys.
+async fn verify_webhook_signature(
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<(), ApiError> {
+    let tl_signature = headers
+        .get("tl-signature")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| ApiError::forbidden("Missing Tl-Signature header"))?;
+
+    // Extract and validate JKU from signature header
+    let jws_header = truelayer_signing::extract_jws_header(tl_signature)
+        .map_err(|e| ApiError::forbidden(format!("Invalid Tl-Signature header: {e}")))?;
+
+    if let Some(ref jku) = jws_header.jku {
+        if jku.as_ref() != TRUELAYER_SANDBOX_JWKS_URL {
+            return Err(ApiError::forbidden(format!(
+                "Untrusted JKU: {jku}"
+            )));
+        }
+    }
+
+    // Fetch JWKS (cached)
+    let jwks = fetch_jwks_cached().await?;
+
+    // Collect headers for verification (exclude Tl-Signature itself)
+    let header_pairs: Vec<(&str, &[u8])> = headers
+        .iter()
+        .filter(|(name, _)| name.as_str() != "tl-signature")
+        .map(|(name, value)| (name.as_str(), value.as_bytes()))
+        .collect();
+
+    truelayer_signing::verify_with_jwks(&jwks)
+        .method(truelayer_signing::Method::Post)
+        .path(WEBHOOK_PATH)
+        .headers(header_pairs)
+        .body(body)
+        .build_verifier()
+        .verify(tl_signature)
+        .map_err(|e| ApiError::forbidden(format!("Webhook signature verification failed: {e}")))?;
+
+    Ok(())
 }
 
 fn extract_provider_reference(payload: &TrueLayerWebhookPayload) -> Option<String> {
@@ -588,10 +643,19 @@ fn extract_provider_reference(payload: &TrueLayerWebhookPayload) -> Option<Strin
 }
 
 fn extract_webhook_status(payload: &TrueLayerWebhookPayload) -> Option<ProviderExecutionStatus> {
+    // Try explicit status field first
     payload
         .status
         .as_deref()
         .map(map_webhook_status)
+        // Then try event type (e.g. "payout_executed", "payment_failed")
+        .or_else(|| {
+            payload
+                .event_type
+                .as_deref()
+                .map(map_webhook_status)
+        })
+        // Then try data.status
         .or_else(|| {
             payload
                 .data
@@ -1060,6 +1124,35 @@ pub(crate) async fn sync_and_persist_request(
     Ok(record)
 }
 
+/// Return request IDs of all fiat requests in a syncable (non-terminal) status.
+pub(crate) fn list_pending_request_ids(
+    storage: &Arc<crate::storage::EncryptedStorage>,
+) -> Vec<String> {
+    let repo = FiatRequestRepository::new(storage);
+    let requests = match repo.list_all() {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "FiatPoller: failed to list fiat requests");
+            return Vec::new();
+        }
+    };
+
+    requests
+        .into_iter()
+        .filter(|r| {
+            matches!(
+                r.status,
+                FiatRequestStatus::Queued
+                    | FiatRequestStatus::AwaitingProvider
+                    | FiatRequestStatus::AwaitingUserDeposit
+                    | FiatRequestStatus::SettlementPending
+                    | FiatRequestStatus::ProviderPending
+            )
+        })
+        .map(|r| r.request_id)
+        .collect()
+}
+
 /// List supported fiat providers for sandbox testing.
 #[utoipa::path(
     get,
@@ -1339,6 +1432,9 @@ pub async fn get_fiat_request(
 }
 
 /// TrueLayer webhook callback endpoint.
+///
+/// Validates the `Tl-Signature` JWS header using TrueLayer's JWKS public keys
+/// before processing the webhook payload.
 #[utoipa::path(
     post,
     path = "/v1/fiat/providers/truelayer/webhook",
@@ -1347,16 +1443,20 @@ pub async fn get_fiat_request(
     responses(
         (status = 202, description = "Webhook accepted"),
         (status = 400, description = "Bad request"),
-        (status = 403, description = "Forbidden"),
-        (status = 503, description = "Webhook disabled")
+        (status = 403, description = "Forbidden — invalid signature")
     )
 )]
 pub async fn truelayer_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(payload): Json<TrueLayerWebhookPayload>,
+    body: axum::body::Bytes,
 ) -> Result<StatusCode, ApiError> {
-    verify_webhook_secret(&headers)?;
+    // Verify Tl-Signature using JWKS before touching the body
+    verify_webhook_signature(&headers, &body).await?;
+
+    // Parse the raw body into our webhook payload struct
+    let payload: TrueLayerWebhookPayload = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("Invalid webhook payload: {e}")))?;
 
     let provider_reference = extract_provider_reference(&payload)
         .ok_or_else(|| ApiError::bad_request("Webhook payload missing provider reference"))?;
@@ -1374,19 +1474,41 @@ pub async fn truelayer_webhook(
         return Ok(StatusCode::ACCEPTED);
     };
 
-    if let Some(event_id) = payload.event_id.clone() {
-        record.provider_event_id = Some(event_id);
+    // ── Idempotency: skip duplicate webhooks ──
+    if let Some(ref incoming_event_id) = payload.event_id {
+        if record.provider_event_id.as_deref() == Some(incoming_event_id.as_str()) {
+            info!(
+                request_id = %record.request_id,
+                event_id = %incoming_event_id,
+                "Duplicate webhook event — skipping"
+            );
+            return Ok(StatusCode::ACCEPTED);
+        }
     }
 
-    if let Some(status) = extract_webhook_status(&payload) {
-        record.status = if record.direction == FiatDirection::OnRamp {
-            map_onramp_provider_status(status)
+    // ── Prevent backward status transitions ──
+    if let Some(new_status) = extract_webhook_status(&payload) {
+        let new_mapped = if record.direction == FiatDirection::OnRamp {
+            map_onramp_provider_status(new_status)
         } else {
-            map_offramp_provider_status(status)
+            map_offramp_provider_status(new_status)
         };
-        if matches!(status, ProviderExecutionStatus::Failed) {
-            record.failure_reason = Some("Webhook reported provider failure".to_string());
+
+        let is_terminal = matches!(
+            record.status,
+            FiatRequestStatus::Completed | FiatRequestStatus::Failed
+        );
+
+        if !is_terminal {
+            record.status = new_mapped;
+            if matches!(new_status, ProviderExecutionStatus::Failed) {
+                record.failure_reason = Some("Webhook reported provider failure".to_string());
+            }
         }
+    }
+
+    if let Some(event_id) = payload.event_id.clone() {
+        record.provider_event_id = Some(event_id);
     }
 
     record.last_provider_sync_at = Some(Utc::now());
