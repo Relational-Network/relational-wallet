@@ -1,0 +1,4 @@
+# Certificates are generated at runtime — do not commit.
+*.pem
+*.key
+*.crt
