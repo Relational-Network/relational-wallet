@@ -12,9 +12,19 @@ interface ActionDialogProps {
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  dialogClassName?: string;
+  bodyClassName?: string;
 }
 
-export function ActionDialog({ open, title, onClose, children, wide = false }: ActionDialogProps) {
+export function ActionDialog({
+  open,
+  title,
+  onClose,
+  children,
+  wide = false,
+  dialogClassName,
+  bodyClassName,
+}: ActionDialogProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -33,7 +43,7 @@ export function ActionDialog({ open, title, onClose, children, wide = false }: A
   return (
     <div className="dialog-backdrop" onClick={onClose} role="presentation">
       <div
-        className={`dialog-card${wide ? " wide" : ""}`}
+        className={`dialog-card${wide ? " wide" : ""}${dialogClassName ? ` ${dialogClassName}` : ""}`}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -45,7 +55,7 @@ export function ActionDialog({ open, title, onClose, children, wide = false }: A
             ✕
           </button>
         </div>
-        <div className="dialog-body">{children}</div>
+        <div className={`dialog-body${bodyClassName ? ` ${bodyClassName}` : ""}`}>{children}</div>
       </div>
     </div>
   );

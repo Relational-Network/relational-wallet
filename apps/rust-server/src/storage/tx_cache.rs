@@ -18,6 +18,7 @@ use super::repository::transactions::StoredTransaction;
 /// Cached entry: list of transactions + insertion timestamp.
 struct CacheEntry {
     transactions: Vec<(StoredTransaction, String)>, // (tx, direction)
+    next_cursor: Option<String>,
     inserted_at: Instant,
 }
 
@@ -44,12 +45,22 @@ impl TxCache {
     /// Get the cached first page for a wallet address.
     ///
     /// Returns `None` if not cached or expired.
-    pub fn get_first_page(&self, wallet_address: &str) -> Option<Vec<(StoredTransaction, String)>> {
+    pub fn get_first_page(
+        &self,
+        wallet_address: &str,
+        requested_limit: usize,
+    ) -> Option<(Vec<(StoredTransaction, String)>, Option<String>)> {
         let key = wallet_address.to_lowercase();
         let mut cache = self.cache.lock().ok()?;
         if let Some(entry) = cache.get(&key) {
             if entry.inserted_at.elapsed() < self.ttl {
-                return Some(entry.transactions.clone());
+                let is_exact_match = entry.transactions.len() == requested_limit;
+                let is_complete_short_page =
+                    entry.next_cursor.is_none() && entry.transactions.len() < requested_limit;
+                if is_exact_match || is_complete_short_page {
+                    return Some((entry.transactions.clone(), entry.next_cursor.clone()));
+                }
+                return None;
             }
             // Expired — remove it
             cache.pop(&key);
@@ -58,13 +69,19 @@ impl TxCache {
     }
 
     /// Store the first page for a wallet address.
-    pub fn put_first_page(&self, wallet_address: &str, txs: Vec<(StoredTransaction, String)>) {
+    pub fn put_first_page(
+        &self,
+        wallet_address: &str,
+        txs: Vec<(StoredTransaction, String)>,
+        next_cursor: Option<String>,
+    ) {
         let key = wallet_address.to_lowercase();
         if let Ok(mut cache) = self.cache.lock() {
             cache.put(
                 key,
                 CacheEntry {
                     transactions: txs,
+                    next_cursor,
                     inserted_at: Instant::now(),
                 },
             );
@@ -106,43 +123,66 @@ mod tests {
         let addr = "0xABCD";
         let data = vec![sample_tx()];
 
-        assert!(cache.get_first_page(addr).is_none());
+        assert!(cache.get_first_page(addr, 1).is_none());
 
-        cache.put_first_page(addr, data.clone());
+        cache.put_first_page(addr, data.clone(), None);
 
-        let result = cache.get_first_page(addr).unwrap();
+        let (result, next_cursor) = cache.get_first_page(addr, 1).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0.tx_hash, "0xabc");
+        assert!(next_cursor.is_none());
     }
 
     #[test]
     fn cache_invalidate() {
         let cache = TxCache::new(10, Duration::from_secs(300));
         let addr = "0xABCD";
-        cache.put_first_page(addr, vec![sample_tx()]);
-        assert!(cache.get_first_page(addr).is_some());
+        cache.put_first_page(addr, vec![sample_tx()], None);
+        assert!(cache.get_first_page(addr, 1).is_some());
 
         cache.invalidate(addr);
-        assert!(cache.get_first_page(addr).is_none());
+        assert!(cache.get_first_page(addr, 1).is_none());
     }
 
     #[test]
     fn cache_ttl_expiry() {
         let cache = TxCache::new(10, Duration::from_millis(1));
-        cache.put_first_page("0xABCD", vec![sample_tx()]);
+        cache.put_first_page("0xABCD", vec![sample_tx()], None);
 
         // Wait for TTL to expire
         std::thread::sleep(Duration::from_millis(5));
 
-        assert!(cache.get_first_page("0xABCD").is_none());
+        assert!(cache.get_first_page("0xABCD", 1).is_none());
     }
 
     #[test]
     fn cache_case_insensitive() {
         let cache = TxCache::new(10, Duration::from_secs(300));
-        cache.put_first_page("0xABCD", vec![sample_tx()]);
+        cache.put_first_page("0xABCD", vec![sample_tx()], None);
 
         // Should find by lowercase
-        assert!(cache.get_first_page("0xabcd").is_some());
+        assert!(cache.get_first_page("0xabcd", 1).is_some());
+    }
+
+    #[test]
+    fn cache_bypasses_entries_that_are_too_small_for_requested_page() {
+        let cache = TxCache::new(10, Duration::from_secs(300));
+        cache.put_first_page("0xABCD", vec![sample_tx()], Some("cursor-1".to_string()));
+
+        assert!(cache.get_first_page("0xABCD", 50).is_none());
+        assert!(cache.get_first_page("0xABCD", 1).is_some());
+    }
+
+    #[test]
+    fn cache_bypasses_mismatched_limit_even_when_cache_is_larger() {
+        let cache = TxCache::new(10, Duration::from_secs(300));
+        cache.put_first_page(
+            "0xABCD",
+            vec![sample_tx(), sample_tx()],
+            Some("cursor-2".to_string()),
+        );
+
+        assert!(cache.get_first_page("0xABCD", 1).is_none());
+        assert!(cache.get_first_page("0xABCD", 2).is_some());
     }
 }

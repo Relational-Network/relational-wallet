@@ -59,7 +59,21 @@ export default async function TransactionsPage({ params }: TransactionsPageProps
         </>
       }
     >
-      {error ? <div className="alert alert-error">{error}</div> : wallet ? <TransactionList walletId={wallet.wallet_id} /> : null}
+      {error ? (
+        <div className="alert alert-error">{error}</div>
+      ) : wallet ? (
+        <div className="stack">
+          <div className="card card-pad">
+            <h2 className="section-title" style={{ marginBottom: "0.35rem" }}>
+              All activity
+            </h2>
+            <p className="text-secondary" style={{ margin: 0 }}>
+              Latest first with cursor-backed pagination. Open transactions in Snowtrace as needed.
+            </p>
+          </div>
+          <TransactionList walletId={wallet.wallet_id} />
+        </div>
+      ) : null}
     </SimpleWalletShell>
   );
 }

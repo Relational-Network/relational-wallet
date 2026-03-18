@@ -12,3 +12,19 @@ dev-test = "test --features dev"
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[build]
+incremental = true
+rustc-wrapper = "sccache"
+
+[profile.dev]
+opt-level = 1 # Feel free to uncomment and test this if you're still chasing faster dev builds!
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+strip = true

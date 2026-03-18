@@ -129,6 +129,69 @@ function CreateWalletDialog({
   );
 }
 
+function DashboardShellSkeleton() {
+  return (
+    <SimpleWalletShell>
+      <div className="wallet-dashboard-shell wallet-dashboard-skeleton" aria-hidden="true">
+        <div className="row-between">
+          <div className="skeleton" style={{ width: "9.5rem", height: "2.5rem", borderRadius: "999px" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <div className="skeleton" style={{ width: "5.5rem", height: "2.25rem", borderRadius: "999px" }} />
+            <div className="clerk-avatar-slot">
+              <div className="skeleton" style={{ width: "100%", height: "100%", borderRadius: "999px" }} />
+            </div>
+          </div>
+        </div>
+
+        <article className="balance-card">
+          <div className="balance-card-header">
+            <div className="skeleton" style={{ width: "8rem", height: "1rem" }} />
+            <div className="address-placeholder">0x00000000...000000</div>
+          </div>
+          <div className="balance-tokens">
+            <div className="balance-token-tile">
+              <div className="balance-token-label">AVAX</div>
+              <div className="balance-token-value loading-blur">0.0000</div>
+            </div>
+            <div className="balance-token-tile">
+              <div className="balance-token-label">rEUR</div>
+              <div className="balance-token-value loading-blur">0.00</div>
+            </div>
+          </div>
+        </article>
+
+        <div className="quick-actions">
+          {[1, 2, 3, 4].map((item) => (
+            <div key={item} className="quick-action-btn wallet-skeleton-action">
+              <span className="icon-circle">
+                <div className="skeleton" style={{ width: "1rem", height: "1rem", borderRadius: "999px" }} />
+              </span>
+              <div className="skeleton" style={{ width: "3.5rem", height: "0.75rem" }} />
+            </div>
+          ))}
+        </div>
+
+        <div className="card card-pad">
+          <div className="section-header" style={{ marginBottom: "0.5rem" }}>
+            <div className="skeleton" style={{ width: "8rem", height: "1rem" }} />
+            <div className="skeleton" style={{ width: "4.5rem", height: "2rem", borderRadius: "999px" }} />
+          </div>
+          {[1, 2, 3, 4, 5].map((item) => (
+            <div key={item} className="activity-row" style={{ opacity: 0.45 }}>
+              <div className="activity-icon" style={{ background: "var(--bg-subtle)" }} />
+              <div className="activity-details">
+                <div className="skeleton" style={{ width: item % 2 === 0 ? "58%" : "74%", height: "0.875rem", marginBottom: "0.25rem" }} />
+                <div className="skeleton" style={{ width: "42%", height: "0.625rem" }} />
+              </div>
+              <div className="skeleton" style={{ width: "5rem", height: "1.5rem", borderRadius: "999px" }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </SimpleWalletShell>
+  );
+}
+
 interface SimpleWalletDashboardProps {
   initialWallets?: WalletResponse[];
   initialSelectedWalletId?: string | null;
@@ -180,7 +243,8 @@ export function SimpleWalletDashboard({
   const providerPopupRef = useRef<Window | null>(null);
   const walletDetailsInFlightRef = useRef<Promise<void> | null>(null);
   const walletDetailsInFlightWalletRef = useRef<string | null>(null);
-  const transferRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const walletSnapshotRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const walletSnapshotRefreshSequenceRef = useRef(0);
 
   const openProviderPopup = useCallback((url: string) => {
     const width = 500;
@@ -263,12 +327,32 @@ export function SimpleWalletDashboard({
     }
   }, []);
 
-  const fetchWalletDetails = useCallback(async (walletId: string, silent = false) => {
+  const clearWalletSnapshotRefreshes = useCallback(() => {
+    walletSnapshotRefreshSequenceRef.current += 1;
+    for (const timer of walletSnapshotRefreshTimersRef.current) {
+      clearTimeout(timer);
+    }
+    walletSnapshotRefreshTimersRef.current = [];
+  }, []);
+
+  const refreshWalletSnapshot = useCallback(async (
+    walletId: string,
+    options?: {
+      silent?: boolean;
+      syncTransactionHistory?: boolean;
+    }
+  ) => {
+    const silent = options?.silent ?? false;
+    const syncTransactionHistory = options?.syncTransactionHistory ?? false;
+
     if (
       walletDetailsInFlightRef.current &&
       walletDetailsInFlightWalletRef.current === walletId
     ) {
       await walletDetailsInFlightRef.current;
+      if (syncTransactionHistory) {
+        setTxRefreshKey((current) => current + 1);
+      }
       return;
     }
 
@@ -298,8 +382,14 @@ export function SimpleWalletDashboard({
         if (txResponse.ok) {
           const nextTransactions: TransactionListResponse = await txResponse.json();
           setActivity(mapActivity(nextTransactions));
+          if (syncTransactionHistory) {
+            setTxRefreshKey((current) => current + 1);
+          }
         } else {
           setActivity([]);
+          if (syncTransactionHistory && txResponse.status === 404) {
+            setTxRefreshKey((current) => current + 1);
+          }
         }
       } catch {
         // Non-critical: keep existing balance/activity or show zeros.
@@ -319,6 +409,42 @@ export function SimpleWalletDashboard({
     await currentFetch;
   }, []);
 
+  const invalidateWalletSnapshot = useCallback((
+    walletId: string,
+    options?: {
+      followUp?: boolean;
+      syncTransactionHistory?: boolean;
+    }
+  ) => {
+    const followUp = options?.followUp ?? false;
+    const syncTransactionHistory = options?.syncTransactionHistory ?? false;
+
+    clearWalletSnapshotRefreshes();
+    void refreshWalletSnapshot(walletId, {
+      silent: true,
+      syncTransactionHistory,
+    });
+
+    if (!followUp) {
+      return;
+    }
+
+    const refreshSequence = walletSnapshotRefreshSequenceRef.current;
+    for (const delayMs of [3_000, 8_000, 15_000]) {
+      const timer = setTimeout(() => {
+        if (walletSnapshotRefreshSequenceRef.current !== refreshSequence) {
+          return;
+        }
+
+        void refreshWalletSnapshot(walletId, {
+          silent: true,
+          syncTransactionHistory,
+        });
+      }, delayMs);
+      walletSnapshotRefreshTimersRef.current.push(timer);
+    }
+  }, [clearWalletSnapshotRefreshes, refreshWalletSnapshot]);
+
   // Listen for postMessage from callback popup
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -327,7 +453,10 @@ export function SimpleWalletDashboard({
         providerPopupRef.current?.close();
         providerPopupRef.current = null;
         if (selectedWalletId) {
-          void fetchWalletDetails(selectedWalletId);
+          invalidateWalletSnapshot(selectedWalletId, {
+            followUp: true,
+            syncTransactionHistory: true,
+          });
         }
         setPendingKey((k) => k + 1);
         setActiveDialog(null);
@@ -336,7 +465,7 @@ export function SimpleWalletDashboard({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [selectedWalletId, fetchWalletDetails]);
+  }, [invalidateWalletSnapshot, selectedWalletId]);
 
   // Skip initial wallet fetch if SSR already provided the wallet list.
   // Client-side actions (create/delete wallet) call fetchWallets() directly,
@@ -389,18 +518,23 @@ export function SimpleWalletDashboard({
     setActivity([]);
     setBookmarks([]);
     setBookmarksWalletId(null);
-    void fetchWalletDetails(selectedWalletId);
-  }, [selectedWalletId, fetchWalletDetails, ssrHasDetails, initialSelectedWalletId]);
+    void refreshWalletSnapshot(selectedWalletId);
+  }, [selectedWalletId, refreshWalletSnapshot, ssrHasDetails, initialSelectedWalletId]);
 
   // Periodic balance polling — keeps AVAX/rEUR in sync with on-chain state.
   // 60s interval is sufficient; balance changes are infrequent.
   useEffect(() => {
     if (!selectedWalletId) return;
     const interval = setInterval(() => {
-      void fetchWalletDetails(selectedWalletId, true);
+      void refreshWalletSnapshot(selectedWalletId, { silent: true });
     }, 60_000);
     return () => clearInterval(interval);
-  }, [selectedWalletId, fetchWalletDetails]);
+  }, [selectedWalletId, refreshWalletSnapshot]);
+
+  useEffect(() => {
+    clearWalletSnapshotRefreshes();
+    setLatestFiatRequest(null);
+  }, [selectedWalletId, clearWalletSnapshotRefreshes]);
 
   useEffect(() => {
     if (activeDialog !== "on_ramp" && activeDialog !== "off_ramp") return;
@@ -485,6 +619,11 @@ export function SimpleWalletDashboard({
       // Auto-open provider popup if URL is available
       if (payload.provider_action_url) {
         openProviderPopup(payload.provider_action_url);
+      } else {
+        invalidateWalletSnapshot(selectedWalletId, {
+          followUp: true,
+          syncTransactionHistory: true,
+        });
       }
       setPendingKey((k) => k + 1);
     } catch (onRampError) {
@@ -536,6 +675,10 @@ export function SimpleWalletDashboard({
       setOffRampName("");
       setOffRampIban("");
       setPendingKey((k) => k + 1);
+      invalidateWalletSnapshot(selectedWalletId, {
+        followUp: true,
+        syncTransactionHistory: true,
+      });
     } catch (offRampError) {
       setError(offRampError instanceof Error ? offRampError.message : "Off-ramp request failed");
     } finally {
@@ -543,28 +686,17 @@ export function SimpleWalletDashboard({
     }
   };
 
-  // Stable callback for PendingFiatRequests — refreshes balance once.
-  // PendingFiatRequests handles its own burst-polling for status updates,
-  // so we only need one immediate fetch here to update the balance display.
-  const handleTransferComplete = useCallback(() => {
+  const handleWalletSnapshotInvalidation = useCallback(() => {
     if (!selectedWalletId) return;
-    if (transferRefreshTimerRef.current) {
-      clearTimeout(transferRefreshTimerRef.current);
-      transferRefreshTimerRef.current = null;
-    }
-    // Delay the balance refresh slightly to let the chain confirm
-    transferRefreshTimerRef.current = setTimeout(() => {
-      void fetchWalletDetails(selectedWalletId, true);
-      transferRefreshTimerRef.current = null;
-    }, 3000);
-  }, [fetchWalletDetails, selectedWalletId]);
+    invalidateWalletSnapshot(selectedWalletId, {
+      followUp: true,
+      syncTransactionHistory: true,
+    });
+  }, [invalidateWalletSnapshot, selectedWalletId]);
 
   useEffect(() => () => {
-    if (transferRefreshTimerRef.current) {
-      clearTimeout(transferRefreshTimerRef.current);
-      transferRefreshTimerRef.current = null;
-    }
-  }, []);
+    clearWalletSnapshotRefreshes();
+  }, [clearWalletSnapshotRefreshes]);
 
   const avaxBalance = balance?.native_balance.balance_formatted ?? "0";
   const reurBalance =
@@ -577,7 +709,7 @@ export function SimpleWalletDashboard({
   const actionsDisabled = !selectedWallet || selectedWallet.status !== "active" || loadingWallets;
 
   if (!initialLoadComplete) {
-    return <main className="wallet-initial-blank" aria-hidden="true" />;
+    return <DashboardShellSkeleton />;
   }
 
   return (
@@ -641,7 +773,7 @@ export function SimpleWalletDashboard({
           <PendingFiatRequests
             walletId={selectedWallet.wallet_id}
             onProviderPopup={openProviderPopup}
-            onTransferComplete={handleTransferComplete}
+            onInvalidateWalletSnapshot={handleWalletSnapshotInvalidation}
             refreshNonce={pendingKey}
             latestRequest={latestFiatRequest}
           />
@@ -669,8 +801,9 @@ export function SimpleWalletDashboard({
             mode="dialog"
             onRequestClose={() => setActiveDialog(null)}
             onComplete={() => {
-              setTxRefreshKey((k) => k + 1);
-              void fetchWalletDetails(selectedWallet.wallet_id);
+              invalidateWalletSnapshot(selectedWallet.wallet_id, {
+                syncTransactionHistory: true,
+              });
             }}
           />
         </ActionDialog>
@@ -700,8 +833,10 @@ export function SimpleWalletDashboard({
           onClose={() => setActiveDialog(null)}
           title="All Activity"
           wide
+          dialogClassName="activity-dialog"
+          bodyClassName="activity-dialog-body"
         >
-          <TransactionList walletId={selectedWallet.wallet_id} refreshKey={txRefreshKey} />
+          <TransactionList walletId={selectedWallet.wallet_id} refreshKey={txRefreshKey} className="activity-transaction-list" />
         </ActionDialog>
       ) : null}
 

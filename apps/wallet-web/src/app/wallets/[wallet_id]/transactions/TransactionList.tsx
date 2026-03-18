@@ -11,6 +11,7 @@ interface TransactionListProps {
   walletId: string;
   /** Increment to trigger a re-fetch from a parent component */
   refreshKey?: number;
+  className?: string;
 }
 
 const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
@@ -45,7 +46,7 @@ function statusClass(status: TransactionSummary["status"]) {
   return "status-chip pending";
 }
 
-export function TransactionList({ walletId, refreshKey }: TransactionListProps) {
+export function TransactionList({ walletId, refreshKey, className }: TransactionListProps) {
   const [pages, setPages] = useState<TransactionSummary[][]>([]);
   const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -210,15 +211,41 @@ export function TransactionList({ walletId, refreshKey }: TransactionListProps) 
   const nextPageCursor = pageCursors[pageIndex + 1];
   const hasCachedNextPage = pages[pageIndex + 1] !== undefined;
   const hasNextPage = hasCachedNextPage || (typeof nextPageCursor === "string" && nextPageCursor.length > 0);
+  const pageSummary = `${currentTransactions.length} transaction${currentTransactions.length === 1 ? "" : "s"} on this page`;
 
   if (isLoading) {
     return (
-      <article className="card pad">
-        <div className="list-stack">
-          <div className="skeleton-line" />
-          <div className="skeleton-line" />
-          <div className="skeleton-line" />
-          <div className="skeleton-line" />
+      <article className={`card pad transaction-list-shell transaction-list-shell-loading${className ? ` ${className}` : ""}`}>
+        <div className="transaction-list-meta">
+          <div>
+            <div className="skeleton" style={{ width: "18rem", maxWidth: "100%", height: "0.875rem" }} />
+          </div>
+          <div className="transaction-page-indicator" aria-hidden="true">
+            Page 1
+          </div>
+        </div>
+        <div className="transaction-table-shell transaction-table-shell-loading" aria-hidden="true">
+          <div className="transaction-table-loading-header">
+            <span>Transaction</span>
+            <span>Direction</span>
+            <span>Amount</span>
+            <span>Token</span>
+            <span>Status</span>
+            <span>Date</span>
+          </div>
+          {[1, 2, 3, 4, 5, 6].map((row) => (
+            <div key={row} className="transaction-table-loading-row">
+              <div className="transaction-table-loading-cell transaction-table-loading-cell-primary">
+                <div className="skeleton" style={{ width: row % 2 === 0 ? "9.5rem" : "10.75rem", height: "0.875rem" }} />
+                <div className="skeleton" style={{ width: "7rem", height: "0.625rem", marginTop: "0.35rem" }} />
+              </div>
+              <div className="skeleton" style={{ width: "4.5rem", height: "1.5rem", borderRadius: "999px" }} />
+              <div className="skeleton" style={{ width: "4rem", height: "0.875rem" }} />
+              <div className="skeleton" style={{ width: "3rem", height: "0.875rem" }} />
+              <div className="skeleton" style={{ width: "5rem", height: "1.5rem", borderRadius: "999px" }} />
+              <div className="skeleton" style={{ width: "6rem", height: "0.875rem" }} />
+            </div>
+          ))}
         </div>
       </article>
     );
@@ -246,8 +273,19 @@ export function TransactionList({ walletId, refreshKey }: TransactionListProps) 
   }
 
   return (
-    <article className="card pad">
-      <div style={{ overflowX: "auto" }}>
+    <article className={`card pad transaction-list-shell${className ? ` ${className}` : ""}`}>
+      <div className="transaction-list-meta">
+        <div>
+          <p className="helper-text" style={{ margin: 0 }}>
+            Latest first. Showing up to {PAGE_SIZE} transactions per page.
+          </p>
+        </div>
+        <div className="transaction-page-indicator" aria-live="polite">
+          Page {pageIndex + 1}
+        </div>
+      </div>
+
+      <div className="transaction-table-shell">
         <table className="data-table" aria-label="Transactions">
           <thead>
             <tr>
@@ -300,36 +338,39 @@ export function TransactionList({ walletId, refreshKey }: TransactionListProps) 
         </div>
       ) : null}
       {hasPreviousPage || hasNextPage ? (
-        <div style={{ marginTop: "0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
-            disabled={!hasPreviousPage || isPageTransitioning}
-          >
-            Previous
-          </button>
-          <span className="text-muted" style={{ fontSize: "0.875rem" }}>
-            Page {pageIndex + 1}
-          </span>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => {
-              if (hasCachedNextPage) {
-                setPageIndex((current) => current + 1);
-                return;
-              }
-              if (typeof nextPageCursor === "string" && nextPageCursor.length > 0) {
-                void fetchPage(pageIndex + 1, nextPageCursor, {
-                  activate: true,
-                });
-              }
-            }}
-            disabled={!hasNextPage || isPageTransitioning}
-          >
-            {isPageTransitioning ? "Loading..." : "Next"}
-          </button>
+        <div className="transaction-pagination">
+          <div className="transaction-pagination-summary" aria-live="polite">
+            <span className="transaction-page-indicator compact">Page {pageIndex + 1}</span>
+            <span>{pageSummary}</span>
+          </div>
+          <div className="transaction-pagination-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+              disabled={!hasPreviousPage || isPageTransitioning}
+            >
+              Previous page
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                if (hasCachedNextPage) {
+                  setPageIndex((current) => current + 1);
+                  return;
+                }
+                if (typeof nextPageCursor === "string" && nextPageCursor.length > 0) {
+                  void fetchPage(pageIndex + 1, nextPageCursor, {
+                    activate: true,
+                  });
+                }
+              }}
+              disabled={!hasNextPage || isPageTransitioning}
+            >
+              {isPageTransitioning ? "Loading..." : "Next page"}
+            </button>
+          </div>
         </div>
       ) : null}
     </article>

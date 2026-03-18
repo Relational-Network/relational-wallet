@@ -2,31 +2,25 @@
 // Copyright (C) 2026 Relational Network
 
 import Link from "next/link";
+import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 
 /**
  * Wallet not found page.
  */
 export default function WalletNotFound() {
   return (
-    <main style={{ padding: "2rem", maxWidth: "600px", margin: "0 auto", textAlign: "center" }}>
-      <h1>Wallet Not Found</h1>
-      <p style={{ color: "#666" }}>
-        The wallet you are looking for does not exist or you do not have access to it.
-      </p>
-      <Link
-        href="/wallets"
-        style={{
-          display: "inline-block",
-          marginTop: "1rem",
-          padding: "0.5rem 1rem",
-          backgroundColor: "#333",
-          color: "#fff",
-          textDecoration: "none",
-          borderRadius: "4px",
-        }}
-      >
-        Back to Wallets
-      </Link>
-    </main>
+    <SimpleWalletShell>
+      <div className="card card-pad" style={{ textAlign: "center" }}>
+        <h1 style={{ margin: 0, fontSize: "1.5rem" }}>Wallet not found</h1>
+        <p className="text-secondary" style={{ margin: "0.75rem 0 0" }}>
+          The wallet you are looking for does not exist or you do not have access to it.
+        </p>
+        <div style={{ marginTop: "1rem" }}>
+          <Link href="/wallets" className="btn btn-primary">
+            Back to wallets
+          </Link>
+        </div>
+      </div>
+    </SimpleWalletShell>
   );
 }

@@ -610,19 +610,13 @@ pub async fn list_transactions(
         // Check cache for first page (no cursor, no direction filter)
         if query.cursor.is_none() && query.direction.is_none() {
             if let Some(tx_cache) = &state.tx_cache {
-                if let Some(cached) = tx_cache.get_first_page(&wallet_address) {
+                if let Some((cached, next_cursor)) = tx_cache.get_first_page(&wallet_address, limit)
+                {
                     let summaries: Vec<TransactionSummary> = cached
                         .iter()
                         .take(limit)
                         .map(|(tx, dir)| to_summary_with_direction(tx, dir))
                         .collect();
-                    let next_cursor = if cached.len() > limit {
-                        // We have more — but cache only holds first page; client should
-                        // re-request with cursor from the last item if they want more.
-                        None
-                    } else {
-                        None
-                    };
                     return Ok(Json(TransactionListResponse {
                         transactions: summaries,
                         next_cursor,
@@ -650,7 +644,7 @@ pub async fn list_transactions(
                 // Populate cache for first page (no cursor, no direction filter)
                 if query.cursor.is_none() && query.direction.is_none() {
                     if let Some(tx_cache) = &state.tx_cache {
-                        tx_cache.put_first_page(&wallet_address, results);
+                        tx_cache.put_first_page(&wallet_address, results, next_cursor.clone());
                     }
                 }
 

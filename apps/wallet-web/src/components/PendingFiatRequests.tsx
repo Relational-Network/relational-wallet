@@ -25,7 +25,7 @@ interface BalanceResponse {
 interface PendingFiatRequestsProps {
   walletId: string;
   onProviderPopup?: (url: string) => void;
-  onTransferComplete?: () => void;
+  onInvalidateWalletSnapshot?: () => void;
   refreshNonce?: number;
   /** Optimistically injected request — shown immediately before the next fetch. */
   latestRequest?: FiatRequest | null;
@@ -68,7 +68,7 @@ function shortenAddress(address: string): string {
 export function PendingFiatRequests({
   walletId,
   onProviderPopup,
-  onTransferComplete,
+  onInvalidateWalletSnapshot,
   refreshNonce,
   latestRequest,
 }: PendingFiatRequestsProps) {
@@ -81,19 +81,39 @@ export function PendingFiatRequests({
   const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Stable refs for callbacks so fetchRequests doesn't depend on their identity
-  const onTransferCompleteRef = useRef(onTransferComplete);
-  useEffect(() => { onTransferCompleteRef.current = onTransferComplete; });
+  const onInvalidateWalletSnapshotRef = useRef(onInvalidateWalletSnapshot);
+  useEffect(() => {
+    onInvalidateWalletSnapshotRef.current = onInvalidateWalletSnapshot;
+  }, [onInvalidateWalletSnapshot]);
 
   // Track previous active request IDs so we can detect completions
   const prevActiveIdsRef = useRef<Set<string>>(new Set());
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const lastFetchAtRef = useRef(0);
-  const delayedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the initial refreshNonce so we skip fetch on first render
   const initialNonceRef = useRef(refreshNonce);
   // Burst-polling after deposit/action: poll every 3s for fast updates
   const [burstPolling, setBurstPolling] = useState(false);
   const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopBurstPolling = useCallback(() => {
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
+      burstTimerRef.current = null;
+    }
+    setBurstPolling(false);
+  }, []);
+
+  const startBurstPolling = useCallback(() => {
+    setBurstPolling(true);
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
+    }
+    burstTimerRef.current = setTimeout(() => {
+      setBurstPolling(false);
+      burstTimerRef.current = null;
+    }, 90_000);
+  }, []);
 
   const fetchRequests = useCallback(async (force = false) => {
     const now = Date.now();
@@ -138,12 +158,15 @@ export function PendingFiatRequests({
             }
           }
           if (anyCompleted) {
-            onTransferCompleteRef.current?.();
+            onInvalidateWalletSnapshotRef.current?.();
           }
         }
 
         prevActiveIdsRef.current = newActiveIds;
         setRequests(active);
+        if (active.length === 0) {
+          stopBurstPolling();
+        }
       } catch {
         // Non-critical.
       } finally {
@@ -158,7 +181,7 @@ export function PendingFiatRequests({
     fetchInFlightRef.current = currentFetch;
     lastFetchAtRef.current = now;
     await currentFetch;
-  }, [walletId]);
+  }, [stopBurstPolling, walletId]);
 
   useEffect(() => {
     void fetchRequests(true);
@@ -187,13 +210,8 @@ export function PendingFiatRequests({
     });
     setLoading(false);
     // Also enable burst polling so we pick up status changes quickly
-    setBurstPolling(true);
-    if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
-    burstTimerRef.current = setTimeout(() => {
-      setBurstPolling(false);
-      burstTimerRef.current = null;
-    }, 90_000);
-  }, [latestRequest]);
+    startBurstPolling();
+  }, [latestRequest, startBurstPolling]);
 
   // Poll to pick up status changes.
   // Burst mode (after deposit/action): 3s intervals for near-instant feedback.
@@ -211,10 +229,6 @@ export function PendingFiatRequests({
   }, [fetchRequests, requests.length, loading, hasSettling, burstPolling]);
 
   useEffect(() => () => {
-    if (delayedRefreshTimerRef.current) {
-      clearTimeout(delayedRefreshTimerRef.current);
-      delayedRefreshTimerRef.current = null;
-    }
     if (burstTimerRef.current) {
       clearTimeout(burstTimerRef.current);
       burstTimerRef.current = null;
@@ -248,7 +262,7 @@ export function PendingFiatRequests({
     void fetchBalance();
   };
 
-  const confirmDeposit = async () => {
+  const confirmDeposit = useCallback(async () => {
     if (!depositRequest?.service_wallet_address) return;
 
     setSending(true);
@@ -290,14 +304,9 @@ export function PendingFiatRequests({
         )
       );
       setDepositRequest(null);
-      onTransferCompleteRef.current?.();
+      onInvalidateWalletSnapshotRef.current?.();
       // Enable burst polling (3s) to pick up deposit detection + provider status quickly
-      setBurstPolling(true);
-      if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
-      burstTimerRef.current = setTimeout(() => {
-        setBurstPolling(false);
-        burstTimerRef.current = null;
-      }, 90_000); // 90s of burst polling
+      startBurstPolling();
       // Immediate refetch to pick up chain state
       void fetchRequests(true);
     } catch (err) {
@@ -308,7 +317,7 @@ export function PendingFiatRequests({
     } finally {
       setSending(false);
     }
-  };
+  }, [depositRequest, fetchRequests, startBurstPolling, walletId]);
 
   if (loading && requests.length === 0) return null;
   if (requests.length === 0) return null;

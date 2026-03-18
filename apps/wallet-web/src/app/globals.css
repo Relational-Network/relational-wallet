@@ -215,7 +215,15 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow-lg);
   animation: slideUp 0.2s ease;
 }
-.dialog-card.wide { width: min(720px, 100%); }
+.dialog-card.wide { width: min(840px, 100%); }
+.dialog-card.activity-dialog {
+  width: min(920px, 100%);
+  height: min(78dvh, 760px);
+  min-height: min(78dvh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .dialog-header {
   position: sticky;
   top: 0;
@@ -230,6 +238,11 @@ a { color: inherit; text-decoration: none; }
 }
 .dialog-header h2 { margin: 0; font-size: 1rem; font-weight: 700; }
 .dialog-body { padding: 1rem; }
+.dialog-body.activity-dialog-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 /* ── Tables ────────────────────────────────────────────────────────── */
 .data-table {
   width: 100%;
@@ -257,6 +270,95 @@ a { color: inherit; text-decoration: none; }
 }
 .data-table tbody tr:hover {
   background: var(--bg-subtle);
+}
+.transaction-list-shell {
+  display: grid;
+  gap: 0.875rem;
+}
+.transaction-list-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.transaction-table-shell {
+  overflow-x: auto;
+}
+.transaction-list-shell-loading {
+  min-height: 100%;
+}
+.transaction-table-shell-loading {
+  min-height: 28rem;
+  overflow: hidden;
+}
+.transaction-table-loading-header,
+.transaction-table-loading-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2.2fr) minmax(6rem, 0.9fr) minmax(5rem, 0.8fr) minmax(4rem, 0.7fr) minmax(6rem, 0.9fr) minmax(7rem, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+.transaction-table-loading-header {
+  padding: 0.75rem 0.875rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.transaction-table-loading-row {
+  min-height: 4.25rem;
+  padding: 0.875rem;
+  border-bottom: 1px solid var(--border);
+}
+.transaction-table-loading-row:last-child {
+  border-bottom: none;
+}
+.transaction-table-loading-cell {
+  min-width: 0;
+}
+.transaction-table-loading-cell-primary {
+  display: grid;
+  gap: 0.25rem;
+}
+.transaction-page-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.transaction-page-indicator.compact {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+}
+.transaction-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.transaction-pagination-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  flex-wrap: wrap;
+}
+.transaction-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
 }
 
 .tx-link {
@@ -430,15 +532,18 @@ a { color: inherit; text-decoration: none; }
 }
 .app-top-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .app-top-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-.wallet-initial-blank {
-  min-height: 100dvh;
-  width: 100%;
-  background: #fff;
-}
 .wallet-dashboard-shell {
   min-height: max(34rem, calc(100dvh - 5.5rem));
   display: grid;
   gap: 0.75rem;
+}
+.wallet-dashboard-skeleton .balance-card,
+.wallet-dashboard-skeleton .card {
+  contain: layout paint;
+}
+.wallet-skeleton-action {
+  pointer-events: none;
+  cursor: default;
 }
 
 /* ── Bottom tab bar ────────────────────────────────────────────────── */
@@ -916,7 +1021,44 @@ a { color: inherit; text-decoration: none; }
   .app-container { width: calc(100% - 1rem); padding-top: 0.5rem; }
   .dialog-backdrop { padding: 0.5rem; place-items: end center; }
   .dialog-card { border-radius: var(--radius-lg) var(--radius-lg) 0 0; max-height: 92dvh; }
+  .dialog-card.wide { width: 100%; }
+  .dialog-card.activity-dialog {
+    width: 100%;
+    height: 92dvh;
+    min-height: 92dvh;
+  }
+  .dialog-body.activity-dialog-body {
+    padding: 0.75rem;
+  }
   .bookmark-contact { padding: 0.375rem 0.625rem; }
+  .transaction-list-meta {
+    align-items: stretch;
+  }
+  .transaction-table-shell-loading {
+    min-height: 22rem;
+  }
+  .transaction-table-loading-header {
+    display: none;
+  }
+  .transaction-table-loading-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+    min-height: auto;
+    padding: 0.875rem 0.25rem;
+  }
+  .transaction-pagination {
+    align-items: stretch;
+  }
+  .transaction-pagination-summary {
+    justify-content: center;
+  }
+  .transaction-pagination-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+  .transaction-pagination-actions .btn {
+    flex: 1;
+  }
   
   /* Mobile table - stack cells */
   .data-table thead { display: none; }
