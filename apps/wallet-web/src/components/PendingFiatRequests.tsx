@@ -36,8 +36,8 @@ function statusLabel(status: FiatRequest["status"]): string {
     case "queued": return "Processing";
     case "awaiting_provider": return "Awaiting authorization";
     case "awaiting_user_deposit": return "Action required";
-    case "settlement_pending": return "Settling";
-    case "provider_pending": return "Provider processing";
+    case "settlement_pending": return "Processing";
+    case "provider_pending": return "Processing";
     case "completed": return "Completed";
     case "failed": return "Failed";
     default: return status;
@@ -145,9 +145,20 @@ export function PendingFiatRequests({
         const active = payload.requests.filter((r) =>
           ACTIVE_STATUSES.includes(r.status)
         );
+        const mergedActive =
+          latestRequest &&
+          ACTIVE_STATUSES.includes(latestRequest.status)
+            ? active.map((request) =>
+                request.request_id === latestRequest.request_id &&
+                request.status === "awaiting_user_deposit" &&
+                latestRequest.status !== "awaiting_user_deposit"
+                  ? latestRequest
+                  : request
+              )
+            : active;
 
         // Detect requests that were previously active but are no longer
-        const newActiveIds = new Set(active.map((r) => r.request_id));
+        const newActiveIds = new Set(mergedActive.map((r) => r.request_id));
         const prevIds = prevActiveIdsRef.current;
         if (prevIds.size > 0) {
           let anyCompleted = false;
@@ -163,8 +174,8 @@ export function PendingFiatRequests({
         }
 
         prevActiveIdsRef.current = newActiveIds;
-        setRequests(active);
-        if (active.length === 0) {
+        setRequests(mergedActive);
+        if (mergedActive.length === 0) {
           stopBurstPolling();
         }
       } catch {
@@ -181,7 +192,7 @@ export function PendingFiatRequests({
     fetchInFlightRef.current = currentFetch;
     lastFetchAtRef.current = now;
     await currentFetch;
-  }, [stopBurstPolling, walletId]);
+  }, [latestRequest, stopBurstPolling, walletId]);
 
   useEffect(() => {
     void fetchRequests(true);

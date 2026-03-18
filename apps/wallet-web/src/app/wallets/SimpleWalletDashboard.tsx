@@ -6,10 +6,12 @@
 import { UserButton } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { flushSync } from "react-dom";
 import type {
   Bookmark,
   FiatProviderListResponse,
   FiatRequest,
+  FiatRequestListResponse,
   TransactionListResponse,
   WalletListResponse,
   WalletResponse,
@@ -18,7 +20,6 @@ import { AddressQRCode } from "@/components/AddressQRCode";
 import { CopyAddress } from "@/components/CopyAddress";
 import { ActionDialog } from "@/components/ActionDialog";
 import { ManageWalletsSheet } from "@/components/ManageWalletsSheet";
-import { PendingFiatRequests } from "@/components/PendingFiatRequests";
 import { PaymentRequestBuilder } from "@/app/wallets/[wallet_id]/receive/PaymentRequestBuilder";
 import { SendForm } from "@/app/wallets/[wallet_id]/send/SendForm";
 import { TransactionList } from "@/app/wallets/[wallet_id]/transactions/TransactionList";
@@ -49,12 +50,80 @@ type ActiveDialog =
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
 const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
+const ACTIVE_OFF_RAMP_STATUSES: FiatRequest["status"][] = [
+  "awaiting_user_deposit",
+  "provider_pending",
+  "settlement_pending",
+  "awaiting_provider",
+  "queued",
+];
+
+type OffRampFlowStep = "form" | "transfer" | "processing";
 
 function tokenLabel(token: string): string {
   if (token === "native") return "AVAX";
   const normalized = token.toLowerCase();
   if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
   return "TOKEN";
+}
+
+function formatFiatStatus(status: FiatRequest["status"]): string {
+  switch (status) {
+    case "queued":
+      return "Queued";
+    case "awaiting_provider":
+      return "Awaiting authorization";
+    case "awaiting_user_deposit":
+      return "Action required";
+    case "settlement_pending":
+    case "provider_pending":
+      return "Processing";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    default:
+      return status;
+  }
+}
+
+function fiatStatusChipClass(status: FiatRequest["status"]): string {
+  if (status === "completed") return "status-chip success";
+  if (status === "failed") return "status-chip failed";
+  if (status === "awaiting_user_deposit") return "status-chip action";
+  return "status-chip warn";
+}
+
+function findLatestActiveOffRamp(requests: FiatRequest[]): FiatRequest | null {
+  const active = requests
+    .filter(
+      (request) =>
+        request.direction === "off_ramp" && ACTIVE_OFF_RAMP_STATUSES.includes(request.status)
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+    );
+  return active[0] ?? null;
+}
+
+function stepForOffRampRequest(request: FiatRequest | null): OffRampFlowStep {
+  if (!request) return "form";
+  if (request.status === "awaiting_user_deposit") return "transfer";
+  return "processing";
+}
+
+function shouldKeepOptimisticOffRamp(
+  currentRequest: FiatRequest | null,
+  nextRequest: FiatRequest | null
+): boolean {
+  return Boolean(
+    currentRequest &&
+      nextRequest &&
+      currentRequest.request_id === nextRequest.request_id &&
+      currentRequest.status === "provider_pending" &&
+      nextRequest.status === "awaiting_user_deposit"
+  );
 }
 
 function shortenAddress(address: string) {
@@ -238,8 +307,11 @@ export function SimpleWalletDashboard({
     serviceWalletAddress: string | null;
     failureReason: string | null;
   } | null>(null);
-  const [pendingKey, setPendingKey] = useState(0);
-  const [latestFiatRequest, setLatestFiatRequest] = useState<FiatRequest | null>(null);
+  const [offRampFlowStep, setOffRampFlowStep] = useState<OffRampFlowStep>("form");
+  const [offRampActiveRequest, setOffRampActiveRequest] = useState<FiatRequest | null>(null);
+  const [offRampSending, setOffRampSending] = useState(false);
+  const [offRampError, setOffRampError] = useState<string | null>(null);
+  const [offRampInfo, setOffRampInfo] = useState<string | null>(null);
   const providerPopupRef = useRef<Window | null>(null);
   const walletDetailsInFlightRef = useRef<Promise<void> | null>(null);
   const walletDetailsInFlightWalletRef = useRef<string | null>(null);
@@ -459,7 +531,6 @@ export function SimpleWalletDashboard({
             syncTransactionHistory: true,
           });
         }
-        setPendingKey((k) => k + 1);
         setActiveDialog(null);
         setFiatResult(null);
       }
@@ -550,13 +621,176 @@ export function SimpleWalletDashboard({
 
   useEffect(() => {
     clearWalletSnapshotRefreshes();
-    setLatestFiatRequest(null);
+    setOffRampActiveRequest(null);
+    setOffRampFlowStep("form");
+    setOffRampError(null);
+    setOffRampInfo(null);
+    setFiatResult(null);
   }, [selectedWalletId, clearWalletSnapshotRefreshes]);
 
   useEffect(() => {
     if (activeDialog !== "on_ramp" && activeDialog !== "off_ramp") return;
     void fetchProviders();
   }, [activeDialog, fetchProviders]);
+
+  const fetchOffRampRequestById = useCallback(async (
+    requestId: string
+  ): Promise<FiatRequest | null> => {
+    try {
+      const response = await fetch(
+        `/api/proxy/v1/fiat/requests/${encodeURIComponent(requestId)}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as FiatRequest;
+      let resolvedPayload = payload;
+      setOffRampActiveRequest((currentRequest) => {
+        if (shouldKeepOptimisticOffRamp(currentRequest, payload)) {
+          const optimisticRequest = currentRequest as FiatRequest;
+          resolvedPayload = optimisticRequest;
+          return optimisticRequest;
+        }
+        return payload;
+      });
+      setOffRampFlowStep((currentStep) =>
+        currentStep === "processing" && resolvedPayload.status === "awaiting_user_deposit"
+          ? "processing"
+          : stepForOffRampRequest(resolvedPayload)
+      );
+      if (resolvedPayload.status === "completed" || resolvedPayload.status === "failed") {
+        setOffRampInfo(null);
+      }
+      return resolvedPayload;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const syncOffRampFlow = useCallback(async (
+    walletId: string
+  ): Promise<FiatRequest | null> => {
+    try {
+      const params = new URLSearchParams({
+        wallet_id: walletId,
+        active_only: "true",
+        limit: "25",
+      });
+      const response = await fetch(`/api/proxy/v1/fiat/requests?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        setOffRampActiveRequest(null);
+        setOffRampFlowStep("form");
+        return null;
+      }
+
+      const payload = (await response.json()) as FiatRequestListResponse;
+      const nextRequest = findLatestActiveOffRamp(payload.requests);
+      let resolvedRequest = nextRequest;
+      setOffRampActiveRequest((currentRequest) => {
+        if (shouldKeepOptimisticOffRamp(currentRequest, nextRequest)) {
+          resolvedRequest = currentRequest;
+          return currentRequest;
+        }
+        return nextRequest;
+      });
+      setOffRampFlowStep(stepForOffRampRequest(resolvedRequest));
+      if (!resolvedRequest) {
+        setOffRampInfo(null);
+      }
+      return resolvedRequest;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const fetchLatestActiveOffRamp = useCallback(async (
+    walletId: string
+  ): Promise<FiatRequest | null> => {
+    try {
+      const params = new URLSearchParams({
+        wallet_id: walletId,
+        active_only: "true",
+        limit: "25",
+      });
+      const response = await fetch(`/api/proxy/v1/fiat/requests?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as FiatRequestListResponse;
+      return findLatestActiveOffRamp(payload.requests);
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedWalletId) return;
+    void syncOffRampFlow(selectedWalletId);
+  }, [selectedWalletId, syncOffRampFlow]);
+
+  const openOffRampDialog = useCallback(async () => {
+    if (!selectedWalletId) return;
+    setOffRampError(null);
+    setOffRampInfo(null);
+
+    const nextRequest =
+      offRampActiveRequest?.wallet_id === selectedWalletId
+        ? offRampActiveRequest
+        : await fetchLatestActiveOffRamp(selectedWalletId);
+
+    flushSync(() => {
+      setOffRampActiveRequest(nextRequest);
+      setOffRampFlowStep(stepForOffRampRequest(nextRequest));
+      if (!nextRequest) {
+        setOffRampInfo(null);
+      }
+      setActiveDialog("off_ramp");
+    });
+  }, [fetchLatestActiveOffRamp, offRampActiveRequest, selectedWalletId]);
+
+  useEffect(() => {
+    if (activeDialog !== "off_ramp" || !selectedWalletId) return;
+    setOffRampError(null);
+    void syncOffRampFlow(selectedWalletId);
+  }, [activeDialog, selectedWalletId, syncOffRampFlow]);
+
+  useEffect(() => {
+    if (activeDialog !== "off_ramp" || !selectedWalletId) return;
+    if (offRampFlowStep !== "transfer") return;
+    void refreshWalletSnapshot(selectedWalletId, { silent: true });
+  }, [activeDialog, offRampFlowStep, refreshWalletSnapshot, selectedWalletId]);
+
+  useEffect(() => {
+    if (activeDialog !== "off_ramp") return;
+    if (!offRampActiveRequest) return;
+    if (
+      offRampActiveRequest.status === "completed" ||
+      offRampActiveRequest.status === "failed"
+    ) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      void fetchOffRampRequestById(offRampActiveRequest.request_id);
+    }, offRampActiveRequest.status === "awaiting_user_deposit" ? 5_000 : 10_000);
+
+    return () => clearInterval(interval);
+  }, [activeDialog, fetchOffRampRequestById, offRampActiveRequest]);
 
   const createWallet = async (label?: string) => {
     setError(null);
@@ -630,8 +864,6 @@ export function SimpleWalletDashboard({
         serviceWalletAddress: payload.service_wallet_address || null,
         failureReason: payload.failure_reason || null,
       });
-      // Optimistically inject the new request into PendingFiatRequests
-      setLatestFiatRequest(payload);
       setOnRampNote("");
       // Auto-open provider popup if URL is available
       if (payload.provider_action_url) {
@@ -642,7 +874,6 @@ export function SimpleWalletDashboard({
           syncTransactionHistory: true,
         });
       }
-      setPendingKey((k) => k + 1);
     } catch (onRampError) {
       setError(onRampError instanceof Error ? onRampError.message : "On-ramp request failed");
     } finally {
@@ -655,7 +886,8 @@ export function SimpleWalletDashboard({
 
     setFiatSubmitting("off");
     setError(null);
-    setFiatResult(null);
+    setOffRampError(null);
+    setOffRampInfo(null);
 
     try {
       const response = await fetch("/api/proxy/v1/fiat/offramp/requests", {
@@ -674,42 +906,81 @@ export function SimpleWalletDashboard({
 
       if (!response.ok) {
         const text = await response.text();
-        setError(text || `Off-ramp failed (${response.status})`);
+        setOffRampError(text || `Off-ramp failed (${response.status})`);
         return;
       }
 
       const payload = (await response.json()) as FiatRequest;
-      setFiatResult({
-        requestId: payload.request_id,
-        actionUrl: payload.provider_action_url || null,
-        status: payload.status,
-        serviceWalletAddress: payload.service_wallet_address || null,
-        failureReason: payload.failure_reason || null,
-      });
-      // Optimistically inject the new request into PendingFiatRequests
-      setLatestFiatRequest(payload);
+      setOffRampActiveRequest(payload);
+      setOffRampInfo(null);
+      setOffRampFlowStep(stepForOffRampRequest(payload));
       setOffRampNote("");
       setOffRampName("");
       setOffRampIban("");
-      setPendingKey((k) => k + 1);
       invalidateWalletSnapshot(selectedWalletId, {
         followUp: true,
         syncTransactionHistory: true,
       });
     } catch (offRampError) {
-      setError(offRampError instanceof Error ? offRampError.message : "Off-ramp request failed");
+      setOffRampError(
+        offRampError instanceof Error ? offRampError.message : "Off-ramp request failed"
+      );
     } finally {
       setFiatSubmitting(null);
     }
   };
 
-  const handleWalletSnapshotInvalidation = useCallback(() => {
-    if (!selectedWalletId) return;
-    invalidateWalletSnapshot(selectedWalletId, {
-      followUp: true,
-      syncTransactionHistory: true,
-    });
-  }, [invalidateWalletSnapshot, selectedWalletId]);
+  const submitOffRampTransfer = async () => {
+    if (!selectedWalletId || !offRampActiveRequest?.service_wallet_address) return;
+
+    setOffRampSending(true);
+    setOffRampError(null);
+    setOffRampInfo(null);
+
+    try {
+      const response = await fetch(
+        `/api/proxy/v1/wallets/${encodeURIComponent(selectedWalletId)}/send`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: offRampActiveRequest.service_wallet_address,
+            amount: offRampActiveRequest.amount_eur,
+            token: REUR_FUJI_ADDRESS,
+            network: "fuji",
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        setOffRampError(text || `Transfer failed (${response.status})`);
+        return;
+      }
+
+      const optimisticRequest: FiatRequest = {
+        ...offRampActiveRequest,
+        status: "provider_pending",
+        failure_reason: undefined,
+        updated_at: new Date().toISOString(),
+      };
+      setOffRampActiveRequest(optimisticRequest);
+      setOffRampFlowStep("processing");
+      setOffRampInfo("Transfer submitted. Your payout is now processing.");
+      invalidateWalletSnapshot(selectedWalletId, {
+        followUp: true,
+        syncTransactionHistory: true,
+      });
+      void fetchOffRampRequestById(offRampActiveRequest.request_id);
+    } catch (sendError) {
+      setOffRampError(
+        sendError instanceof Error ? sendError.message : "Transfer failed"
+      );
+    } finally {
+      setOffRampSending(false);
+    }
+  };
 
   useEffect(() => () => {
     clearWalletSnapshotRefreshes();
@@ -719,6 +990,14 @@ export function SimpleWalletDashboard({
   const reurBalance =
     balance?.token_balances.find((token) => token.symbol.toUpperCase() === "REUR")
       ?.balance_formatted ?? "0";
+  const offRampAmountValue = offRampActiveRequest
+    ? Number.parseFloat(offRampActiveRequest.amount_eur)
+    : 0;
+  const reurBalanceValue = Number.parseFloat(reurBalance);
+  const offRampInsufficientBalance =
+    !Number.isNaN(offRampAmountValue) &&
+    !Number.isNaN(reurBalanceValue) &&
+    reurBalanceValue < offRampAmountValue;
   const initialLoadComplete = !loadingWallets;
   const dashboardLoading = loadingWallets || (selectedWallet !== null && loadingDetails && !detailsLoaded);
   const walletLabel = selectedWallet?.label || "Wallet";
@@ -783,18 +1062,8 @@ export function SimpleWalletDashboard({
           }}
           onReceive={() => setActiveDialog("receive")}
           onOnRamp={() => setActiveDialog("on_ramp")}
-          onOffRamp={() => setActiveDialog("off_ramp")}
+          onOffRamp={() => void openOffRampDialog()}
         />
-
-        {selectedWallet && selectedWallet.status === "active" ? (
-          <PendingFiatRequests
-            walletId={selectedWallet.wallet_id}
-            onProviderPopup={openProviderPopup}
-            onInvalidateWalletSnapshot={handleWalletSnapshotInvalidation}
-            refreshNonce={pendingKey}
-            latestRequest={latestFiatRequest}
-          />
-        ) : null}
 
         <RecentActivityPreview
           items={activity}
@@ -940,57 +1209,237 @@ export function SimpleWalletDashboard({
       {selectedWallet ? (
         <ActionDialog
           open={activeDialog === "off_ramp"}
-          onClose={() => { setActiveDialog(null); setFiatResult(null); }}
+          onClose={() => {
+            setActiveDialog(null);
+            setOffRampError(null);
+            setOffRampInfo(null);
+          }}
           title="Off-Ramp"
+          dialogClassName="fiat-flow-dialog"
+          bodyClassName="fiat-flow-body"
         >
-          {fiatResult && activeDialog === "off_ramp" ? (
-            <div className="stack">
-              <div className="fiat-result">
-                <p className="fiat-result-title">✓ Off-ramp request created</p>
-                <p className="fiat-result-detail">Request ID: {fiatResult.requestId}</p>
-                <p className="fiat-result-detail">Status: {fiatResult.status}</p>
+          <div className="fiat-flow-shell">
+            <div className="fiat-flow-status" aria-live="polite">
+              <div className={`fiat-result fiat-status-card${offRampActiveRequest ? "" : " fiat-result-neutral"}`}>
+                <p className="fiat-result-title">
+                  {offRampActiveRequest
+                    ? offRampFlowStep === "transfer"
+                      ? "Off-ramp ready for transfer"
+                      : offRampActiveRequest.status === "completed"
+                        ? "Off-ramp completed"
+                        : offRampActiveRequest.status === "failed"
+                          ? "Off-ramp needs attention"
+                          : "Off-ramp in progress"
+                    : "Create off-ramp request"}
+                </p>
+                {offRampActiveRequest ? (
+                  <>
+                    <p className="fiat-result-detail fiat-status-detail">
+                      {`Request ID: ${offRampActiveRequest.request_id}`}
+                    </p>
+                    <div className="fiat-status-row">
+                      <span className={fiatStatusChipClass(offRampActiveRequest.status)}>
+                        {formatFiatStatus(offRampActiveRequest.status)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="fiat-result-detail fiat-status-detail">
+                    Enter the payout details below, then confirm the rEUR transfer in this dialog.
+                  </p>
+                )}
               </div>
-              {fiatResult.serviceWalletAddress ? (
-                <div className="alert success">
-                  Send rEUR to reserve wallet: <span className="mono">{fiatResult.serviceWalletAddress}</span>
+            </div>
+
+            <div className="fiat-flow-content">
+              {offRampFlowStep === "form" ? (
+                <div className="stack fiat-flow-form">
+                  <div className="field">
+                    <label>Amount (EUR)</label>
+                    <input value={offRampAmount} onChange={(event) => setOffRampAmount(event.target.value)} inputMode="decimal" />
+                  </div>
+                  <div className="field">
+                    <label>Account holder name</label>
+                    <input value={offRampName} onChange={(event) => setOffRampName(event.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>IBAN</label>
+                    <input value={offRampIban} onChange={(event) => setOffRampIban(event.target.value)} placeholder="DE89…" style={{ fontFamily: "var(--font-mono)" }} />
+                  </div>
+                  <div className="field">
+                    <label>Note (optional)</label>
+                    <input value={offRampNote} onChange={(event) => setOffRampNote(event.target.value)} placeholder="Reference" />
+                  </div>
                 </div>
-              ) : null}
-              {fiatResult.failureReason ? (
-                <div className="alert alert-error">{fiatResult.failureReason}</div>
-              ) : null}
-              <button type="button" className="btn btn-secondary" onClick={() => { setActiveDialog(null); setFiatResult(null); }}>
-                Done
-              </button>
+              ) : offRampFlowStep === "transfer" && offRampActiveRequest ? (
+                <div className="stack">
+                  <p className="text-muted" style={{ margin: 0 }}>
+                    Transfer rEUR to the reserve wallet to continue your off-ramp payout.
+                  </p>
+                  <div className="confirm-summary">
+                    <div className="confirm-row">
+                      <span className="confirm-label">Amount</span>
+                      <span className="confirm-value large">{offRampActiveRequest.amount_eur} rEUR</span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">Your balance</span>
+                      <span className={`confirm-value${offRampInsufficientBalance ? " insufficient" : ""}`}>
+                        {loadingDetails ? "Loading…" : `${reurBalance} rEUR`}
+                      </span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">To</span>
+                      <span className="confirm-value mono">
+                        {offRampActiveRequest.service_wallet_address ?? "Unavailable"}
+                      </span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">Network</span>
+                      <span className="confirm-value">Fuji testnet</span>
+                    </div>
+                  </div>
+                  {offRampInsufficientBalance ? (
+                    <div className="alert alert-warning">
+                      Insufficient rEUR balance for this transfer.
+                    </div>
+                  ) : (
+                    <div className="fiat-flow-placeholder">
+                      <p className="text-muted" style={{ margin: 0 }}>
+                        This request will stay recoverable here if you close and reopen the off-ramp dialog.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : offRampActiveRequest ? (
+                <div className="stack fiat-flow-form">
+                  <p className="text-muted" style={{ margin: 0 }}>
+                    {offRampActiveRequest.status === "failed"
+                      ? "The payout did not complete. Review the error and open the fiat page for full history."
+                      : offRampActiveRequest.status === "completed"
+                        ? "Your off-ramp completed successfully."
+                        : "Your rEUR transfer has been submitted. We’re waiting for deposit detection and provider payout completion."}
+                  </p>
+                  <div className="confirm-summary">
+                    <div className="confirm-row">
+                      <span className="confirm-label">Amount</span>
+                      <span className="confirm-value large">{offRampActiveRequest.amount_eur} EUR</span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">Reserve wallet</span>
+                      <span className="confirm-value mono">
+                        {offRampActiveRequest.service_wallet_address ?? "Unavailable"}
+                      </span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">Deposit tx</span>
+                      <span className="confirm-value mono">
+                        {offRampActiveRequest.deposit_tx_hash ?? "Pending"}
+                      </span>
+                    </div>
+                    <div className="confirm-row">
+                      <span className="confirm-label">Updated</span>
+                      <span className="confirm-value">
+                        {new Date(offRampActiveRequest.updated_at).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="stack fiat-flow-form">
+                  <div className="field">
+                    <label>Amount (EUR)</label>
+                    <input value={offRampAmount} onChange={(event) => setOffRampAmount(event.target.value)} inputMode="decimal" />
+                  </div>
+                  <div className="field">
+                    <label>Account holder name</label>
+                    <input value={offRampName} onChange={(event) => setOffRampName(event.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>IBAN</label>
+                    <input value={offRampIban} onChange={(event) => setOffRampIban(event.target.value)} placeholder="DE89…" style={{ fontFamily: "var(--font-mono)" }} />
+                  </div>
+                  <div className="field">
+                    <label>Note (optional)</label>
+                    <input value={offRampNote} onChange={(event) => setOffRampNote(event.target.value)} placeholder="Reference" />
+                  </div>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="stack">
-              <div className="field">
-                <label>Amount (EUR)</label>
-                <input value={offRampAmount} onChange={(event) => setOffRampAmount(event.target.value)} inputMode="decimal" />
+
+            {offRampError || offRampInfo ? (
+              <div className="fiat-flow-feedback" aria-live="polite">
+                {offRampError ? <div className="alert alert-error">{offRampError}</div> : null}
+                {!offRampError && offRampInfo ? (
+                  <div className="alert alert-success">{offRampInfo}</div>
+                ) : null}
               </div>
-              <div className="field">
-                <label>Account holder name</label>
-                <input value={offRampName} onChange={(event) => setOffRampName(event.target.value)} />
-              </div>
-              <div className="field">
-                <label>IBAN</label>
-                <input value={offRampIban} onChange={(event) => setOffRampIban(event.target.value)} placeholder="DE89…" style={{ fontFamily: "var(--font-mono)" }} />
-              </div>
-              <div className="field">
-                <label>Note (optional)</label>
-                <input value={offRampNote} onChange={(event) => setOffRampNote(event.target.value)} placeholder="Reference" />
-              </div>
-              {error && activeDialog === "off_ramp" ? <div className="alert alert-error">{error}</div> : null}
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => void createOffRamp()}
-                disabled={fiatSubmitting !== null || !offRampAmount.trim()}
-              >
-                {fiatSubmitting === "off" ? "Creating…" : "Create Off-Ramp Request"}
-              </button>
+            ) : null}
+
+            <div className="fiat-flow-actions">
+              {offRampFlowStep === "form" ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setActiveDialog(null)}
+                    disabled={fiatSubmitting !== null}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void createOffRamp()}
+                    disabled={fiatSubmitting !== null || !offRampAmount.trim()}
+                  >
+                    {fiatSubmitting === "off" ? "Creating…" : "Create Off-Ramp Request"}
+                  </button>
+                </>
+              ) : offRampFlowStep === "transfer" ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setActiveDialog(null)}
+                    disabled={offRampSending}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void submitOffRampTransfer()}
+                    disabled={
+                      offRampSending ||
+                      !offRampActiveRequest?.service_wallet_address ||
+                      offRampInsufficientBalance
+                    }
+                  >
+                    {offRampSending
+                      ? "Sending…"
+                      : `Transfer ${offRampActiveRequest?.amount_eur ?? offRampAmount} rEUR`}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href={`/wallets/${encodeURIComponent(selectedWallet.wallet_id)}/fiat`}
+                    className="btn btn-ghost"
+                    onClick={() => setActiveDialog(null)}
+                  >
+                    Open Fiat Page
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setActiveDialog(null)}
+                  >
+                    Done
+                  </button>
+                </>
+              )}
             </div>
-          )}
+          </div>
         </ActionDialog>
       ) : null}
     </SimpleWalletShell>
