@@ -36,8 +36,11 @@ async function backendGet<T>(path: string, token: string): Promise<T | null> {
 }
 
 export default async function WalletsPage() {
-  const { userId, getToken } = await auth();
+  const { userId, getToken, sessionClaims } = await auth();
   if (!userId) redirect("/sign-in");
+
+  const isAdmin =
+    (sessionClaims?.publicMetadata as { role?: string } | undefined)?.role === "admin";
 
   const token =
     (await getToken({ template: "default" }).catch(() => null)) ??
@@ -45,7 +48,7 @@ export default async function WalletsPage() {
 
   if (!token) {
     // Can't prefetch without a token — fall back to client-side loading.
-    return <SimpleWalletDashboard />;
+    return <SimpleWalletDashboard isAdmin={isAdmin} />;
   }
 
   // Prefetch wallets during SSR
@@ -83,6 +86,7 @@ export default async function WalletsPage() {
       initialSelectedWalletId={firstWallet?.wallet_id ?? null}
       initialBalance={initialBalance}
       initialTransactions={initialTransactions}
+      isAdmin={isAdmin}
     />
   );
 }

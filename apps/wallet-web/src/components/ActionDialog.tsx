@@ -28,6 +28,10 @@ export function ActionDialog({
   useEffect(() => {
     if (!open) return;
 
+    // Lock body scroll while dialog is open
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
@@ -35,7 +39,10 @@ export function ActionDialog({
     };
 
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prev;
+    };
   }, [open, onClose]);
 
   if (!open) return null;

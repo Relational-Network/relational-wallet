@@ -266,6 +266,8 @@ interface SimpleWalletDashboardProps {
   initialSelectedWalletId?: string | null;
   initialBalance?: BalanceResponse | null;
   initialTransactions?: TransactionListResponse | null;
+  /** Whether the current user has admin role (from Clerk public metadata). */
+  isAdmin?: boolean;
 }
 
 export function SimpleWalletDashboard({
@@ -273,6 +275,7 @@ export function SimpleWalletDashboard({
   initialSelectedWalletId,
   initialBalance,
   initialTransactions,
+  isAdmin = false,
 }: SimpleWalletDashboardProps = {}) {
   const hasSSRData = !!(initialWallets && initialWallets.length > 0);
   const ssrHasDetails = hasSSRData && !!(initialBalance || initialTransactions);
@@ -1020,18 +1023,20 @@ export function SimpleWalletDashboard({
             Manage Wallet(s)
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Link
-              href="/wallets/bootstrap"
-              className="btn btn-ghost"
-              title="Bootstrap reserve wallet and fiat setup"
-            >
-              Bootstrap
-            </Link>
-            {process.env.NODE_ENV === "development" && selectedWalletId ? (
+            {isAdmin ? (
+              <Link
+                href="/wallets/bootstrap"
+                className="btn btn-ghost"
+                title="Bootstrap reserve wallet and fiat setup"
+              >
+                Bootstrap
+              </Link>
+            ) : null}
+            {isAdmin && selectedWalletId ? (
               <a
                 href={`/wallets/${selectedWalletId}`}
                 style={{ fontSize: "0.6875rem", color: "var(--ink-muted)", textDecoration: "none", opacity: 0.6 }}
-                title="Dev: view wallet detail page"
+                title="View wallet detail page"
               >
                 details →
               </a>

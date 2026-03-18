@@ -6,9 +6,14 @@ import { redirect } from "next/navigation";
 import { BootstrapConsole } from "./BootstrapConsole";
 
 export default async function WalletBootstrapPage() {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
   if (!userId) {
     redirect("/sign-in");
+  }
+
+  const role = (sessionClaims?.publicMetadata as { role?: string } | undefined)?.role;
+  if (role !== "admin") {
+    redirect("/wallets");
   }
 
   return <BootstrapConsole />;
