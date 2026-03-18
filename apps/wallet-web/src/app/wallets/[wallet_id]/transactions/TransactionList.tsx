@@ -3,21 +3,23 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ExternalLink } from "lucide-react";
 import type { TransactionSummary, TransactionListResponse } from "@/lib/api";
 
 interface TransactionListProps {
   walletId: string;
+  /** Increment to trigger a re-fetch from a parent component */
+  refreshKey?: number;
 }
 
-const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70ab815c96711a31bc65";
 const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
+const PAGE_SIZE = 50;
+const FETCH_DEDUPE_WINDOW_MS = 1200;
 
 function tokenLabel(token: string): string {
   if (token === "native") return "AVAX";
   const normalized = token.toLowerCase();
-  if (normalized === USDC_FUJI_ADDRESS) return "USDC";
   if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
   return "TOKEN";
 }
@@ -43,43 +45,171 @@ function statusClass(status: TransactionSummary["status"]) {
   return "status-chip pending";
 }
 
-export function TransactionList({ walletId }: TransactionListProps) {
-  const [transactions, setTransactions] = useState<TransactionSummary[]>([]);
+export function TransactionList({ walletId, refreshKey }: TransactionListProps) {
+  const [pages, setPages] = useState<TransactionSummary[][]>([]);
+  const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fetchInFlightRef = useRef<Promise<void> | null>(null);
+  const fetchInFlightKeyRef = useRef<string | null>(null);
+  const lastSuccessfulFetchAtRef = useRef<Map<string, number>>(new Map());
+  const pagesRef = useRef<TransactionSummary[][]>([]);
+  useEffect(() => {
+    pagesRef.current = pages;
+  }, [pages]);
 
-  const fetchTransactions = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const fetchPage = useCallback(async (
+    page: number,
+    cursor: string | null,
+    options?: { force?: boolean; fullLoading?: boolean; activate?: boolean }
+  ): Promise<boolean> => {
+    const force = options?.force ?? false;
+    const fullLoading = options?.fullLoading ?? false;
+    const activate = options?.activate ?? false;
+    const fetchKey = cursor ?? "__first__";
 
-    try {
-      const response = await fetch(
-        `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?network=fuji`,
-        {
-          method: "GET",
-          credentials: "include",
-        }
-      );
-
-      if (response.ok) {
-        const data: TransactionListResponse = await response.json();
-        setTransactions(data.transactions);
-      } else if (response.status === 404) {
-        setTransactions([]);
-      } else {
-        const text = await response.text();
-        setError(text || `Failed to load transactions (${response.status})`);
+    if (
+      fetchInFlightRef.current &&
+      fetchInFlightKeyRef.current === fetchKey
+    ) {
+      await fetchInFlightRef.current;
+      if (activate && pagesRef.current[page] !== undefined) {
+        setPageIndex(page);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error");
-    } finally {
-      setIsLoading(false);
+      return pagesRef.current[page] !== undefined;
     }
+
+    if (!force) {
+      const lastFetchAt = lastSuccessfulFetchAtRef.current.get(fetchKey);
+      if (
+        lastFetchAt &&
+        Date.now() - lastFetchAt < FETCH_DEDUPE_WINDOW_MS &&
+        pagesRef.current[page] !== undefined
+      ) {
+        if (activate) {
+          setPageIndex(page);
+        }
+        return true;
+      }
+    }
+
+    if (fullLoading) {
+      setIsLoading(true);
+      setError(null);
+    } else {
+      setIsPageTransitioning(true);
+    }
+
+    let currentFetch: Promise<void> | null = null;
+    currentFetch = (async () => {
+      try {
+        const params = new URLSearchParams({
+          network: "fuji",
+          limit: String(PAGE_SIZE),
+        });
+        if (cursor) {
+          params.set("cursor", cursor);
+        }
+
+        const response = await fetch(
+          `/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?${params.toString()}`,
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+
+        if (response.ok) {
+          const data: TransactionListResponse = await response.json();
+          setPages((previous) => {
+            const next = [...previous];
+            next[page] = data.transactions;
+            return next;
+          });
+          setPageCursors((previous) => {
+            const next = [...previous];
+            next[page] = cursor;
+            next[page + 1] = data.next_cursor ?? null;
+            if (data.next_cursor === null || data.next_cursor === undefined) {
+              next.length = page + 2;
+            }
+            return next;
+          });
+          lastSuccessfulFetchAtRef.current.set(fetchKey, Date.now());
+          if (activate) {
+            setPageIndex(page);
+          }
+        } else if (response.status === 404) {
+          setPages((previous) => {
+            const next = [...previous];
+            next[page] = [];
+            return next;
+          });
+          setPageCursors((previous) => {
+            const next = [...previous];
+            next[page] = cursor;
+            next[page + 1] = null;
+            next.length = page + 2;
+            return next;
+          });
+          lastSuccessfulFetchAtRef.current.set(fetchKey, Date.now());
+          if (activate) {
+            setPageIndex(page);
+          }
+        } else {
+          const text = await response.text();
+          setError(text || `Failed to load transactions (${response.status})`);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Network error");
+      } finally {
+        if (fullLoading) {
+          setIsLoading(false);
+        } else {
+          setIsPageTransitioning(false);
+        }
+      }
+    })().finally(() => {
+      if (fetchInFlightRef.current === currentFetch) {
+        fetchInFlightRef.current = null;
+        fetchInFlightKeyRef.current = null;
+      }
+    });
+
+    fetchInFlightRef.current = currentFetch;
+    fetchInFlightKeyRef.current = fetchKey;
+    await currentFetch;
+    return pagesRef.current[page] !== undefined;
   }, [walletId]);
 
+  const loadFirstPage = useCallback(async () => {
+    setPages([]);
+    pagesRef.current = [];
+    setPageCursors([null]);
+    setPageIndex(0);
+    lastSuccessfulFetchAtRef.current.clear();
+    setError(null);
+    await fetchPage(0, null, { force: true, fullLoading: true, activate: true });
+  }, [fetchPage]);
+
   useEffect(() => {
-    void fetchTransactions();
-  }, [fetchTransactions]);
+    void loadFirstPage();
+  }, [loadFirstPage]);
+
+  // Re-fetch when parent signals a change (e.g. after sending a transaction)
+  const initialKeyRef = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === initialKeyRef.current) return;
+    void loadFirstPage();
+  }, [loadFirstPage, refreshKey]);
+
+  const currentTransactions = pages[pageIndex] ?? [];
+  const hasPreviousPage = pageIndex > 0;
+  const nextPageCursor = pageCursors[pageIndex + 1];
+  const hasCachedNextPage = pages[pageIndex + 1] !== undefined;
+  const hasNextPage = hasCachedNextPage || (typeof nextPageCursor === "string" && nextPageCursor.length > 0);
 
   if (isLoading) {
     return (
@@ -94,12 +224,12 @@ export function TransactionList({ walletId }: TransactionListProps) {
     );
   }
 
-  if (error) {
+  if (error && currentTransactions.length === 0) {
     return (
       <article className="card pad">
         <div className="alert error">{error}</div>
         <div style={{ marginTop: "0.75rem" }}>
-          <button onClick={() => void fetchTransactions()} className="btn btn-primary">
+          <button onClick={() => void loadFirstPage()} className="btn btn-primary">
             Retry
           </button>
         </div>
@@ -107,7 +237,7 @@ export function TransactionList({ walletId }: TransactionListProps) {
     );
   }
 
-  if (transactions.length === 0) {
+  if (currentTransactions.length === 0) {
     return (
       <article className="card pad">
         <div className="alert success">No transactions yet. Send or receive funds to populate history.</div>
@@ -130,7 +260,7 @@ export function TransactionList({ walletId }: TransactionListProps) {
             </tr>
           </thead>
           <tbody>
-            {transactions.map((tx) => (
+            {currentTransactions.map((tx) => (
               <tr key={tx.tx_hash}>
                 <td data-label="Transaction" style={{ position: "relative" }}>
                   <a
@@ -164,6 +294,44 @@ export function TransactionList({ walletId }: TransactionListProps) {
           </tbody>
         </table>
       </div>
+      {error ? (
+        <div style={{ marginTop: "0.75rem" }} className="alert error">
+          {error}
+        </div>
+      ) : null}
+      {hasPreviousPage || hasNextPage ? (
+        <div style={{ marginTop: "0.75rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+            disabled={!hasPreviousPage || isPageTransitioning}
+          >
+            Previous
+          </button>
+          <span className="text-muted" style={{ fontSize: "0.875rem" }}>
+            Page {pageIndex + 1}
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              if (hasCachedNextPage) {
+                setPageIndex((current) => current + 1);
+                return;
+              }
+              if (typeof nextPageCursor === "string" && nextPageCursor.length > 0) {
+                void fetchPage(pageIndex + 1, nextPageCursor, {
+                  activate: true,
+                });
+              }
+            }}
+            disabled={!hasNextPage || isPageTransitioning}
+          >
+            {isPageTransitioning ? "Loading..." : "Next"}
+          </button>
+        </div>
+      ) : null}
     </article>
   );
 }

@@ -71,6 +71,7 @@ fs.mounts = [
 
     # Encrypted persistent storage — key derived from enclave signer identity
     # Upgrade-safe: same RSA signing key → same MRSIGNER → same encryption key
+    # TODO: Update the key management to use secret provisioning in production
     { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted", key_name = "_sgx_mrsigner" },
 ]
 

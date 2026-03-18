@@ -7,57 +7,51 @@ interface PrimaryBalanceCardProps {
   walletLabel: string;
   walletAddress: string;
   avaxBalance: string;
-  usdcBalance: string;
   reurBalance: string;
   loading?: boolean;
   refreshing?: boolean;
 }
 
+/**
+ * Primary wallet balance card.
+ *
+ * Layout: wallet name + address row, then AVAX and rEUR balance tiles.
+ * Uses CSS blur for loading placeholders to avoid CLS.
+ */
 export function PrimaryBalanceCard({
   walletLabel,
   walletAddress,
   avaxBalance,
-  usdcBalance,
   reurBalance,
   loading = false,
   refreshing = false,
 }: PrimaryBalanceCardProps) {
-  // Show $0.00 immediately — don't block with skeleton for blank wallets
-  const primaryAmount = loading ? "$0.00" : `EUR ${reurBalance}`;
-  const dimmed = loading || refreshing;
+  const pending = loading || refreshing;
 
   return (
-    <article className="balance-card">
-      <div className="balance-card-label">
-        {walletLabel}
-        {(loading || refreshing) ? (
-          <span style={{ marginLeft: "0.5rem", fontSize: "0.6875rem", opacity: 0.6 }}>
-            {loading ? "Loading…" : "Updating…"}
-          </span>
-        ) : null}
-      </div>
-      <div className="balance-card-amount" style={dimmed ? { opacity: 0.5 } : undefined}>{primaryAmount}</div>
-      <div className="balance-card-address">
+    <article className="balance-card" aria-busy={pending}>
+      {/* ── Header: wallet name + address ──────────────────────── */}
+      <div className="balance-card-header">
+        <span className="balance-card-name">{walletLabel}</span>
         <CopyAddress address={walletAddress} showAddress />
       </div>
 
+      {refreshing && (
+        <span className="balance-card-status">Updating…</span>
+      )}
+
+      {/* ── Token balances ─────────────────────────────────────── */}
       <div className="balance-tokens">
         <div className="balance-token-tile">
           <div className="balance-token-label">AVAX</div>
-          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
-            {loading ? "0" : avaxBalance}
-          </div>
-        </div>
-        <div className="balance-token-tile">
-          <div className="balance-token-label">USDC</div>
-          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
-            {loading ? "0" : usdcBalance}
+          <div className={`balance-token-value${pending ? " loading-blur" : ""}`}>
+            {avaxBalance || "0"}
           </div>
         </div>
         <div className="balance-token-tile">
           <div className="balance-token-label">rEUR</div>
-          <div className="balance-token-value" style={dimmed ? { opacity: 0.5 } : undefined}>
-            {loading ? "0" : reurBalance}
+          <div className={`balance-token-value${pending ? " loading-blur" : ""}`}>
+            {reurBalance || "0"}
           </div>
         </div>
       </div>

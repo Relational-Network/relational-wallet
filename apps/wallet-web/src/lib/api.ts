@@ -51,6 +51,24 @@ export interface EstimateGasResponse {
   estimated_cost: string;
 }
 
+export interface TokenBalance {
+  symbol: string;
+  name: string;
+  balance_raw: string;
+  balance_formatted: string;
+  decimals: number;
+  contract_address: string | null;
+}
+
+export interface BalanceResponse {
+  wallet_id: string;
+  address: string;
+  network: string;
+  chain_id: number;
+  native_balance: TokenBalance;
+  token_balances: TokenBalance[];
+}
+
 export interface SendTransactionRequest {
   to: string;
   amount: string;
@@ -82,6 +100,7 @@ export interface TransactionSummary {
 
 export interface TransactionListResponse {
   transactions: TransactionSummary[];
+  next_cursor?: string | null;
 }
 
 export interface TransactionStatusResponse {
@@ -388,6 +407,24 @@ export class WalletApiClient {
         method: "POST",
         token,
         body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get wallet balance (native + ERC-20 tokens).
+   */
+  async getWalletBalance(
+    token: string,
+    walletId: string,
+    network?: string
+  ): Promise<ApiResponse<BalanceResponse>> {
+    const params = network ? `?network=${encodeURIComponent(network)}` : "?network=fuji";
+    return this.request<BalanceResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/balance${params}`,
+      {
+        method: "GET",
+        token,
       }
     );
   }

@@ -48,13 +48,11 @@ type ActiveDialog =
   | null;
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
-const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70ab815c96711a31bc65";
 const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
 
 function tokenLabel(token: string): string {
   if (token === "native") return "AVAX";
   const normalized = token.toLowerCase();
-  if (normalized === USDC_FUJI_ADDRESS) return "USDC";
   if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
   return "TOKEN";
 }
@@ -68,7 +66,7 @@ function mapActivity(response: TransactionListResponse): DashboardActivityItem[]
   return response.transactions.slice(0, 5).map((transaction) => ({
     id: transaction.tx_hash,
     title: `${transaction.direction === "sent" ? "Sent" : "Received"} ${transaction.amount} ${tokenLabel(transaction.token)}`,
-    subtitle: `${shortenAddress(transaction.tx_hash)} • ${new Date(transaction.timestamp).toLocaleString()}`,
+    subtitle: shortenAddress(transaction.tx_hash),
     status: transaction.status,
     timestamp: transaction.timestamp,
   }));
@@ -131,18 +129,36 @@ function CreateWalletDialog({
   );
 }
 
-export function SimpleWalletDashboard() {
-  const [wallets, setWallets] = useState<WalletResponse[]>([]);
-  const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
+interface SimpleWalletDashboardProps {
+  initialWallets?: WalletResponse[];
+  initialSelectedWalletId?: string | null;
+  initialBalance?: BalanceResponse | null;
+  initialTransactions?: TransactionListResponse | null;
+}
+
+export function SimpleWalletDashboard({
+  initialWallets,
+  initialSelectedWalletId,
+  initialBalance,
+  initialTransactions,
+}: SimpleWalletDashboardProps = {}) {
+  const hasSSRData = !!(initialWallets && initialWallets.length > 0);
+  const ssrHasDetails = hasSSRData && !!(initialBalance || initialTransactions);
+
+  const [wallets, setWallets] = useState<WalletResponse[]>(initialWallets ?? []);
+  const [selectedWalletId, setSelectedWalletId] = useState<string | null>(initialSelectedWalletId ?? null);
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
-  const [loadingWallets, setLoadingWallets] = useState(true);
+  const [loadingWallets, setLoadingWallets] = useState(!hasSSRData);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  const [detailsLoaded, setDetailsLoaded] = useState(false);
+  const [detailsLoaded, setDetailsLoaded] = useState(ssrHasDetails);
   const [error, setError] = useState<string | null>(null);
-  const [balance, setBalance] = useState<BalanceResponse | null>(null);
-  const [activity, setActivity] = useState<DashboardActivityItem[]>([]);
+  const [balance, setBalance] = useState<BalanceResponse | null>(initialBalance ?? null);
+  const [activity, setActivity] = useState<DashboardActivityItem[]>(
+    initialTransactions ? mapActivity(initialTransactions) : []
+  );
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
   const [bookmarksWalletId, setBookmarksWalletId] = useState<string | null>(null);
+  const [txRefreshKey, setTxRefreshKey] = useState(0);
 
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [onRampAmount, setOnRampAmount] = useState("25");
@@ -160,6 +176,7 @@ export function SimpleWalletDashboard() {
     failureReason: string | null;
   } | null>(null);
   const [pendingKey, setPendingKey] = useState(0);
+  const [latestFiatRequest, setLatestFiatRequest] = useState<FiatRequest | null>(null);
   const providerPopupRef = useRef<Window | null>(null);
   const walletDetailsInFlightRef = useRef<Promise<void> | null>(null);
   const walletDetailsInFlightWalletRef = useRef<string | null>(null);
@@ -265,7 +282,7 @@ export function SimpleWalletDashboard() {
             method: "GET",
             credentials: "include",
           }),
-          fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?network=fuji`, {
+          fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/transactions?network=fuji&limit=5`, {
             method: "GET",
             credentials: "include",
           }),
@@ -321,9 +338,13 @@ export function SimpleWalletDashboard() {
     return () => window.removeEventListener("message", onMessage);
   }, [selectedWalletId, fetchWalletDetails]);
 
+  // Skip initial wallet fetch if SSR already provided the wallet list.
+  // Client-side actions (create/delete wallet) call fetchWallets() directly,
+  // and the 60 s periodic poller handles background sync.
   useEffect(() => {
+    if (hasSSRData) return;
     void fetchWallets();
-  }, [fetchWallets]);
+  }, [fetchWallets, hasSSRData]);
 
   // Auto-open create wallet dialog when user has no wallets
   useEffect(() => {
@@ -348,15 +369,28 @@ export function SimpleWalletDashboard() {
     }
   }, []);
 
+  // Skip the initial balance/transaction fetch if SSR already provided data
+  // for the selected wallet. Once the user switches to a different wallet
+  // the ref is consumed so subsequent navigations always fetch fresh data.
+  const ssrDetailsUsedRef = useRef(false);
   useEffect(() => {
     if (!selectedWalletId) return;
+    if (
+      !ssrDetailsUsedRef.current &&
+      ssrHasDetails &&
+      selectedWalletId === initialSelectedWalletId
+    ) {
+      ssrDetailsUsedRef.current = true;
+      return;
+    }
+    ssrDetailsUsedRef.current = true;
     setDetailsLoaded(false);
     setBalance(null);
     setActivity([]);
     setBookmarks([]);
     setBookmarksWalletId(null);
     void fetchWalletDetails(selectedWalletId);
-  }, [selectedWalletId, fetchWalletDetails]);
+  }, [selectedWalletId, fetchWalletDetails, ssrHasDetails, initialSelectedWalletId]);
 
   // Periodic balance polling — keeps AVAX/rEUR in sync with on-chain state.
   // 60s interval is sufficient; balance changes are infrequent.
@@ -445,6 +479,8 @@ export function SimpleWalletDashboard() {
         serviceWalletAddress: payload.service_wallet_address || null,
         failureReason: payload.failure_reason || null,
       });
+      // Optimistically inject the new request into PendingFiatRequests
+      setLatestFiatRequest(payload);
       setOnRampNote("");
       // Auto-open provider popup if URL is available
       if (payload.provider_action_url) {
@@ -494,6 +530,8 @@ export function SimpleWalletDashboard() {
         serviceWalletAddress: payload.service_wallet_address || null,
         failureReason: payload.failure_reason || null,
       });
+      // Optimistically inject the new request into PendingFiatRequests
+      setLatestFiatRequest(payload);
       setOffRampNote("");
       setOffRampName("");
       setOffRampIban("");
@@ -505,19 +543,20 @@ export function SimpleWalletDashboard() {
     }
   };
 
-  // Stable callback for PendingFiatRequests — refreshes balance immediately
-  // plus a delayed re-fetch to catch blockchain confirmation lag.
+  // Stable callback for PendingFiatRequests — refreshes balance once.
+  // PendingFiatRequests handles its own burst-polling for status updates,
+  // so we only need one immediate fetch here to update the balance display.
   const handleTransferComplete = useCallback(() => {
     if (!selectedWalletId) return;
     if (transferRefreshTimerRef.current) {
       clearTimeout(transferRefreshTimerRef.current);
       transferRefreshTimerRef.current = null;
     }
-    void fetchWalletDetails(selectedWalletId, true);
+    // Delay the balance refresh slightly to let the chain confirm
     transferRefreshTimerRef.current = setTimeout(() => {
       void fetchWalletDetails(selectedWalletId, true);
       transferRefreshTimerRef.current = null;
-    }, 8000);
+    }, 3000);
   }, [fetchWalletDetails, selectedWalletId]);
 
   useEffect(() => () => {
@@ -528,9 +567,6 @@ export function SimpleWalletDashboard() {
   }, []);
 
   const avaxBalance = balance?.native_balance.balance_formatted ?? "0";
-  const usdcBalance =
-    balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC")
-      ?.balance_formatted ?? "0";
   const reurBalance =
     balance?.token_balances.find((token) => token.symbol.toUpperCase() === "REUR")
       ?.balance_formatted ?? "0";
@@ -583,7 +619,6 @@ export function SimpleWalletDashboard() {
           walletLabel={walletLabel}
           walletAddress={walletAddress}
           avaxBalance={avaxBalance}
-          usdcBalance={usdcBalance}
           reurBalance={reurBalance}
           loading={dashboardLoading}
           refreshing={loadingDetails && detailsLoaded}
@@ -608,6 +643,7 @@ export function SimpleWalletDashboard() {
             onProviderPopup={openProviderPopup}
             onTransferComplete={handleTransferComplete}
             refreshNonce={pendingKey}
+            latestRequest={latestFiatRequest}
           />
         ) : null}
 
@@ -633,6 +669,7 @@ export function SimpleWalletDashboard() {
             mode="dialog"
             onRequestClose={() => setActiveDialog(null)}
             onComplete={() => {
+              setTxRefreshKey((k) => k + 1);
               void fetchWalletDetails(selectedWallet.wallet_id);
             }}
           />
@@ -664,7 +701,7 @@ export function SimpleWalletDashboard() {
           title="All Activity"
           wide
         >
-          <TransactionList walletId={selectedWallet.wallet_id} />
+          <TransactionList walletId={selectedWallet.wallet_id} refreshKey={txRefreshKey} />
         </ActionDialog>
       ) : null}
 

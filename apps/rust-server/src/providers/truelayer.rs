@@ -4,7 +4,12 @@
 
 //! TrueLayer sandbox integration for fiat on-ramp/off-ramp.
 
-use std::{collections::HashMap, fs, time::Duration};
+use std::{
+    collections::HashMap,
+    fs,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -19,6 +24,8 @@ const DEFAULT_HOSTED_PAYMENTS_BASE_URL: &str = "https://payment.truelayer-sandbo
 const DEFAULT_CURRENCY: &str = "EUR";
 const DEFAULT_HOSTED_PAYMENTS_RETURN_URI: &str = "http://localhost:3000/callback";
 const PAYMENTS_SCOPE: &str = "payments";
+/// Scope that includes merchant-accounts read access.
+const MERCHANT_ACCOUNTS_SCOPE: &str = "payments";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderExecutionStatus {
@@ -97,6 +104,26 @@ pub struct TrueLayerClient {
 #[derive(Debug, Deserialize)]
 struct OAuthTokenResponse {
     access_token: String,
+    #[serde(default)]
+    expires_in: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedAccessToken {
+    value: String,
+    expires_at: Instant,
+}
+
+#[derive(Debug, Default)]
+struct TrueLayerRuntimeCache {
+    access_tokens: HashMap<String, CachedAccessToken>,
+    merchant_accounts: HashMap<String, String>,
+}
+
+static TRUELAYER_RUNTIME_CACHE: OnceLock<Mutex<TrueLayerRuntimeCache>> = OnceLock::new();
+
+fn runtime_cache() -> &'static Mutex<TrueLayerRuntimeCache> {
+    TRUELAYER_RUNTIME_CACHE.get_or_init(|| Mutex::new(TrueLayerRuntimeCache::default()))
 }
 
 impl TrueLayerClient {
@@ -142,12 +169,133 @@ impl TrueLayerClient {
         })
     }
 
+    fn token_cache_key(&self, scope: &str) -> String {
+        format!("{}|{}|{}", self.auth_base_url, self.client_id, scope)
+    }
+
+    fn merchant_account_cache_key(&self) -> String {
+        format!("{}|{}|{}", self.api_base_url, self.client_id, self.currency)
+    }
+
+    fn get_cached_token(&self, scope: &str) -> Option<String> {
+        let key = self.token_cache_key(scope);
+        let now = Instant::now();
+        let guard = runtime_cache().lock().ok()?;
+        let cached = guard.access_tokens.get(&key)?;
+        if cached.expires_at > now {
+            Some(cached.value.clone())
+        } else {
+            None
+        }
+    }
+
+    fn put_cached_token(&self, scope: &str, token: String, expires_in: Option<u64>) {
+        // Keep a small safety margin so we refresh before expiry.
+        let ttl_secs = expires_in.unwrap_or(300).max(30);
+        let safety_margin = ttl_secs.min(15);
+        let effective_secs = ttl_secs.saturating_sub(safety_margin).max(15);
+        let expires_at = Instant::now() + Duration::from_secs(effective_secs);
+        let key = self.token_cache_key(scope);
+
+        if let Ok(mut guard) = runtime_cache().lock() {
+            guard.access_tokens.insert(
+                key,
+                CachedAccessToken {
+                    value: token,
+                    expires_at,
+                },
+            );
+        }
+    }
+
+    fn get_cached_merchant_account(&self) -> Option<String> {
+        let key = self.merchant_account_cache_key();
+        let guard = runtime_cache().lock().ok()?;
+        guard.merchant_accounts.get(&key).cloned()
+    }
+
+    fn put_cached_merchant_account(&self, merchant_account_id: String) {
+        let key = self.merchant_account_cache_key();
+        if let Ok(mut guard) = runtime_cache().lock() {
+            guard.merchant_accounts.insert(key, merchant_account_id);
+        }
+    }
+
+    /// Fetch all merchant accounts and return the one matching the
+    /// configured currency.  Falls back to `self.merchant_account_id`
+    /// (from `TRUELAYER_MERCHANT_ACCOUNT_ID`) if the API call fails or
+    /// no matching account is found.
+    pub async fn resolve_merchant_account_for_currency(&self) -> Result<String, TrueLayerError> {
+        if let Some(cached) = self.get_cached_merchant_account() {
+            return Ok(cached);
+        }
+
+        let response = self
+            .get_json("/v3/merchant-accounts", MERCHANT_ACCOUNTS_SCOPE)
+            .await?;
+
+        let items = response
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                TrueLayerError::InvalidResponse(
+                    "merchant-accounts response missing items array".to_string(),
+                )
+            })?;
+
+        for item in items {
+            let acct_currency = item
+                .get("currency")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if acct_currency.eq_ignore_ascii_case(&self.currency) {
+                if let Some(id) = item.get("id").and_then(Value::as_str) {
+                    self.put_cached_merchant_account(id.to_string());
+                    info!(
+                        currency = %self.currency,
+                        merchant_account_id = %id,
+                        "Auto-resolved merchant account for currency"
+                    );
+                    return Ok(id.to_string());
+                }
+            }
+        }
+
+        // No matching account found — fall back to env-supplied ID.
+        info!(
+            currency = %self.currency,
+            fallback_id = %self.merchant_account_id,
+            "No merchant account found for currency, using TRUELAYER_MERCHANT_ACCOUNT_ID"
+        );
+        self.put_cached_merchant_account(self.merchant_account_id.clone());
+        Ok(self.merchant_account_id.clone())
+    }
+
+    /// Return the merchant account ID for the configured currency.
+    /// Tries auto-resolution first; silently falls back to the
+    /// env-configured value on any error.
+    async fn merchant_account_id(&self) -> String {
+        match self.resolve_merchant_account_for_currency().await {
+            Ok(id) => id,
+            Err(e) => {
+                info!(
+                    error = %e,
+                    fallback_id = %self.merchant_account_id,
+                    "Failed to auto-resolve merchant account, using fallback"
+                );
+                self.put_cached_merchant_account(self.merchant_account_id.clone());
+                self.merchant_account_id.clone()
+            }
+        }
+    }
+
     pub async fn create_onramp(
         &self,
         request: CreateOnRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
         let provider_user = build_provider_user(request.user_id);
         let return_uri = self.resolve_return_uri();
+        let merchant_account_id = self.merchant_account_id().await;
 
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -177,11 +325,13 @@ impl TrueLayerClient {
             "payment_method": {
                 "type": "bank_transfer",
                 "provider_selection": {
-                    "type": "user_selected"
+                    "type": "preselected",
+                    "provider_id": "mock-payments-de-redirect",
+                    "scheme_id": "sepa_credit_transfer"
                 },
                 "beneficiary": {
                     "type": "merchant_account",
-                    "merchant_account_id": self.merchant_account_id,
+                    "merchant_account_id": merchant_account_id,
                     "reference": reference
                 }
             },
@@ -253,7 +403,9 @@ impl TrueLayerClient {
         &self,
         request: CreateOffRampRequest<'_>,
     ) -> Result<ProviderExecutionResult, TrueLayerError> {
-        let scheme_selection = resolve_payout_scheme_selection(&self.currency);
+        let is_sandbox = self.api_base_url.contains("sandbox");
+        let scheme_selection = resolve_payout_scheme_selection(&self.currency, is_sandbox);
+        let merchant_account_id = self.merchant_account_id().await;
 
         let mut metadata = serde_json::Map::new();
         metadata.insert(
@@ -276,7 +428,7 @@ impl TrueLayerClient {
             metadata.insert("note".to_string(), Value::String(note.to_string()));
         }
 
-        let payload = json!({
+        let mut payload = json!({
             "amount_in_minor": request.amount_in_minor,
             "currency": self.currency,
             "beneficiary": {
@@ -288,19 +440,32 @@ impl TrueLayerClient {
                 },
                 "reference": format!("rw-offramp-{}", request.request_id)
             },
-            "merchant_account_id": self.merchant_account_id,
-            "scheme_selection": scheme_selection,
+            "merchant_account_id": merchant_account_id,
             "metadata": metadata
         });
+        // scheme_selection is optional.  In sandbox TrueLayer uses an
+        // internal_transfer scheme and ignores real scheme IDs, so we
+        // omit it entirely to avoid scheme_id staying "unknown".
+        // In production we include instant_preferred for best UX.
+        if let Some(ss) = scheme_selection {
+            payload["scheme_selection"] = ss;
+        }
+
+        // Use a fresh UUID as the idempotency key so that retries of the
+        // same fiat request are not poisoned by TrueLayer's 24-hour
+        // idempotency cache.  The fiat request_id is preserved in metadata
+        // for traceability.
+        let idempotency_key = Uuid::new_v4().to_string();
 
         info!(
             request_id = %request.request_id,
+            idempotency_key = %idempotency_key,
             payload = %payload,
             "TrueLayer create_offramp: sending payout request"
         );
 
         let response = self
-            .signed_post_json("/v3/payouts", PAYMENTS_SCOPE, &payload, request.request_id)
+            .signed_post_json("/v3/payouts", PAYMENTS_SCOPE, &payload, &idempotency_key)
             .await?;
 
         info!(
@@ -383,6 +548,10 @@ impl TrueLayerClient {
     }
 
     async fn access_token(&self, scope: &str) -> Result<String, TrueLayerError> {
+        if let Some(token) = self.get_cached_token(scope) {
+            return Ok(token);
+        }
+
         let mut form = HashMap::new();
         form.insert("grant_type".to_string(), "client_credentials".to_string());
         form.insert("client_id".to_string(), self.client_id.clone());
@@ -418,6 +587,12 @@ impl TrueLayerClient {
                 "token response did not include access_token".to_string(),
             ));
         }
+
+        self.put_cached_token(
+            scope,
+            token_response.access_token.clone(),
+            token_response.expires_in,
+        );
 
         Ok(token_response.access_token)
     }
@@ -523,19 +698,30 @@ pub fn map_payout_status(raw_status: &str) -> ProviderExecutionStatus {
     }
 }
 
-fn resolve_payout_scheme_selection(currency: &str) -> Value {
+/// Returns `Some(scheme_selection)` for production or `None` for sandbox.
+///
+/// TrueLayer sandbox uses an `internal_transfer` scheme and does not
+/// support real payment schemes.  Including *any* `scheme_selection`
+/// causes the payout to stay in `pending` with `scheme_id: "unknown"`
+/// forever.  The official quickstart examples omit `scheme_selection`
+/// entirely for EUR sandbox payouts.
+///
+/// In production, `instant_preferred` gives the best UX: TrueLayer
+/// picks SEPA Instant when available and falls back to regular SEPA.
+fn resolve_payout_scheme_selection(currency: &str, is_sandbox: bool) -> Option<Value> {
+    if is_sandbox {
+        // Sandbox: omit scheme_selection so TrueLayer routes via
+        // its internal_transfer scheme and the payout executes.
+        return None;
+    }
     match currency.to_ascii_uppercase().as_str() {
-        // UK payouts settle consistently in sandbox when using FPS.
-        "GBP" => json!({
+        // UK payouts: use Faster Payments Service.
+        "GBP" => Some(json!({
             "type": "preselected",
             "scheme_id": "faster_payments_service"
-        }),
-        // EUR payouts should route via SEPA in sandbox.
-        "EUR" => json!({
-            "type": "preselected",
-            "scheme_id": "sepa_credit_transfer"
-        }),
-        _ => json!({ "type": "instant_preferred" }),
+        })),
+        // EUR + everything else: let TrueLayer pick the best scheme.
+        _ => Some(json!({ "type": "instant_preferred" })),
     }
 }
 

@@ -15,7 +15,7 @@ use crate::{
     auth::Auth,
     blockchain::{
         ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
-        AVAX_FUJI, REUR_TOKEN, USDC_TOKEN,
+        AVAX_FUJI, REUR_TOKEN,
     },
     error::ApiError,
     state::AppState,
@@ -198,11 +198,8 @@ fn validate_address(address: &str) -> Result<(), ApiError> {
 fn get_token_decimals(token: &str) -> u8 {
     if token == "native" {
         18 // AVAX
-    } else if token.eq_ignore_ascii_case(USDC_TOKEN.fuji_address.unwrap_or(""))
-        || token.eq_ignore_ascii_case(USDC_TOKEN.mainnet_address.unwrap_or(""))
-        || token.eq_ignore_ascii_case(REUR_TOKEN.fuji_address.unwrap_or(""))
-    {
-        6 // USDC / rEUR
+    } else if token.eq_ignore_ascii_case(REUR_TOKEN.fuji_address.unwrap_or("")) {
+        6 // rEUR
     } else {
         18 // Default to 18 for unknown tokens
     }
@@ -232,6 +229,12 @@ fn to_summary_with_direction(tx: &StoredTransaction, direction: &str) -> Transac
         explorer_url: tx.explorer_url.clone(),
         timestamp: tx.created_at.to_rfc3339(),
     }
+}
+
+fn parse_json_fallback_cursor(cursor: Option<&str>) -> usize {
+    cursor
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .unwrap_or(0)
 }
 
 // =============================================================================
@@ -666,10 +669,15 @@ pub async fn list_transactions(
     // Fallback: JSON-based transaction listing (original path)
     let tx_repo = TransactionRepository::new(&storage);
     let mut summaries: Vec<TransactionSummary> = Vec::new();
-
-    let wallet_txs = tx_repo
-        .list_by_wallet(&wallet_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
+    let used_limited_scan = query.cursor.is_none() && query.direction.is_none();
+    let wallet_txs = if used_limited_scan {
+        // Keep a small headroom so post-filters (network) can still fill the page.
+        let scan_limit = limit.saturating_mul(4).max(limit);
+        tx_repo.list_by_wallet_limited(&wallet_id, scan_limit)
+    } else {
+        tx_repo.list_by_wallet(&wallet_id)
+    }
+    .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
 
     for tx in &wallet_txs {
         let direction = if tx.from.to_lowercase() == wallet_address {
@@ -685,20 +693,49 @@ pub async fn list_transactions(
     // Fuji-only deployment: hide non-fuji historical records.
     summaries.retain(|tx| tx.network == "fuji");
 
-    // Sort all by timestamp descending (newest first)
-    summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    // Full scans need sorting; limited scans are already in newest-first order.
+    if !used_limited_scan {
+        summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    }
 
     // Apply direction filter
     if let Some(ref direction) = query.direction {
         summaries.retain(|s| s.direction == *direction);
     }
 
-    // Apply limit
-    summaries.truncate(limit);
+    if used_limited_scan {
+        let has_more = summaries.len() > limit;
+        summaries.truncate(limit);
+        let next_cursor = if has_more {
+            Some(limit.to_string())
+        } else {
+            None
+        };
+        return Ok(Json(TransactionListResponse {
+            transactions: summaries,
+            next_cursor,
+        }));
+    }
+
+    // JSON fallback pagination uses a numeric offset cursor.
+    let offset = parse_json_fallback_cursor(query.cursor.as_deref());
+    if offset >= summaries.len() {
+        return Ok(Json(TransactionListResponse {
+            transactions: Vec::new(),
+            next_cursor: None,
+        }));
+    }
+    let end = offset.saturating_add(limit).min(summaries.len());
+    let page = summaries[offset..end].to_vec();
+    let next_cursor = if end < summaries.len() {
+        Some(end.to_string())
+    } else {
+        None
+    };
 
     Ok(Json(TransactionListResponse {
-        transactions: summaries,
-        next_cursor: None,
+        transactions: page,
+        next_cursor,
     }))
 }
 

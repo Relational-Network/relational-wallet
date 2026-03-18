@@ -99,19 +99,36 @@ impl AvaxClient {
         wallet_address: &str,
         token_addresses: &[&str],
     ) -> Result<WalletBalanceResponse, AvaxClientError> {
-        // Get native balance
-        let native_balance = self.get_native_balance(wallet_address).await?;
+        // Fire native + first token balance queries concurrently.
+        // For the common case (1 token = rEUR) this halves the latency
+        // from ~800ms (2 sequential RPCs) to ~400ms (parallel).
+        let native_balance;
+        let mut token_balances = Vec::with_capacity(token_addresses.len());
 
-        // Get token balances
-        let mut token_balances = Vec::new();
-        for token_addr in token_addresses {
-            match self.get_token_balance(wallet_address, token_addr).await {
+        if let Some((&first_token, rest)) = token_addresses.split_first() {
+            let (native_result, first_token_result) = tokio::join!(
+                self.get_native_balance(wallet_address),
+                self.get_token_balance(wallet_address, first_token),
+            );
+            native_balance = native_result?;
+            match first_token_result {
                 Ok(balance) => token_balances.push(balance),
                 Err(e) => {
-                    tracing::warn!("Failed to get balance for token {}: {}", token_addr, e);
-                    // Continue with other tokens
+                    tracing::warn!("Failed to get balance for token {}: {}", first_token, e);
                 }
             }
+            // Remaining tokens (if any) are fetched sequentially — rare in
+            // practice since we only monitor rEUR currently.
+            for token_addr in rest {
+                match self.get_token_balance(wallet_address, token_addr).await {
+                    Ok(balance) => token_balances.push(balance),
+                    Err(e) => {
+                        tracing::warn!("Failed to get balance for token {}: {}", token_addr, e);
+                    }
+                }
+            }
+        } else {
+            native_balance = self.get_native_balance(wallet_address).await?;
         }
 
         Ok(WalletBalanceResponse {

@@ -190,6 +190,7 @@ impl JwksManager {
     }
 
     /// Force refresh the JWKS cache.
+    #[cfg_attr(test, allow(dead_code))]
     pub async fn refresh(&self) -> Result<(), AuthError> {
         let jwks = self.fetch_jwks().await?;
         let mut cache = self.cache.write().await;

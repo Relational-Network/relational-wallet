@@ -27,6 +27,8 @@ interface PendingFiatRequestsProps {
   onProviderPopup?: (url: string) => void;
   onTransferComplete?: () => void;
   refreshNonce?: number;
+  /** Optimistically injected request — shown immediately before the next fetch. */
+  latestRequest?: FiatRequest | null;
 }
 
 function statusLabel(status: FiatRequest["status"]): string {
@@ -68,6 +70,7 @@ export function PendingFiatRequests({
   onProviderPopup,
   onTransferComplete,
   refreshNonce,
+  latestRequest,
 }: PendingFiatRequestsProps) {
   const [requests, setRequests] = useState<FiatRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +89,11 @@ export function PendingFiatRequests({
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const lastFetchAtRef = useRef(0);
   const delayedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the initial refreshNonce so we skip fetch on first render
+  const initialNonceRef = useRef(refreshNonce);
+  // Burst-polling after deposit/action: poll every 3s for fast updates
+  const [burstPolling, setBurstPolling] = useState(false);
+  const burstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRequests = useCallback(async (force = false) => {
     const now = Date.now();
@@ -102,8 +110,13 @@ export function PendingFiatRequests({
     let currentFetch: Promise<void> | null = null;
     currentFetch = (async () => {
       try {
+        const params = new URLSearchParams({
+          wallet_id: walletId,
+          active_only: "true",
+          limit: "25",
+        });
         const response = await fetch(
-          `/api/proxy/v1/fiat/requests?wallet_id=${encodeURIComponent(walletId)}`,
+          `/api/proxy/v1/fiat/requests?${params.toString()}`,
           { method: "GET", credentials: "include" }
         );
         if (!response.ok) return;
@@ -153,29 +166,58 @@ export function PendingFiatRequests({
 
   useEffect(() => {
     if (refreshNonce === undefined) return;
+    // Skip the initial render — the mount effect already fetches
+    if (refreshNonce === initialNonceRef.current) return;
     void fetchRequests(true);
   }, [fetchRequests, refreshNonce]);
 
+  // ── Optimistic insert: show latest request immediately ──────────
+  useEffect(() => {
+    if (!latestRequest) return;
+    if (!ACTIVE_STATUSES.includes(latestRequest.status)) return;
+    setRequests((prev) => {
+      // Deduplicate: if already present, replace it
+      const idx = prev.findIndex((r) => r.request_id === latestRequest.request_id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = latestRequest;
+        return next;
+      }
+      return [latestRequest, ...prev];
+    });
+    setLoading(false);
+    // Also enable burst polling so we pick up status changes quickly
+    setBurstPolling(true);
+    if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
+    burstTimerRef.current = setTimeout(() => {
+      setBurstPolling(false);
+      burstTimerRef.current = null;
+    }, 90_000);
+  }, [latestRequest]);
+
   // Poll to pick up status changes.
-  // Use 45s interval when provider/settlement is active, 90s otherwise.
-  // The backend FiatPoller syncs with TrueLayer every 30s, so faster
-  // polling just re-fetches stale data.
+  // Burst mode (after deposit/action): 3s intervals for near-instant feedback.
+  // Normal: 15s when provider/settlement is active, 60s otherwise.
   const hasSettling = requests.some(
     (r) => r.status === "settlement_pending" || r.status === "provider_pending"
   );
   useEffect(() => {
-    if (requests.length === 0 && !loading) return;
+    if (requests.length === 0 && !loading && !burstPolling) return;
     const interval = setInterval(
       () => void fetchRequests(),
-      hasSettling ? 45_000 : 90_000
+      burstPolling ? 3_000 : hasSettling ? 15_000 : 60_000
     );
     return () => clearInterval(interval);
-  }, [fetchRequests, requests.length, loading, hasSettling]);
+  }, [fetchRequests, requests.length, loading, hasSettling, burstPolling]);
 
   useEffect(() => () => {
     if (delayedRefreshTimerRef.current) {
       clearTimeout(delayedRefreshTimerRef.current);
       delayedRefreshTimerRef.current = null;
+    }
+    if (burstTimerRef.current) {
+      clearTimeout(burstTimerRef.current);
+      burstTimerRef.current = null;
     }
   }, []);
 
@@ -238,14 +280,26 @@ export function PendingFiatRequests({
         success: true,
         message: "Transfer submitted. The off-ramp will continue once the transaction confirms.",
       });
+      // Optimistically update the request status so the UI shows
+      // "Processing" immediately instead of staying on "Action required".
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.request_id === depositRequest.request_id
+            ? { ...r, status: "provider_pending" as FiatRequest["status"] }
+            : r
+        )
+      );
+      setDepositRequest(null);
       onTransferCompleteRef.current?.();
-      // Refresh after a delay to pick up chain confirmation + provider sync.
-      if (delayedRefreshTimerRef.current) {
-        clearTimeout(delayedRefreshTimerRef.current);
-      }
-      delayedRefreshTimerRef.current = setTimeout(() => {
-        void fetchRequests(true);
-      }, 8000);
+      // Enable burst polling (3s) to pick up deposit detection + provider status quickly
+      setBurstPolling(true);
+      if (burstTimerRef.current) clearTimeout(burstTimerRef.current);
+      burstTimerRef.current = setTimeout(() => {
+        setBurstPolling(false);
+        burstTimerRef.current = null;
+      }, 90_000); // 90s of burst polling
+      // Immediate refetch to pick up chain state
+      void fetchRequests(true);
     } catch (err) {
       setSendResult({
         success: false,
@@ -256,7 +310,8 @@ export function PendingFiatRequests({
     }
   };
 
-  if (loading || requests.length === 0) return null;
+  if (loading && requests.length === 0) return null;
+  if (requests.length === 0) return null;
 
   const parsedBalance = reurBalance !== null ? Number.parseFloat(reurBalance) : null;
   const depositAmount = depositRequest ? Number.parseFloat(depositRequest.amount_eur) : 0;

@@ -81,10 +81,9 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
 
           <div className="card card-pad">
             <h3 className="section-title">Testnet faucets</h3>
-            <p className="text-secondary" style={{ margin: "0.25rem 0 0.75rem" }}>Get AVAX and USDC test funds.</p>
+            <p className="text-secondary" style={{ margin: "0.25rem 0 0.75rem" }}>Get AVAX test funds for the Fuji testnet.</p>
             <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
               <a className="btn btn-secondary" href="https://core.app/tools/testnet-faucet/?subnet=c&token=c" target="_blank" rel="noopener noreferrer">AVAX faucet</a>
-              <a className="btn btn-secondary" href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer">USDC faucet</a>
             </div>
           </div>
         </div>

@@ -190,8 +190,8 @@ impl TxBuilder {
             .map(|f| f as u128)
             .unwrap_or(25_000_000_000u128); // 25 gwei default
 
-        // Standard priority fee for Avalanche
-        let priority_fee: u128 = 1_500_000_000; // 1.5 gwei
+        // Aggressive priority fee for fast Avalanche C-Chain inclusion (~2s blocks)
+        let priority_fee: u128 = 2_500_000_000; // 2.5 gwei
 
         // Max fee = 2 * base_fee + priority_fee (allows for base fee increase)
         let max_fee = base_fee.saturating_mul(2).saturating_add(priority_fee);
@@ -386,7 +386,7 @@ impl TxBuilder {
 ///
 /// # Arguments
 /// * `amount` - Amount as a string (e.g., "1.5")
-/// * `decimals` - Number of decimals (18 for AVAX, 6 for USDC)
+/// * `decimals` - Number of decimals (18 for AVAX, 6 for rEUR)
 ///
 /// # Returns
 /// * `Ok(U256)` - Amount in smallest unit

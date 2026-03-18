@@ -31,8 +31,11 @@ use tracing::{info, warn};
 
 use crate::storage::EncryptedStorage;
 
-/// Default interval between polling sweeps.
-const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(30);
+/// Environment variable to override the default poll interval (in seconds).
+const POLL_INTERVAL_ENV: &str = "FIAT_POLL_INTERVAL_SECS";
+
+/// Default interval between polling sweeps (5 seconds — Avalanche confirms in ~2s).
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Background fiat request poller that syncs pending requests with TrueLayer.
 pub struct FiatPoller {
@@ -42,10 +45,19 @@ pub struct FiatPoller {
 
 impl FiatPoller {
     /// Create a new poller for the given encrypted storage.
+    ///
+    /// The poll interval defaults to 5 seconds but can be overridden via the
+    /// `FIAT_POLL_INTERVAL_SECS` environment variable.
     pub fn new(storage: Arc<EncryptedStorage>) -> Self {
+        let poll_interval = std::env::var(POLL_INTERVAL_ENV)
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_POLL_INTERVAL);
+
         Self {
             storage,
-            poll_interval: DEFAULT_POLL_INTERVAL,
+            poll_interval,
         }
     }
 
@@ -99,6 +111,8 @@ impl FiatPoller {
                         request_id = %record.request_id,
                         status = ?record.status,
                         provider_reference = ?record.provider_reference,
+                        failure_reason = ?record.failure_reason,
+                        settlement_attempts = record.settlement_attempts,
                         "Fiat poller: synced request"
                     );
                 }

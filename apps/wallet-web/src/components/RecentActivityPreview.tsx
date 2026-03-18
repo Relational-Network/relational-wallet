@@ -64,7 +64,15 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
                 </div>
                 <div className="activity-details">
                   <div className="activity-title">{item.title}</div>
-                  <div className="activity-subtitle">{item.subtitle}</div>
+                  <div className="activity-subtitle">
+                    {item.subtitle}
+                    {item.timestamp ? (
+                      <span suppressHydrationWarning>
+                        {" • "}
+                        {new Date(item.timestamp).toLocaleString()}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div>
                   <span className={`status-chip ${item.status}`}>{statusLabel(item.status)}</span>
@@ -79,13 +87,10 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
             <Clock size={22} />
           </div>
           <h3>No transactions yet</h3>
-          <p>Send or receive funds to see your activity here. Use the faucet links below to get testnet tokens.</p>
+          <p>Send or receive funds to see your activity here. Use the faucet link below to get testnet tokens.</p>
           <div className="row" style={{ justifyContent: "center", marginTop: "0.75rem", gap: "0.5rem", flexWrap: "wrap" }}>
             <a href="https://core.app/tools/testnet-faucet/?subnet=c&token=c" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ fontSize: "0.75rem" }}>
               AVAX Faucet
-            </a>
-            <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ fontSize: "0.75rem" }}>
-              USDC Faucet
             </a>
           </div>
         </div>

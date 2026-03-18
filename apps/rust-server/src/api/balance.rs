@@ -13,7 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     auth::Auth,
-    blockchain::{ensure_fuji_network, AvaxClient, WalletBalanceResponse, REUR_TOKEN, USDC_TOKEN},
+    blockchain::{ensure_fuji_network, AvaxClient, WalletBalanceResponse, REUR_TOKEN},
     error::ApiError,
     state::AppState,
     storage::{WalletRepository, WalletStatus},
@@ -95,10 +95,7 @@ pub async fn get_wallet_balance(
     // Build list of token addresses to query
     let mut token_addresses: Vec<&str> = Vec::new();
 
-    // Add known demo tokens for Fuji.
-    if let Some(addr) = USDC_TOKEN.fuji_address {
-        token_addresses.push(addr);
-    }
+    // Add known tokens for Fuji.
     if let Some(addr) = REUR_TOKEN.fuji_address {
         token_addresses.push(addr);
     }

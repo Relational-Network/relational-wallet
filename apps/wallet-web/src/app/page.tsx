@@ -43,7 +43,7 @@ export default async function HomePage() {
           <span>hardware&nbsp;enclaves</span>
         </h1>
         <p>
-          Send and receive USDC and AVAX with a wallet whose private keys never
+          Send and receive rEUR and AVAX with a wallet whose private keys never
           leave a secure Intel SGX enclave. Fast, simple, auditable.
         </p>
 
@@ -80,7 +80,7 @@ export default async function HomePage() {
           <Zap size={28} color="var(--brand)" />
           <h3>Instant transactions</h3>
           <p>
-            Send USDC or AVAX in seconds. Gas estimation, one-tap confirmation,
+            Send rEUR or AVAX in seconds. Gas estimation, one-tap confirmation,
             and real-time status polling built in.
           </p>
         </article>

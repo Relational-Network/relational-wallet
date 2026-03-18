@@ -96,6 +96,9 @@ pub struct StoredFiatRequest {
     /// Last chain synchronization timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_chain_sync_at: Option<DateTime<Utc>>,
+    /// Number of settlement transfer attempts (for on-ramp).
+    #[serde(default)]
+    pub settlement_attempts: u32,
     /// Failure reason for terminal failed state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<String>,
@@ -148,6 +151,7 @@ impl StoredFiatRequest {
             provider_event_id: None,
             last_provider_sync_at: None,
             last_chain_sync_at: None,
+            settlement_attempts: 0,
             failure_reason: None,
             created_at: now,
             updated_at: now,
@@ -175,10 +179,66 @@ impl<'a> FiatRequestRepository<'a> {
     /// Get request by ID.
     pub fn get(&self, request_id: &str) -> StorageResult<StoredFiatRequest> {
         let path = self.storage.paths().fiat_request(request_id);
-        if !self.storage.exists(&path) {
-            return Err(StorageError::NotFound(format!("Fiat request {request_id}")));
+        self.storage.read_json(path).map_err(|e| match e {
+            StorageError::NotFound(_) | StorageError::Io(_) => {
+                StorageError::NotFound(format!("Fiat request {request_id}"))
+            }
+            other => other,
+        })
+    }
+
+    fn list_matching<F>(
+        &self,
+        mut matches: F,
+        limit: Option<usize>,
+    ) -> StorageResult<Vec<StoredFiatRequest>>
+    where
+        F: FnMut(&StoredFiatRequest) -> bool,
+    {
+        if matches!(limit, Some(0)) {
+            return Ok(Vec::new());
         }
-        self.storage.read_json(path)
+
+        let ids = self
+            .storage
+            .list_files(self.storage.paths().fiat_dir(), "json")?;
+
+        let mut requests = Vec::new();
+
+        for id in ids {
+            let path = self.storage.paths().fiat_request(&id);
+            let record = match self.storage.read_json::<StoredFiatRequest>(&path) {
+                Ok(record) => record,
+                Err(error) => {
+                    tracing::warn!(
+                        request_id = %id,
+                        error = %error,
+                        "Failed to read fiat request — skipping"
+                    );
+                    continue;
+                }
+            };
+
+            if !matches(&record) {
+                continue;
+            }
+
+            requests.push(record);
+
+            if let Some(limit) = limit {
+                let trim_threshold = limit.saturating_mul(4);
+                if trim_threshold > 0 && requests.len() > trim_threshold {
+                    requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                    requests.truncate(limit.saturating_mul(2).max(limit));
+                }
+            }
+        }
+
+        requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        if let Some(limit) = limit {
+            requests.truncate(limit);
+        }
+        Ok(requests)
     }
 
     /// Persist new request.
@@ -210,50 +270,53 @@ impl<'a> FiatRequestRepository<'a> {
     }
 
     /// List all requests for user.
+    #[allow(dead_code)]
     pub fn list_by_owner(&self, owner_user_id: &str) -> StorageResult<Vec<StoredFiatRequest>> {
-        let ids = self
-            .storage
-            .list_files(self.storage.paths().fiat_dir(), "json")?;
+        self.list_filtered_for_owner(owner_user_id, None, None, None)
+    }
 
-        let mut requests = Vec::new();
-        for id in ids {
-            if let Ok(record) = self.get(&id) {
-                if record.owner_user_id == owner_user_id {
-                    requests.push(record);
+    /// List requests for user with optional wallet/status filters and limit.
+    pub fn list_filtered_for_owner(
+        &self,
+        owner_user_id: &str,
+        wallet_id: Option<&str>,
+        statuses: Option<&[FiatRequestStatus]>,
+        limit: Option<usize>,
+    ) -> StorageResult<Vec<StoredFiatRequest>> {
+        self.list_matching(
+            |record| {
+                if record.owner_user_id != owner_user_id {
+                    return false;
                 }
-            }
-        }
-
-        requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        Ok(requests)
+                if let Some(wallet_id) = wallet_id {
+                    if record.wallet_id != wallet_id {
+                        return false;
+                    }
+                }
+                if let Some(statuses) = statuses {
+                    if !statuses.contains(&record.status) {
+                        return false;
+                    }
+                }
+                true
+            },
+            limit,
+        )
     }
 
     /// List all requests (admin/system use).
     pub fn list_all(&self) -> StorageResult<Vec<StoredFiatRequest>> {
-        let ids = self
-            .storage
-            .list_files(self.storage.paths().fiat_dir(), "json")?;
-        let mut requests = Vec::new();
-        for id in ids {
-            if let Ok(record) = self.get(&id) {
-                requests.push(record);
-            }
-        }
-        requests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        Ok(requests)
+        self.list_matching(|_| true, None)
     }
 
     /// List all requests for a given wallet owned by user.
+    #[allow(dead_code)]
     pub fn list_by_wallet_for_owner(
         &self,
         owner_user_id: &str,
         wallet_id: &str,
     ) -> StorageResult<Vec<StoredFiatRequest>> {
-        let all = self.list_by_owner(owner_user_id)?;
-        Ok(all
-            .into_iter()
-            .filter(|record| record.wallet_id == wallet_id)
-            .collect())
+        self.list_filtered_for_owner(owner_user_id, Some(wallet_id), None, None)
     }
 }
 

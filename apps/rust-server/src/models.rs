@@ -171,7 +171,7 @@ pub struct RecurringPayment {
     pub recipient: WalletAddress,
     /// Payment amount.
     pub amount: f64,
-    /// Currency code (e.g., "AVAX", "USDC").
+    /// Currency code (e.g., "AVAX", "rEUR").
     pub currency_code: String,
     /// Start date (Unix timestamp in days).
     pub payment_start_date: i32,
@@ -194,7 +194,7 @@ pub struct CreateRecurringPaymentRequest {
     pub recipient: WalletAddress,
     /// Payment amount.
     pub amount: f64,
-    /// Currency code (e.g., "AVAX", "USDC").
+    /// Currency code (e.g., "AVAX", "rEUR").
     pub currency_code: String,
     /// Start date (Unix timestamp in days).
     pub payment_start_date: i32,

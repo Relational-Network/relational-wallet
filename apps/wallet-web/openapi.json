@@ -912,6 +912,7 @@
           "Fiat"
         ],
         "summary": "TrueLayer webhook callback endpoint.",
+        "description": "Validates the `Tl-Signature` JWS header using TrueLayer's JWKS public keys\nbefore processing the webhook payload.",
         "operationId": "truelayer_webhook",
         "requestBody": {
           "content": {
@@ -931,10 +932,7 @@
             "description": "Bad request"
           },
           "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "Webhook disabled"
+            "description": "Forbidden — invalid signature"
           }
         }
       }
@@ -1762,6 +1760,30 @@
               "default": 50,
               "minimum": 0
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Cursor for pagination (returned as `next_cursor` in previous response).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "Direction filter: \"sent\" or \"received\". If omitted, returns both.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2222,7 +2244,7 @@
           },
           "currency_code": {
             "type": "string",
-            "description": "Currency code (e.g., \"AVAX\", \"USDC\")."
+            "description": "Currency code (e.g., \"AVAX\", \"rEUR\")."
           },
           "frequency": {
             "type": "integer",
@@ -2818,7 +2840,7 @@
           },
           "currency_code": {
             "type": "string",
-            "description": "Currency code (e.g., \"AVAX\", \"USDC\")."
+            "description": "Currency code (e.g., \"AVAX\", \"rEUR\")."
           },
           "frequency": {
             "type": "integer",
@@ -3171,6 +3193,12 @@
             ],
             "description": "Service-wallet address used for reserve flows."
           },
+          "settlement_attempts": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of settlement transfer attempts (for on-ramp).",
+            "minimum": 0
+          },
           "status": {
             "$ref": "#/components/schemas/FiatRequestStatus",
             "description": "Current status."
@@ -3382,7 +3410,7 @@
           },
           "symbol": {
             "type": "string",
-            "description": "Token symbol (e.g., \"AVAX\", \"EUROC\")"
+            "description": "Token symbol (e.g., \"AVAX\", \"rEUR\")"
           }
         }
       },
@@ -3418,6 +3446,13 @@
           "transactions"
         ],
         "properties": {
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cursor for the next page (null if no more pages)."
+          },
           "transactions": {
             "type": "array",
             "items": {
@@ -3556,6 +3591,42 @@
               "null"
             ]
           },
+          "event_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "executed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timestamp when payout was executed (from `payout_executed` webhook)."
+          },
+          "failed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Timestamp when payout failed (from `payout_failed` webhook)."
+          },
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reason for payout failure (from `payout_failed` webhook)."
+          },
+          "merchant_account_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Merchant account the payout was made from."
+          },
           "payment_id": {
             "type": [
               "string",
@@ -3574,7 +3645,20 @@
               "null"
             ]
           },
+          "scheme_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Payment scheme used (e.g. `faster_payments_service`, `sepa_credit_transfer`)."
+          },
           "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
             "type": [
               "string",
               "null"

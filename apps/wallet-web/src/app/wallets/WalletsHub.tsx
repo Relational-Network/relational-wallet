@@ -14,13 +14,11 @@ import type {
   WalletResponse,
 } from "@/lib/api";
 
-const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70ab815c96711a31bc65";
 const REUR_FUJI_ADDRESS = "0x76568bed5acf1a5cd888773c8cae9ea2a9131a63";
 
 function tokenLabel(token: string): string {
   if (token === "native") return "AVAX";
   const normalized = token.toLowerCase();
-  if (normalized === USDC_FUJI_ADDRESS) return "USDC";
   if (normalized === REUR_FUJI_ADDRESS) return "rEUR";
   return "TOKEN";
 }

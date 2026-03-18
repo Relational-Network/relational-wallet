@@ -6,7 +6,7 @@
 //!
 //! This module provides functionality for:
 //! - Querying native AVAX balances
-//! - Querying ERC-20 token balances (USDC, etc.)
+//! - Querying ERC-20 token balances (rEUR)
 //! - Transaction signing and broadcasting
 //! - Gas estimation
 

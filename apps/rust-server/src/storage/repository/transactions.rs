@@ -224,6 +224,75 @@ impl<'a> TransactionRepository<'a> {
         Ok(transactions)
     }
 
+    fn insert_sorted_desc(
+        transactions: &mut Vec<StoredTransaction>,
+        tx: StoredTransaction,
+        limit: usize,
+    ) {
+        if limit == 0 {
+            return;
+        }
+
+        let should_insert = if transactions.len() < limit {
+            true
+        } else {
+            let oldest = transactions
+                .last()
+                .expect("transactions has an oldest element when len >= limit");
+            tx.created_at > oldest.created_at
+                || (tx.created_at == oldest.created_at && tx.tx_hash > oldest.tx_hash)
+        };
+
+        if !should_insert {
+            return;
+        }
+
+        let insert_at = transactions.partition_point(|existing| {
+            existing.created_at > tx.created_at
+                || (existing.created_at == tx.created_at && existing.tx_hash >= tx.tx_hash)
+        });
+        transactions.insert(insert_at, tx);
+
+        if transactions.len() > limit {
+            transactions.pop();
+        }
+    }
+
+    /// List newest transactions for a wallet up to `limit`.
+    ///
+    /// This avoids collecting and sorting the full history when callers only
+    /// need a small first page.
+    pub fn list_by_wallet_limited(
+        &self,
+        wallet_id: &str,
+        limit: usize,
+    ) -> StorageResult<Vec<StoredTransaction>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let txs_dir = self.storage.paths().wallet_txs_dir(wallet_id);
+
+        if !self.storage.exists(&txs_dir) {
+            return Ok(Vec::new());
+        }
+
+        let files = self.storage.list_files(&txs_dir, "json")?;
+        let mut transactions = Vec::with_capacity(limit.min(64));
+
+        for file in files {
+            let path = txs_dir.join(format!("{}.json", file));
+            match self.storage.read_json::<StoredTransaction>(&path) {
+                Ok(tx) => Self::insert_sorted_desc(&mut transactions, tx, limit),
+                Err(e) => {
+                    tracing::warn!("Failed to read transaction {}: {}", file, e);
+                }
+            }
+        }
+
+        Ok(transactions)
+    }
+
     /// List pending transactions for a wallet (for status polling).
     /// TODO: Batch transaction status polling
     #[allow(dead_code)]

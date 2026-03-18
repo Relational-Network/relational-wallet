@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Relational Network
 
 const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
-const SUPPORTED_TOKENS = new Set(["native", "usdc"]);
+const SUPPORTED_TOKENS = new Set(["native", "reur"]);
 const NOTE_MAX_LENGTH = 140;
 
 export interface PaymentRequestQuery {
@@ -15,7 +15,7 @@ export interface PaymentRequestQuery {
 export interface ParsedPaymentRequest {
   to?: string;
   amount?: string;
-  token: "native" | "usdc";
+  token: "native" | "reur";
   note?: string;
 }
 
@@ -63,7 +63,7 @@ export function parsePaymentRequestQuery(
   const token = clean(query.token)?.toLowerCase();
   if (token) {
     if (SUPPORTED_TOKENS.has(token)) {
-      prefill.token = token as "native" | "usdc";
+      prefill.token = token as "native" | "reur";
     } else {
       warnings.push("Unsupported token in payment link. Defaulted to AVAX.");
     }

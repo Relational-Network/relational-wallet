@@ -399,7 +399,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** TrueLayer webhook callback endpoint. */
+        /**
+         * TrueLayer webhook callback endpoint.
+         * @description Validates the `Tl-Signature` JWS header using TrueLayer's JWKS public keys
+         *     before processing the webhook payload.
+         */
         post: operations["truelayer_webhook"];
         delete?: never;
         options?: never;
@@ -868,7 +872,7 @@ export interface components {
              * @description Payment amount.
              */
             amount: number;
-            /** @description Currency code (e.g., "AVAX", "USDC"). */
+            /** @description Currency code (e.g., "AVAX", "rEUR"). */
             currency_code: string;
             /**
              * Format: int32
@@ -1114,7 +1118,7 @@ export interface components {
              * @description Payment amount.
              */
             amount: number;
-            /** @description Currency code (e.g., "AVAX", "USDC"). */
+            /** @description Currency code (e.g., "AVAX", "rEUR"). */
             currency_code: string;
             /**
              * Format: int32
@@ -1274,6 +1278,11 @@ export interface components {
             reserve_transfer_tx_hash?: string | null;
             /** @description Service-wallet address used for reserve flows. */
             service_wallet_address?: string | null;
+            /**
+             * Format: int32
+             * @description Number of settlement transfer attempts (for on-ramp).
+             */
+            settlement_attempts?: number;
             /** @description Current status. */
             status: components["schemas"]["FiatRequestStatus"];
             /**
@@ -1368,7 +1377,7 @@ export interface components {
             decimals: number;
             /** @description Token name */
             name: string;
-            /** @description Token symbol (e.g., "AVAX", "EUROC") */
+            /** @description Token symbol (e.g., "AVAX", "rEUR") */
             symbol: string;
         };
         /** @description Token type for a transaction. */
@@ -1378,6 +1387,8 @@ export interface components {
         };
         /** @description Transaction list response. */
         TransactionListResponse: {
+            /** @description Cursor for the next page (null if no more pages). */
+            next_cursor?: string | null;
             /** @description List of transactions */
             transactions: components["schemas"]["TransactionSummary"][];
         };
@@ -1433,10 +1444,23 @@ export interface components {
         TrueLayerWebhookPayload: {
             data?: unknown;
             event_id?: string | null;
+            /** Format: int32 */
+            event_version?: number | null;
+            /** @description Timestamp when payout was executed (from `payout_executed` webhook). */
+            executed_at?: string | null;
+            /** @description Timestamp when payout failed (from `payout_failed` webhook). */
+            failed_at?: string | null;
+            /** @description Reason for payout failure (from `payout_failed` webhook). */
+            failure_reason?: string | null;
+            /** @description Merchant account the payout was made from. */
+            merchant_account_id?: string | null;
             payment_id?: string | null;
             payout_id?: string | null;
             reference?: string | null;
+            /** @description Payment scheme used (e.g. `faster_payments_service`, `sepa_credit_transfer`). */
+            scheme_id?: string | null;
             status?: string | null;
+            type?: string | null;
         };
         /**
          * @description Transaction status.
@@ -2410,15 +2434,8 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Forbidden */
+            /** @description Forbidden — invalid signature */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Webhook disabled */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3101,6 +3118,10 @@ export interface operations {
                 network?: string | null;
                 /** @description Maximum number of results (default: 50) */
                 limit?: number | null;
+                /** @description Cursor for pagination (returned as `next_cursor` in previous response). */
+                cursor?: string | null;
+                /** @description Direction filter: "sent" or "received". If omitted, returns both. */
+                direction?: string | null;
             };
             header?: never;
             path: {

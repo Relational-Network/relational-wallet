@@ -46,22 +46,32 @@ RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubunt
 ARG BUILD_ESSENTIAL_VERSION=12.8ubuntu1.1
 ARG CLANG_VERSION=1:10.0-50~exp1
 ARG CURL_VERSION=7.68.0-1ubuntu2.25
+ARG PKG_CONFIG_VERSION=0.29.1-0ubuntu4
+ARG LIBSSL_DEV_VERSION=1.1.1f-1ubuntu2.24
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl=${CURL_VERSION} \
     ca-certificates=${CA_CERTS_VERSION} \
     build-essential=${BUILD_ESSENTIAL_VERSION} \
-    clang=${CLANG_VERSION} && \
+    clang=${CLANG_VERSION} \
+    pkg-config=${PKG_CONFIG_VERSION} \
+    libssl-dev=${LIBSSL_DEV_VERSION} && \
     rm -rf /var/lib/apt/lists/*
 
 # Pin the exact Rust toolchain so MRENCLAVE is reproducible.
 # Update this version deliberately — never use "stable".
 ARG RUST_TOOLCHAIN=1.92.0
 
-# Pin the rustup installer by SHA256 so builds don't depend on a mutable URL.
-# To update: curl -sSf https://sh.rustup.rs -o rustup-init.sh && sha256sum rustup-init.sh
-ARG RUSTUP_SHA256=17247e4bcacf6027ec2e11c79a72c494c9af69ac8d1abcc1b271fa4375a106c2
+# Pin rustup by VERSION + SHA256 using a versioned, immutable URL.
+# The old approach (https://sh.rustup.rs) is a mutable URL that changes with
+# every rustup release, breaking the SHA check.  The /archive/ URL is stable.
+# To update:
+#   RUSTUP_VERSION=1.29.0  # bump this
+#   curl -sSf "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+#     -o /tmp/rustup-init && sha256sum /tmp/rustup-init
+ARG RUSTUP_VERSION=1.29.0
+ARG RUSTUP_SHA256=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
 
 ENV CARGO_HOME=/opt/cargo
 ENV RUSTUP_HOME=/opt/rustup
@@ -80,10 +90,12 @@ ENV RUSTFLAGS="-Ccodegen-units=1 -Cdebuginfo=0 -Cstrip=symbols -Clink-arg=-Wl,--
 ENV CFLAGS="-g0 -frandom-seed=relational-wallet -Wno-builtin-macro-redefined -D__DATE__=\"redacted\" -D__TIME__=\"redacted\" -D__TIMESTAMP__=\"redacted\""
 ENV CXXFLAGS="-g0 -frandom-seed=relational-wallet -Wno-builtin-macro-redefined -D__DATE__=\"redacted\" -D__TIME__=\"redacted\" -D__TIMESTAMP__=\"redacted\""
 
-RUN curl -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh && \
-    echo "${RUSTUP_SHA256}  /tmp/rustup-init.sh" | sha256sum -c - && \
-    sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN} && \
-    rm /tmp/rustup-init.sh
+RUN curl -sSf "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+        -o /tmp/rustup-init && \
+    echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - && \
+    chmod +x /tmp/rustup-init && \
+    /tmp/rustup-init -y --profile minimal --default-toolchain ${RUST_TOOLCHAIN} && \
+    rm /tmp/rustup-init
 
 WORKDIR /app
 

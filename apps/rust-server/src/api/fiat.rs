@@ -55,9 +55,17 @@ const RESERVE_INITIAL_TOPUP_ENV: &str = "FIAT_RESERVE_INITIAL_TOPUP_EUR";
 const FIAT_MIN_CONFIRMATIONS_ENV: &str = "FIAT_MIN_CONFIRMATIONS";
 // Keep provider re-checks slower than the poller sweep interval to avoid
 // duplicate remote API calls for long-lived pending requests.
-const PROVIDER_SYNC_COOLDOWN_SECS: i64 = 55;
+// 5s matches the poller sweep (sandbox payouts execute in ~4s).
+const PROVIDER_SYNC_COOLDOWN_SECS: i64 = 5;
 /// TrueLayer sandbox JWKS URL for webhook signature verification.
 const TRUELAYER_SANDBOX_JWKS_URL: &str = "https://webhooks.truelayer-sandbox.com/.well-known/jwks";
+const ACTIVE_FIAT_STATUSES: [FiatRequestStatus; 5] = [
+    FiatRequestStatus::Queued,
+    FiatRequestStatus::AwaitingProvider,
+    FiatRequestStatus::AwaitingUserDeposit,
+    FiatRequestStatus::SettlementPending,
+    FiatRequestStatus::ProviderPending,
+];
 
 /// Webhook path as registered in TrueLayer Console (must match exactly for signature verification).
 const WEBHOOK_PATH: &str = "/v1/fiat/providers/truelayer/webhook";
@@ -186,6 +194,10 @@ pub struct FiatProviderListResponse {
 pub struct FiatRequestListQuery {
     /// Optional wallet filter.
     pub wallet_id: Option<String>,
+    /// When `true`, return only active (non-terminal) requests.
+    pub active_only: Option<bool>,
+    /// Optional page size limit.
+    pub limit: Option<usize>,
 }
 
 /// Reserve-wallet status response.
@@ -497,6 +509,7 @@ fn map_webhook_status(raw: &str) -> ProviderExecutionStatus {
         || normalized.contains("settl")
         || normalized.contains("success")
         || normalized.contains("authoris")
+        || normalized.contains("credit")
     {
         ProviderExecutionStatus::Completed
     } else {
@@ -811,6 +824,12 @@ async fn detect_confirmed_deposit(
     let expected_amount = parse_amount_to_token_minor_u256(&record.amount_eur)?;
     let min_confirmations = fiat_min_confirmations();
 
+    // Only consider transactions submitted AFTER this fiat request was
+    // created.  Without this guard, old deposits from previous requests
+    // (with the same amount) would be matched, causing the payout to
+    // fire before the user has made their deposit for THIS request.
+    let request_created = record.created_at;
+
     let tx_repo = TransactionRepository::new(storage);
     let candidate_txs = tx_repo
         .list_by_wallet(&record.wallet_id)
@@ -825,6 +844,11 @@ async fn detect_confirmed_deposit(
         .map_err(|e| ApiError::service_unavailable(format!("Failed to read block number: {e}")))?;
 
     for tx in candidate_txs {
+        // Skip transactions that pre-date this fiat request.
+        if tx.created_at < request_created {
+            continue;
+        }
+
         let token_addr = match &tx.token {
             TokenType::Native => continue,
             TokenType::Erc20(addr) => addr,
@@ -945,6 +969,15 @@ async fn sync_onramp_request(
                 }
             };
 
+            record.settlement_attempts += 1;
+            info!(
+                request_id = %record.request_id,
+                attempt = record.settlement_attempts,
+                destination = %destination_wallet.public_address,
+                amount_eur = %record.amount_eur,
+                "Attempting on-ramp settlement transfer from service wallet"
+            );
+
             match send_reserve_transfer(
                 storage,
                 &destination_wallet.public_address,
@@ -958,6 +991,12 @@ async fn sync_onramp_request(
                     record.status = FiatRequestStatus::Completed;
                     record.failure_reason = None;
                     record.updated_at = Utc::now();
+
+                    info!(
+                        request_id = %record.request_id,
+                        tx_hash = %result.tx_hash,
+                        "On-ramp settlement transfer succeeded"
+                    );
 
                     // Record the incoming rEUR transfer in the user's transaction history.
                     let reur_contract = resolve_reur_contract_address().unwrap_or_default();
@@ -986,8 +1025,28 @@ async fn sync_onramp_request(
                     }
                 }
                 Err(error) => {
-                    record.status = FiatRequestStatus::Failed;
-                    record.failure_reason = Some(error.message.clone());
+                    const MAX_SETTLEMENT_ATTEMPTS: u32 = 5;
+                    warn!(
+                        request_id = %record.request_id,
+                        attempt = record.settlement_attempts,
+                        max_attempts = MAX_SETTLEMENT_ATTEMPTS,
+                        error = %error.message,
+                        "On-ramp settlement transfer failed"
+                    );
+
+                    if record.settlement_attempts >= MAX_SETTLEMENT_ATTEMPTS {
+                        record.status = FiatRequestStatus::Failed;
+                        record.failure_reason = Some(format!(
+                            "Settlement failed after {} attempts: {}",
+                            record.settlement_attempts, error.message
+                        ));
+                    } else {
+                        // Stay in SettlementPending — the poller will retry.
+                        record.failure_reason = Some(format!(
+                            "Attempt {}/{} failed: {}",
+                            record.settlement_attempts, MAX_SETTLEMENT_ATTEMPTS, error.message
+                        ));
+                    }
                     record.updated_at = Utc::now();
                 }
             }
@@ -1005,6 +1064,19 @@ async fn sync_offramp_request(
                 record.deposit_tx_hash = Some(tx_hash);
                 record.last_chain_sync_at = Some(Utc::now());
                 record.updated_at = Utc::now();
+
+                // If a provider_reference already exists (e.g. server was
+                // killed before persisting the status transition), skip
+                // payout creation and let the polling branch handle it.
+                if record.provider_reference.is_some() {
+                    info!(
+                        request_id = %record.request_id,
+                        provider_reference = ?record.provider_reference,
+                        "Off-ramp payout already created; skipping re-creation"
+                    );
+                    record.status = FiatRequestStatus::ProviderPending;
+                    return;
+                }
 
                 if !TrueLayerClient::is_configured() {
                     record.status = FiatRequestStatus::Failed;
@@ -1470,15 +1542,15 @@ pub async fn list_fiat_requests(
 ) -> Result<Json<FiatRequestListResponse>, ApiError> {
     let storage = state.storage();
     let repo = FiatRequestRepository::new(storage);
-
-    let requests = match query.wallet_id.as_deref() {
-        Some(wallet_id) => repo
-            .list_by_wallet_for_owner(&user.user_id, wallet_id)
-            .map_err(|e| ApiError::internal(format!("Failed to list fiat requests: {e}")))?,
-        None => repo
-            .list_by_owner(&user.user_id)
-            .map_err(|e| ApiError::internal(format!("Failed to list fiat requests: {e}")))?,
+    let statuses = if query.active_only.unwrap_or(false) {
+        Some(ACTIVE_FIAT_STATUSES.as_slice())
+    } else {
+        None
     };
+    let limit = query.limit.map(|value| value.min(200));
+    let requests = repo
+        .list_filtered_for_owner(&user.user_id, query.wallet_id.as_deref(), statuses, limit)
+        .map_err(|e| ApiError::internal(format!("Failed to list fiat requests: {e}")))?;
 
     // Serve cached status — the background FiatPoller handles provider syncing
     // every 30 s. This avoids inline TrueLayer API calls on every page view.
@@ -1597,7 +1669,15 @@ pub async fn truelayer_webhook(
             FiatRequestStatus::Completed | FiatRequestStatus::Failed
         );
 
-        if !is_terminal {
+        // Prevent backward transitions — don't downgrade from
+        // SettlementPending to a less-advanced state.
+        let is_backward = matches!(record.status, FiatRequestStatus::SettlementPending)
+            && matches!(
+                new_mapped,
+                FiatRequestStatus::AwaitingProvider | FiatRequestStatus::Queued
+            );
+
+        if !is_terminal && !is_backward {
             record.status = new_mapped;
             if matches!(new_status, ProviderExecutionStatus::Failed) {
                 // Use failure_reason from TrueLayer webhook when available,
@@ -1629,13 +1709,41 @@ pub async fn truelayer_webhook(
 
     record.last_provider_sync_at = Some(Utc::now());
     record.updated_at = Utc::now();
-    // NOTE: We do NOT call sync_request_internal here — the webhook already
-    // provides the definitive status from TrueLayer. Calling sync would
-    // re-poll the provider API inline, duplicating work the FiatPoller
-    // background task already handles.
 
+    // Persist the webhook update immediately so the record is up-to-date.
     repo.update(record)
         .map_err(|e| ApiError::internal(format!("Failed to persist webhook update: {e}")))?;
+
+    // If the request just transitioned to SettlementPending, fire off settlement
+    // immediately in a background task instead of waiting for the next poller tick.
+    if record.status == FiatRequestStatus::SettlementPending
+        && record.reserve_transfer_tx_hash.is_none()
+    {
+        let storage = Arc::clone(storage);
+        let request_id = record.request_id.clone();
+        tokio::spawn(async move {
+            info!(
+                request_id = %request_id,
+                "Webhook: triggering immediate settlement"
+            );
+            match sync_and_persist_request(&storage, &request_id).await {
+                Ok(r) => {
+                    info!(
+                        request_id = %r.request_id,
+                        status = ?r.status,
+                        "Webhook: immediate settlement completed"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        request_id = %request_id,
+                        error = %e.message,
+                        "Webhook: immediate settlement failed (poller will retry)"
+                    );
+                }
+            }
+        });
+    }
 
     Ok(StatusCode::ACCEPTED)
 }

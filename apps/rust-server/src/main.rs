@@ -2,16 +2,24 @@
 //
 // Copyright (C) 2026 Relational Network
 
+// During test compilation, `main()` is excluded via `#[cfg(not(test))]`,
+// which makes items only reachable from main appear unused. Suppress
+// those false positives so `cargo test` compiles warning-free.
+#[cfg_attr(test, allow(unused_imports, dead_code))]
 mod api;
 mod auth;
 mod blockchain;
 mod config;
 mod error;
+#[cfg_attr(test, allow(dead_code))]
 mod fiat_poller;
+#[cfg_attr(test, allow(dead_code))]
 mod indexer;
 mod models;
 mod providers;
+#[cfg_attr(test, allow(dead_code))]
 mod state;
+#[cfg_attr(test, allow(unused_imports))]
 mod storage;
 mod tls;
 

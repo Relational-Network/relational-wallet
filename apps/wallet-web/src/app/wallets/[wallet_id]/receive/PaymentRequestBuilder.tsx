@@ -18,7 +18,7 @@ interface PaymentRequestBuilderProps {
 export function PaymentRequestBuilder({ recipientAddress, compact = false }: PaymentRequestBuilderProps) {
   const QR_SIZE = 220;
   const [amount, setAmount] = useState("");
-  const [token, setToken] = useState<"native" | "usdc">("native");
+  const [token, setToken] = useState<"native" | "reur">("native");
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
   const [showQrPopup, setShowQrPopup] = useState(false);
@@ -113,10 +113,10 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
             <select
               id="requestToken"
               value={token}
-              onChange={(e) => setToken(e.target.value === "usdc" ? "usdc" : "native")}
+              onChange={(e) => setToken(e.target.value === "reur" ? "reur" : "native")}
             >
               <option value="native">AVAX</option>
-              <option value="usdc">USDC</option>
+              <option value="reur">rEUR</option>
             </select>
           </div>
         </div>
@@ -182,10 +182,10 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
           <select
             id="requestToken"
             value={token}
-            onChange={(e) => setToken(e.target.value === "usdc" ? "usdc" : "native")}
+            onChange={(e) => setToken(e.target.value === "reur" ? "reur" : "native")}
           >
             <option value="native">AVAX</option>
-            <option value="usdc">USDC</option>
+            <option value="reur">rEUR</option>
           </select>
         </div>
       </div>

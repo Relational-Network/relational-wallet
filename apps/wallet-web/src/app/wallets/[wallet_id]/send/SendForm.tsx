@@ -14,7 +14,6 @@ import type {
 } from "@/lib/api";
 import { RecipientQrScanner } from "@/components/RecipientQrScanner";
 
-const USDC_FUJI_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
 const REUR_FUJI_ADDRESS = "0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63";
 
 interface RecipientShortcut {
@@ -67,15 +66,13 @@ function shortenAddr(value: string) {
   return `${value.slice(0, 6)}\u2026${value.slice(-4)}`;
 }
 
-function tokenTicker(token: "native" | "usdc" | "reur"): string {
+function tokenTicker(token: "native" | "reur"): string {
   if (token === "native") return "AVAX";
-  if (token === "usdc") return "USDC";
   return "rEUR";
 }
 
-function tokenAddress(token: "native" | "usdc" | "reur"): string {
+function tokenAddress(token: "native" | "reur"): string {
   if (token === "native") return "native";
-  if (token === "usdc") return USDC_FUJI_ADDRESS;
   return REUR_FUJI_ADDRESS;
 }
 
@@ -96,11 +93,11 @@ export function SendForm({
   const prefillTo = prefill?.to ?? "";
   const prefillAmount = prefill?.amount ?? "";
   const prefillToken =
-    prefill?.token === "usdc" ? "usdc" : prefill?.token === "reur" ? "reur" : "native";
+    prefill?.token === "reur" ? "reur" : "native";
 
   const [toAddress, setToAddress] = useState(prefillTo);
   const [amount, setAmount] = useState(prefillAmount);
-  const [token, setToken] = useState<"native" | "usdc" | "reur">(prefillToken);
+  const [token, setToken] = useState<"native" | "reur">(prefillToken);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
@@ -290,7 +287,9 @@ export function SendForm({
             explorerUrl: txState.explorerUrl,
             blockNumber: status.block_number,
           });
-          onComplete?.();
+          // Delay the callback slightly so the backend has time to
+          // index the confirmed transaction before the dashboard re-fetches.
+          setTimeout(() => onComplete?.(), 1500);
           return;
         }
 
@@ -300,7 +299,7 @@ export function SendForm({
             txHash: txState.txHash,
             explorerUrl: txState.explorerUrl,
           });
-          onComplete?.();
+          setTimeout(() => onComplete?.(), 1500);
           return;
         }
       }
@@ -574,13 +573,6 @@ export function SendForm({
           onClick={() => setToken("native")}
         >
           AVAX
-        </button>
-        <button
-          type="button"
-          className={`chip${token === "usdc" ? " active" : ""}`}
-          onClick={() => setToken("usdc")}
-        >
-          USDC
         </button>
         <button
           type="button"

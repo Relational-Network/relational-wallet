@@ -15,6 +15,7 @@ Thumbs.db
 
 # Development reports (local only)
 week_report.md
+COMMANDS.md
 
 # Rust
 apps/rust-server/target/
@@ -34,3 +35,7 @@ apps/contracts/lib/
 apps/contracts/out/
 apps/contracts/cache/
 apps/contracts/broadcast/
+
+*.tex
+report.md
+SPRINT*

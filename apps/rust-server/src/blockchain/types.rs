@@ -46,7 +46,7 @@ pub fn ensure_fuji_network(raw: Option<&str>) -> Result<(), String> {
 /// Token balance information.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TokenBalance {
-    /// Token symbol (e.g., "AVAX", "EUROC")
+    /// Token symbol (e.g., "AVAX", "rEUR")
     pub symbol: String,
     /// Token name
     pub name: String,
@@ -89,31 +89,6 @@ pub struct Erc20Token {
     /// Fuji testnet contract address
     pub fuji_address: Option<&'static str>,
 }
-
-/// Euro stablecoin configuration.
-/// Note: Replace with actual euro stablecoin contract addresses when deployed.
-/// TODO: Deploy a test euro stablecoin on Fuji and add the address here.
-#[allow(dead_code)]
-pub const EUROC_TOKEN: Erc20Token = Erc20Token {
-    symbol: "EUROC",
-    name: "Euro Coin",
-    decimals: 6,
-    // Circle's EUROC on Avalanche mainnet (if available)
-    mainnet_address: None, // TODO: Add actual mainnet address
-    // Testnet address - deploy a test token or use a known test token
-    fuji_address: None, // TODO: Add test token address
-};
-
-/// USDC for reference/testing.
-pub const USDC_TOKEN: Erc20Token = Erc20Token {
-    symbol: "USDC",
-    name: "USD Coin",
-    decimals: 6,
-    // Official USDC on Avalanche C-Chain
-    mainnet_address: Some("0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"),
-    // Fuji testnet USDC (Circle's test token)
-    fuji_address: Some("0x5425890298aed601595a70AB815c96711a31Bc65"),
-};
 
 /// Relational Euro (`rEUR`) token deployed on Fuji.
 pub const REUR_TOKEN: Erc20Token = Erc20Token {

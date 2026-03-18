@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
-import { apiClient, type WalletResponse } from "@/lib/api";
+import { apiClient, type WalletResponse, type BalanceResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { WalletActions } from "@/components/WalletActions";
@@ -25,19 +25,31 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
 
   let wallet: WalletResponse | null = null;
   let error: string | null = null;
+  let initialBalance: BalanceResponse | null = null;
 
-  const response = await apiClient.getWallet(token || "", wallet_id);
-  if (response.success) {
-    wallet = response.data;
-  } else if (response.error.status === 401) {
+  // Fetch wallet metadata and balance in parallel to eliminate the
+  // SSR → client waterfall that added ~400-900ms to page load.
+  const [walletResponse, balanceResponse] = await Promise.all([
+    apiClient.getWallet(token || "", wallet_id),
+    apiClient.getWalletBalance(token || "", wallet_id, "fuji"),
+  ]);
+
+  if (walletResponse.success) {
+    wallet = walletResponse.data;
+  } else if (walletResponse.error.status === 401) {
     redirect("/sign-in");
-  } else if (response.error.status === 403) {
+  } else if (walletResponse.error.status === 403) {
     error = "Access denied.";
-  } else if (response.error.status === 404) {
+  } else if (walletResponse.error.status === 404) {
     notFound();
   } else {
-    error = `Unable to load wallet: ${response.error.message}`;
+    error = `Unable to load wallet: ${walletResponse.error.message}`;
   }
+
+  if (balanceResponse.success) {
+    initialBalance = balanceResponse.data;
+  }
+  // Balance errors are non-fatal — the client component will retry
 
   if (!wallet && !error) notFound();
 
@@ -85,6 +97,7 @@ export default async function WalletDetailPage({ params }: WalletDetailPageProps
             walletId={wallet.wallet_id}
             publicAddress={wallet.public_address}
             walletStatus={wallet.status}
+            initialBalance={initialBalance}
           />
 
           <div className="card card-pad">

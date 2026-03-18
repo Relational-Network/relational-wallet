@@ -19,7 +19,7 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
   const [selectedWalletId, setSelectedWalletId] = useState<string>(wallets[0]?.wallet_id || "");
   const [to, setTo] = useState(prefill.to ?? "");
   const [amount, setAmount] = useState(prefill.amount ?? "");
-  const [token, setToken] = useState<"native" | "usdc">(prefill.token);
+  const [token, setToken] = useState<"native" | "reur">(prefill.token);
   const [note, setNote] = useState(prefill.note ?? "");
   const [showSendForm, setShowSendForm] = useState(false);
 
@@ -157,10 +157,10 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
                 </button>
                 <button
                   type="button"
-                  className={`chip${token === "usdc" ? " active" : ""}`}
-                  onClick={() => setToken("usdc")}
+                  className={`chip${token === "reur" ? " active" : ""}`}
+                  onClick={() => setToken("reur")}
                 >
-                  USDC
+                  rEUR
                 </button>
               </div>
 

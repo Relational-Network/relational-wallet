@@ -27,7 +27,7 @@ use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Filter;
 use tokio_util::sync::CancellationToken;
 
-use crate::blockchain::{format_amount, NetworkConfig, AVAX_FUJI, REUR_TOKEN, USDC_TOKEN};
+use crate::blockchain::{format_amount, NetworkConfig, AVAX_FUJI, REUR_TOKEN};
 use crate::storage::repository::transactions::{StoredTransaction, TokenType, TxStatus};
 use crate::storage::tx_cache::TxCache;
 use crate::storage::tx_database::TxDatabase;
@@ -309,18 +309,6 @@ impl EventIndexer {
     fn identify_token(&self, contract_addr: &str) -> (&str, u8) {
         let addr_lower = contract_addr.to_lowercase();
 
-        if USDC_TOKEN
-            .fuji_address
-            .map(|a| a.to_lowercase() == addr_lower)
-            .unwrap_or(false)
-            || USDC_TOKEN
-                .mainnet_address
-                .map(|a| a.to_lowercase() == addr_lower)
-                .unwrap_or(false)
-        {
-            return (USDC_TOKEN.symbol, USDC_TOKEN.decimals);
-        }
-
         if REUR_TOKEN
             .fuji_address
             .map(|a| a.to_lowercase() == addr_lower)
@@ -346,11 +334,6 @@ impl EventIndexer {
 /// Build the list of token contract addresses to monitor on Fuji.
 pub fn fuji_token_contracts() -> Vec<Address> {
     let mut addrs = Vec::new();
-    if let Some(addr_str) = USDC_TOKEN.fuji_address {
-        if let Ok(addr) = addr_str.parse::<Address>() {
-            addrs.push(addr);
-        }
-    }
     if let Some(addr_str) = REUR_TOKEN.fuji_address {
         if let Ok(addr) = addr_str.parse::<Address>() {
             addrs.push(addr);
@@ -387,24 +370,7 @@ mod tests {
     #[test]
     fn fuji_token_contracts_parses() {
         let contracts = fuji_token_contracts();
-        assert!(contracts.len() >= 1, "Should have at least USDC");
-    }
-
-    #[test]
-    fn identify_token_usdc() {
-        let db = Arc::new(
-            TxDatabase::open(
-                &std::env::temp_dir().join(format!("test-identify-{}.redb", uuid::Uuid::new_v4())),
-            )
-            .unwrap(),
-        );
-        let cache = Arc::new(TxCache::new(10, Duration::from_secs(60)));
-        let indexer = EventIndexer::new(db, cache, AVAX_FUJI, fuji_token_contracts());
-
-        let (symbol, decimals) =
-            indexer.identify_token("0x5425890298aed601595a70AB815c96711a31Bc65");
-        assert_eq!(symbol, "USDC");
-        assert_eq!(decimals, 6);
+        assert!(contracts.len() >= 1, "Should have at least rEUR");
     }
 
     #[test]

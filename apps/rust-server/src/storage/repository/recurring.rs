@@ -87,7 +87,7 @@ pub struct StoredRecurringPayment {
     pub recipient: String,
     /// Payment amount
     pub amount: f64,
-    /// Currency code (e.g., "AVAX", "USDC")
+    /// Currency code (e.g., "AVAX", "rEUR")
     pub currency_code: String,
     /// Payment frequency
     pub frequency: PaymentFrequency,

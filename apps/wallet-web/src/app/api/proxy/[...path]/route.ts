@@ -46,11 +46,15 @@ async function proxyRequest(
   const pathSegments = url.pathname.replace("/api/proxy", "");
   const backendUrl = `${BACKEND_URL}${pathSegments}${url.search}`;
 
-  // Get auth token from Clerk (server-side)
+  // Get auth token from Clerk (server-side).
+  // Run both token calls in parallel: template token (with role claims) and
+  // plain session token.  Use whichever resolves first with a value.
   const { getToken } = await auth();
-  // Prefer explicit default template so role metadata claims are propagated.
-  // Fallback to plain session token for environments without template config.
-  const token = (await getToken({ template: "default" })) ?? (await getToken());
+  const [templateToken, sessionToken] = await Promise.all([
+    getToken({ template: "default" }).catch(() => null),
+    getToken(),
+  ]);
+  const token = templateToken ?? sessionToken;
 
   // Build headers
   const headers: HeadersInit = {
@@ -85,19 +89,16 @@ async function proxyRequest(
     // Make the request to the backend
     const response = await fetch(backendUrl, fetchOptions);
 
-    // Get response body
-    const responseText = await response.text();
+    // Stream the response body directly instead of buffering via text()
+    const responseHeaders: HeadersInit = {
+      "Content-Type": response.headers.get("Content-Type") || "application/json",
+    };
+    const xReqId = response.headers.get("x-request-id");
+    if (xReqId) responseHeaders["x-request-id"] = xReqId;
 
-    // Return the response with appropriate status and headers
-    return new NextResponse(responseText || null, {
+    return new NextResponse(response.body, {
       status: response.status,
-      headers: {
-        "Content-Type": response.headers.get("Content-Type") || "application/json",
-        // Forward request ID if present
-        ...(response.headers.get("x-request-id")
-          ? { "x-request-id": response.headers.get("x-request-id")! }
-          : {}),
-      },
+      headers: responseHeaders,
     });
   } catch (error) {
     console.error("[API Proxy] Request failed:", error);

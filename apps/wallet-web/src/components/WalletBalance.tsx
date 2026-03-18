@@ -4,29 +4,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import type { BalanceResponse, TokenBalance } from "@/lib/api";
 
-export interface TokenBalance {
-  symbol: string;
-  name: string;
-  balance_raw: string;
-  balance_formatted: string;
-  decimals: number;
-  contract_address: string | null;
-}
-
-export interface BalanceResponse {
-  wallet_id: string;
-  address: string;
-  network: string;
-  chain_id: number;
-  native_balance: TokenBalance;
-  token_balances: TokenBalance[];
-}
+// Re-export for consumers that import from here
+export type { BalanceResponse, TokenBalance };
 
 interface WalletBalanceProps {
   walletId: string;
   publicAddress: string;
   walletStatus: string;
+  /** Pre-fetched balance from SSR — skips the client-side fetch on mount */
+  initialBalance?: BalanceResponse | null;
 }
 
 function formatBalance(value: string): string {
@@ -40,11 +28,11 @@ function formatBalance(value: string): string {
   });
 }
 
-export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletBalanceProps) {
-  const [balance, setBalance] = useState<BalanceResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function WalletBalance({ walletId, publicAddress, walletStatus, initialBalance }: WalletBalanceProps) {
+  const [balance, setBalance] = useState<BalanceResponse | null>(initialBalance ?? null);
+  const [isLoading, setIsLoading] = useState(!initialBalance);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialBalance ? new Date() : null);
 
   const fetchBalance = useCallback(async () => {
     if (walletStatus === "deleted" || walletStatus === "suspended") {
@@ -82,8 +70,10 @@ export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletB
   }, [walletId, walletStatus]);
 
   useEffect(() => {
+    // Skip client-side fetch when server already provided the balance
+    if (initialBalance) return;
     void fetchBalance();
-  }, [fetchBalance]);
+  }, [fetchBalance, initialBalance]);
 
   if (walletStatus === "deleted") {
     return null;
@@ -93,7 +83,6 @@ export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletB
     return <div className="alert warn">Balance queries are disabled for suspended wallets.</div>;
   }
 
-  const usdcBalance = balance?.token_balances.find((token) => token.symbol.toUpperCase() === "USDC");
   const reurBalance = balance?.token_balances.find((token) => token.symbol.toUpperCase() === "REUR");
 
   return (
@@ -122,14 +111,6 @@ export function WalletBalance({ walletId, publicAddress, walletStatus }: WalletB
           <span className="mono">
             {isLoading && !balance ? "loading" : balance ? `${balance.native_balance.balance_raw} wei` : "no data"}
           </span>
-        </div>
-
-        <div className="token-tile">
-          <span className="helper-text">USDC</span>
-          <span className="token-value">
-            {isLoading && !balance ? "..." : usdcBalance ? formatBalance(usdcBalance.balance_formatted) : "0"}
-          </span>
-          <span className="mono">{usdcBalance?.contract_address || "Not detected"}</span>
         </div>
 
         <div className="token-tile">

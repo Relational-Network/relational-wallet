@@ -158,13 +158,10 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
     }
   }, []);
 
+  // Fetch requests and providers in parallel on mount
   useEffect(() => {
-    void fetchRequests();
-  }, [fetchRequests]);
-
-  useEffect(() => {
-    void fetchProviders();
-  }, [fetchProviders]);
+    void Promise.all([fetchRequests(), fetchProviders()]);
+  }, [fetchRequests, fetchProviders]);
 
   // Listen for postMessage from callback popup
   useEffect(() => {
