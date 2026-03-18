@@ -11,7 +11,6 @@
 //! /data/wallets/{wallet_id}/
 //!   meta.json       # Wallet metadata
 //!   key.pem         # Private key (PKCS#8 PEM format)
-//!   txs/            # Transaction history (TODO)
 //! ```
 //!
 //! ## Security
@@ -148,9 +147,6 @@ impl<'a> WalletRepository<'a> {
         // Create wallet directory structure
         let wallet_dir = self.storage.paths().wallet_dir(wallet_id);
         self.storage.create_dir(&wallet_dir)?;
-        self.storage
-            .create_dir(self.storage.paths().wallet_txs_dir(wallet_id))?;
-
         // Write metadata
         self.storage
             .write_json(self.storage.paths().wallet_meta(wallet_id), metadata)?;

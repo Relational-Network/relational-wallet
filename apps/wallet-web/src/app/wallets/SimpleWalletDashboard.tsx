@@ -245,6 +245,7 @@ export function SimpleWalletDashboard({
   const walletDetailsInFlightWalletRef = useRef<string | null>(null);
   const walletSnapshotRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const walletSnapshotRefreshSequenceRef = useRef(0);
+  const initialTransactionsCountRef = useRef(initialTransactions?.transactions.length ?? 0);
 
   const openProviderPopup = useCallback((url: string) => {
     const width = 500;
@@ -520,6 +521,22 @@ export function SimpleWalletDashboard({
     setBookmarksWalletId(null);
     void refreshWalletSnapshot(selectedWalletId);
   }, [selectedWalletId, refreshWalletSnapshot, ssrHasDetails, initialSelectedWalletId]);
+
+  useEffect(() => {
+    if (!selectedWalletId) return;
+    if (!ssrHasDetails) return;
+    if (selectedWalletId !== initialSelectedWalletId) return;
+    if (initialTransactionsCountRef.current > 0) return;
+
+    const timer = setTimeout(() => {
+      void refreshWalletSnapshot(selectedWalletId, {
+        silent: true,
+        syncTransactionHistory: true,
+      });
+    }, 3_000);
+
+    return () => clearTimeout(timer);
+  }, [initialSelectedWalletId, refreshWalletSnapshot, selectedWalletId, ssrHasDetails]);
 
   // Periodic balance polling — keeps AVAX/rEUR in sync with on-chain state.
   // 60s interval is sufficient; balance changes are infrequent.

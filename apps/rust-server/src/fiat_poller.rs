@@ -29,7 +29,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::storage::EncryptedStorage;
+use crate::storage::{EncryptedStorage, TxCache, TxDatabase};
 
 /// Environment variable to override the default poll interval (in seconds).
 const POLL_INTERVAL_ENV: &str = "FIAT_POLL_INTERVAL_SECS";
@@ -40,6 +40,8 @@ const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Background fiat request poller that syncs pending requests with TrueLayer.
 pub struct FiatPoller {
     storage: Arc<EncryptedStorage>,
+    tx_db: Arc<TxDatabase>,
+    tx_cache: Arc<TxCache>,
     poll_interval: Duration,
 }
 
@@ -48,7 +50,7 @@ impl FiatPoller {
     ///
     /// The poll interval defaults to 5 seconds but can be overridden via the
     /// `FIAT_POLL_INTERVAL_SECS` environment variable.
-    pub fn new(storage: Arc<EncryptedStorage>) -> Self {
+    pub fn new(storage: Arc<EncryptedStorage>, tx_db: Arc<TxDatabase>, tx_cache: Arc<TxCache>) -> Self {
         let poll_interval = std::env::var(POLL_INTERVAL_ENV)
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -57,6 +59,8 @@ impl FiatPoller {
 
         Self {
             storage,
+            tx_db,
+            tx_cache,
             poll_interval,
         }
     }
@@ -105,7 +109,12 @@ impl FiatPoller {
         );
 
         for request_id in &pending_ids {
-            match crate::api::fiat::sync_and_persist_request(&self.storage, request_id).await {
+            match crate::api::fiat::sync_and_persist_request(
+                &self.storage,
+                self.tx_db.as_ref(),
+                Some(self.tx_cache.as_ref()),
+                request_id,
+            ).await {
                 Ok(record) => {
                     info!(
                         request_id = %record.request_id,

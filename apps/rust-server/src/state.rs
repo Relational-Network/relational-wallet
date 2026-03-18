@@ -199,7 +199,7 @@ impl Default for AppState {
         // Default creates a test-friendly instance with temp storage
         #[cfg(test)]
         {
-            use crate::storage::StoragePaths;
+            use crate::storage::{StoragePaths, TxDatabase};
             let temp_dir =
                 std::env::temp_dir().join(format!("test-state-{}", uuid::Uuid::new_v4()));
             let paths = StoragePaths::new(&temp_dir);
@@ -207,7 +207,10 @@ impl Default for AppState {
             storage
                 .initialize()
                 .expect("Failed to initialize test storage");
-            Self::new(storage)
+            let tx_db_path = storage.paths().root().join("tx.redb");
+            let tx_db =
+                Arc::new(TxDatabase::open(&tx_db_path).expect("Failed to initialize tx database"));
+            Self::new(storage).with_tx_db(tx_db)
         }
         #[cfg(not(test))]
         {

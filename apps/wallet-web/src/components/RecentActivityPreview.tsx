@@ -30,6 +30,8 @@ function inferDirection(title: string): "sent" | "received" {
 }
 
 export function RecentActivityPreview({ items, loading = false, onOpenAll }: RecentActivityPreviewProps) {
+  const rows = items.slice(0, 5);
+
   return (
     <div className="card card-pad">
       <div className="section-header" style={{ marginBottom: "0.5rem" }}>
@@ -42,7 +44,7 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
       </div>
 
       {loading ? (
-        <div>
+        <div className="activity-table-shell" aria-hidden="true">
           {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="activity-row" style={{ opacity: 0.35 }}>
               <div className="activity-icon" style={{ background: "var(--bg-subtle)" }} />
@@ -53,9 +55,9 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
             </div>
           ))}
         </div>
-      ) : items.length > 0 ? (
-        <div>
-          {items.map((item) => {
+      ) : rows.length > 0 ? (
+        <div className="activity-table-shell">
+          {rows.map((item) => {
             const dir = item.direction ?? inferDirection(item.title);
             return (
               <div key={item.id} className="activity-row">
@@ -65,9 +67,9 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
                 <div className="activity-details">
                   <div className="activity-title">{item.title}</div>
                   <div className="activity-subtitle">
-                    {item.subtitle}
+                    <span className="activity-subtitle-primary">{item.subtitle}</span>
                     {item.timestamp ? (
-                      <span suppressHydrationWarning>
+                      <span className="activity-subtitle-timestamp" suppressHydrationWarning>
                         {" • "}
                         {new Date(item.timestamp).toLocaleString()}
                       </span>
@@ -82,7 +84,8 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
           })}
         </div>
       ) : (
-        <div className="empty-state" style={{ padding: "1.25rem 0.5rem" }}>
+        <div className="activity-table-shell activity-table-shell-empty">
+          <div className="empty-state activity-empty-state" style={{ padding: "1.25rem 0.5rem" }}>
           <div className="empty-state-icon">
             <Clock size={22} />
           </div>
@@ -92,6 +95,7 @@ export function RecentActivityPreview({ items, loading = false, onOpenAll }: Rec
             <a href="https://core.app/tools/testnet-faucet/?subnet=c&token=c" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ fontSize: "0.75rem" }}>
               AVAX Faucet
             </a>
+          </div>
           </div>
         </div>
       )}

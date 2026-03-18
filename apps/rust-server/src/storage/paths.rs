@@ -57,11 +57,6 @@ impl StoragePaths {
         self.wallet_dir(wallet_id).join("key.pem")
     }
 
-    /// Directory for wallet transaction history.
-    pub fn wallet_txs_dir(&self, wallet_id: &str) -> PathBuf {
-        self.wallet_dir(wallet_id).join("txs")
-    }
-
     // ========== Bookmark Paths ==========
 
     /// Directory containing all bookmarks.
@@ -190,10 +185,6 @@ mod tests {
         assert_eq!(
             paths.wallet_key("w1"),
             PathBuf::from("/data/wallets/w1/key.pem")
-        );
-        assert_eq!(
-            paths.wallet_txs_dir("w1"),
-            PathBuf::from("/data/wallets/w1/txs")
         );
     }
 

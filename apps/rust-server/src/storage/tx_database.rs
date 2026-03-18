@@ -14,10 +14,8 @@
 use std::path::Path;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use serde::Deserialize;
 
 use super::repository::transactions::{StoredTransaction, TxStatus};
-use super::EncryptedStorage;
 
 // =============================================================================
 // Table Definitions
@@ -121,12 +119,35 @@ pub struct TxDatabase {
 
 impl TxDatabase {
     /// Open (or create) the database at the given path.
+    ///
+    /// If the database file is corrupted (e.g. from an unclean shutdown),
+    /// it is deleted and recreated.  Transaction data is transient cache
+    /// that can be re-indexed from the blockchain, so data loss is acceptable.
     pub fn open(path: &Path) -> TxDbResult<Self> {
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        let db = Database::create(path)?;
+
+        let db = match Database::create(path) {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "Transaction database corrupted — deleting and recreating"
+                );
+                // Remove the corrupted file and try again
+                if let Err(rm_err) = std::fs::remove_file(path) {
+                    tracing::error!(
+                        path = %path.display(),
+                        error = %rm_err,
+                        "Failed to remove corrupted database file"
+                    );
+                }
+                Database::create(path)?
+            }
+        };
 
         // Pre-create all tables so later read transactions don't fail
         let write_txn = db.begin_write()?;
@@ -272,10 +293,22 @@ impl TxDatabase {
             };
 
             let mut tx: StoredTransaction = serde_json::from_slice(&existing_bytes)?;
-            tx.status = status;
-            tx.block_number = block_number;
-            tx.gas_used = gas_used;
-            tx.updated_at = chrono::Utc::now();
+            match status {
+                TxStatus::Pending => {
+                    tx.status = TxStatus::Pending;
+                    tx.block_number = block_number;
+                    tx.gas_used = gas_used;
+                    tx.updated_at = chrono::Utc::now();
+                }
+                TxStatus::Confirmed => {
+                    tx.mark_confirmed(block_number.unwrap_or_default(), gas_used.unwrap_or_default());
+                }
+                TxStatus::Failed => {
+                    tx.mark_failed();
+                    tx.block_number = block_number;
+                    tx.gas_used = gas_used;
+                }
+            }
 
             let json = serde_json::to_vec(&tx)?;
             table.insert(tx_hash, json.as_slice())?;
@@ -346,148 +379,6 @@ impl TxDatabase {
         Ok(())
     }
 
-    // =========================================================================
-    // Migration
-    // =========================================================================
-
-    /// Check whether JSON→redb migration has already been performed.
-    pub fn is_migrated(&self) -> TxDbResult<bool> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(INDEXER_STATE)?;
-        Ok(table.get("migrated")?.is_some())
-    }
-
-    /// Mark the database as having completed JSON→redb migration.
-    pub fn mark_migrated(&self) -> TxDbResult<()> {
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(INDEXER_STATE)?;
-            table.insert("migrated", &[1u8] as &[u8])?;
-        }
-        write_txn.commit()?;
-        Ok(())
-    }
-}
-
-// =============================================================================
-// Migration from JSON files to redb
-// =============================================================================
-
-/// Migrate existing JSON-based transaction history into redb.
-///
-/// This is idempotent — if already migrated, it returns immediately.
-pub fn migrate_from_json(db: &TxDatabase, storage: &EncryptedStorage) -> TxDbResult<()> {
-    if db.is_migrated()? {
-        tracing::info!("Transaction database already migrated, skipping");
-        return Ok(());
-    }
-
-    tracing::info!("Starting JSON → redb transaction migration");
-
-    let wallets_dir = storage.paths().wallets_dir();
-    if !storage.exists(&wallets_dir) {
-        tracing::info!("No wallets directory found, marking migration complete");
-        db.mark_migrated()?;
-        return Ok(());
-    }
-
-    let mut total_txs = 0u64;
-    let mut total_wallets = 0u64;
-
-    // List all wallet directories
-    if let Ok(entries) = std::fs::read_dir(&wallets_dir) {
-        for entry in entries.flatten() {
-            let wallet_id = entry.file_name().to_string_lossy().to_string();
-            let wallet_dir = entry.path();
-
-            // Read wallet metadata for public address
-            let meta_path = wallet_dir.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-
-            let meta_data = match std::fs::read_to_string(&meta_path) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-
-            #[derive(Deserialize)]
-            struct WalletMeta {
-                public_address: String,
-            }
-
-            let meta: WalletMeta = match serde_json::from_str(&meta_data) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-
-            // Register address → wallet_id mapping
-            db.register_address(&meta.public_address, &wallet_id)?;
-
-            // Read all transaction JSON files
-            let txs_dir = wallet_dir.join("txs");
-            if !txs_dir.exists() {
-                total_wallets += 1;
-                continue;
-            }
-
-            if let Ok(tx_entries) = std::fs::read_dir(&txs_dir) {
-                for tx_entry in tx_entries.flatten() {
-                    let path = tx_entry.path();
-                    if path.extension().map_or(true, |e| e != "json") {
-                        continue;
-                    }
-
-                    let tx_data = match std::fs::read_to_string(&path) {
-                        Ok(d) => d,
-                        Err(_) => continue,
-                    };
-
-                    let tx: StoredTransaction = match serde_json::from_str(&tx_data) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            tracing::warn!(
-                                path = %path.display(),
-                                error = %e,
-                                "Skipping malformed transaction file"
-                            );
-                            continue;
-                        }
-                    };
-
-                    // Determine direction
-                    let direction = if tx.from.to_lowercase() == meta.public_address.to_lowercase()
-                    {
-                        "sent"
-                    } else {
-                        "received"
-                    };
-
-                    let directions = vec![(meta.public_address.clone(), direction)];
-                    if let Err(e) = db.upsert_transaction(&tx, &directions) {
-                        tracing::warn!(
-                            tx_hash = %tx.tx_hash,
-                            error = %e,
-                            "Failed to migrate transaction"
-                        );
-                    } else {
-                        total_txs += 1;
-                    }
-                }
-            }
-
-            total_wallets += 1;
-        }
-    }
-
-    db.mark_migrated()?;
-    tracing::info!(
-        wallets = total_wallets,
-        transactions = total_txs,
-        "JSON → redb migration complete"
-    );
-
-    Ok(())
 }
 
 // =============================================================================
@@ -634,14 +525,6 @@ mod tests {
 
         db.set_last_indexed_block("fuji", 99999).unwrap();
         assert_eq!(db.get_last_indexed_block("fuji").unwrap(), 99999);
-    }
-
-    #[test]
-    fn migration_flag() {
-        let (db, _dir) = temp_db();
-        assert!(!db.is_migrated().unwrap());
-        db.mark_migrated().unwrap();
-        assert!(db.is_migrated().unwrap());
     }
 
     #[test]

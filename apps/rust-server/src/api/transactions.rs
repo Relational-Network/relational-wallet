@@ -20,8 +20,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, StoredTransaction, TokenType,
-        TransactionRepository, TxStatus, WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, StoredTransaction, TokenType, TxStatus,
+        WalletRepository, WalletStatus,
     },
 };
 
@@ -229,12 +229,6 @@ fn to_summary_with_direction(tx: &StoredTransaction, direction: &str) -> Transac
         explorer_url: tx.explorer_url.clone(),
         timestamp: tx.created_at.to_rfc3339(),
     }
-}
-
-fn parse_json_fallback_cursor(cursor: Option<&str>) -> usize {
-    cursor
-        .and_then(|raw| raw.trim().parse::<usize>().ok())
-        .unwrap_or(0)
 }
 
 // =============================================================================
@@ -487,25 +481,20 @@ pub async fn send_transaction(
         result.explorer_url.clone(),
     );
 
-    let tx_repo = TransactionRepository::new(&storage);
-    if let Err(e) = tx_repo.create(&stored_tx) {
-        tracing::warn!("Failed to store transaction record: {}", e);
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .expect("transaction database must be configured");
+    let mut directions = vec![(wallet.public_address.clone(), "sent")];
+    if let Some(ref _rcpt_id) = recipient_wallet_id {
+        directions.push((request.to.clone(), "received"));
     }
-
-    // Dual-write: upsert into redb transaction database
-    if let Some(tx_db) = &state.tx_db {
-        let mut directions = vec![(wallet.public_address.clone(), "sent")];
-        if let Some(ref _rcpt_id) = recipient_wallet_id {
-            directions.push((request.to.clone(), "received"));
-        }
-        if let Err(e) = tx_db.upsert_transaction(&stored_tx, &directions) {
-            tracing::warn!(error = %e, "Failed to dual-write transaction to redb");
-        }
-        // Invalidate cache for sender
-        if let Some(tx_cache) = &state.tx_cache {
-            tx_cache.invalidate(&wallet.public_address);
-            tx_cache.invalidate(&request.to);
-        }
+    if let Err(e) = tx_db.upsert_transaction(&stored_tx, &directions) {
+        tracing::warn!(error = %e, "Failed to store transaction in tx database");
+    }
+    if let Some(tx_cache) = &state.tx_cache {
+        tx_cache.invalidate(&wallet.public_address);
+        tx_cache.invalidate(&request.to);
     }
 
     // Mirror recipient-side transaction record for internal transfers.
@@ -522,20 +511,12 @@ pub async fn send_transaction(
                 request.network.clone(),
                 result.explorer_url.clone(),
             );
-            if let Err(e) = tx_repo.create(&mirrored_tx) {
-                tracing::warn!(
-                    recipient_wallet_id = %recipient_id,
-                    "Failed to store mirrored recipient transaction record: {}",
-                    e
-                );
+            let directions = vec![(request.to.clone(), "received")];
+            if let Err(e) = tx_db.upsert_transaction(&mirrored_tx, &directions) {
+                tracing::warn!(error = %e, "Failed to store mirrored tx in tx database");
             }
-
-            // Dual-write mirrored record to redb
-            if let Some(tx_db) = &state.tx_db {
-                let directions = vec![(request.to.clone(), "received")];
-                if let Err(e) = tx_db.upsert_transaction(&mirrored_tx, &directions) {
-                    tracing::warn!(error = %e, "Failed to dual-write mirrored tx to redb");
-                }
+            if let Some(tx_cache) = &state.tx_cache {
+                tx_cache.invalidate(&request.to);
             }
         }
     }
@@ -605,13 +586,17 @@ pub async fn list_transactions(
     let limit = query.limit.unwrap_or(50).min(200);
     let wallet_address = wallet.public_address.to_lowercase();
 
-    // Try redb-backed query (fast path)
-    if let Some(tx_db) = &state.tx_db {
-        // Check cache for first page (no cursor, no direction filter)
-        if query.cursor.is_none() && query.direction.is_none() {
-            if let Some(tx_cache) = &state.tx_cache {
-                if let Some((cached, next_cursor)) = tx_cache.get_first_page(&wallet_address, limit)
-                {
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .expect("transaction database must be configured");
+    if query.cursor.is_none() && query.direction.is_none() {
+        if let Some(tx_cache) = &state.tx_cache {
+            if let Some((cached, next_cursor)) = tx_cache.get_first_page(&wallet_address, limit) {
+                // Skip cache if any transaction is still pending — fall
+                // through to the reconciliation path that checks on-chain.
+                let has_pending = cached.iter().any(|(tx, _)| tx.status == TxStatus::Pending);
+                if !has_pending {
                     let summaries: Vec<TransactionSummary> = cached
                         .iter()
                         .take(limit)
@@ -624,111 +609,86 @@ pub async fn list_transactions(
                 }
             }
         }
+    }
 
-        // Query redb
-        match tx_db.list_by_wallet(&wallet_address, query.cursor.as_deref(), limit) {
-            Ok((results, next_cursor)) => {
-                let mut summaries: Vec<TransactionSummary> = results
-                    .iter()
-                    .map(|(tx, dir)| to_summary_with_direction(tx, dir))
-                    .collect();
+    let (results, next_cursor) = tx_db
+        .list_by_wallet(&wallet_address, query.cursor.as_deref(), limit)
+        .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
 
-                // Apply direction filter if specified
-                if let Some(ref direction) = query.direction {
-                    summaries.retain(|s| s.direction == *direction);
+    // ── Reconcile pending transactions with on-chain status ─────────
+    // If there are any pending transactions in the result set, check
+    // their receipt on-chain and promote them to confirmed/failed.
+    // This is lightweight: typically 0-1 pending txs per page, and each
+    // receipt RPC call is ~100ms.  We only create the AvaxClient if we
+    // actually have pending items.
+    let pending_hashes: Vec<(usize, String)> = results
+        .iter()
+        .enumerate()
+        .filter(|(_, (tx, _))| tx.status == TxStatus::Pending)
+        .map(|(i, (tx, _))| (i, tx.tx_hash.clone()))
+        .collect();
+
+    let mut updated_results = results;
+
+    if !pending_hashes.is_empty() {
+        if let Ok(client) = AvaxClient::fuji().await {
+            for (idx, hash) in &pending_hashes {
+                if let Ok(Some(receipt)) = client.get_transaction_receipt_status(hash).await {
+                    let new_status = if receipt.success {
+                        TxStatus::Confirmed
+                    } else {
+                        TxStatus::Failed
+                    };
+
+                    // Update redb so future reads are correct
+                    let _ = tx_db.update_status(
+                        hash,
+                        new_status,
+                        Some(receipt.block_number),
+                        Some(receipt.gas_used),
+                    );
+
+                    // Update the in-memory copy for this response
+                    updated_results[*idx].0.status = new_status;
+                    updated_results[*idx].0.block_number = Some(receipt.block_number);
+                    updated_results[*idx].0.gas_used = Some(receipt.gas_used);
+
+                    tracing::debug!(
+                        tx_hash = %hash,
+                        status = ?new_status,
+                        "list_transactions: reconciled pending tx"
+                    );
                 }
-
-                // Fuji-only: filter non-fuji records
-                summaries.retain(|tx| tx.network == "fuji");
-
-                // Populate cache for first page (no cursor, no direction filter)
-                if query.cursor.is_none() && query.direction.is_none() {
-                    if let Some(tx_cache) = &state.tx_cache {
-                        tx_cache.put_first_page(&wallet_address, results, next_cursor.clone());
-                    }
-                }
-
-                return Ok(Json(TransactionListResponse {
-                    transactions: summaries,
-                    next_cursor,
-                }));
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "redb query failed, falling back to JSON storage");
-                // Fall through to JSON-based path below
+
+            // Invalidate cache if we updated anything
+            if !pending_hashes.is_empty() {
+                if let Some(tx_cache) = &state.tx_cache {
+                    tx_cache.invalidate(&wallet_address);
+                }
             }
         }
     }
 
-    // Fallback: JSON-based transaction listing (original path)
-    let tx_repo = TransactionRepository::new(&storage);
-    let mut summaries: Vec<TransactionSummary> = Vec::new();
-    let used_limited_scan = query.cursor.is_none() && query.direction.is_none();
-    let wallet_txs = if used_limited_scan {
-        // Keep a small headroom so post-filters (network) can still fill the page.
-        let scan_limit = limit.saturating_mul(4).max(limit);
-        tx_repo.list_by_wallet_limited(&wallet_id, scan_limit)
-    } else {
-        tx_repo.list_by_wallet(&wallet_id)
-    }
-    .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
+    let mut summaries: Vec<TransactionSummary> = updated_results
+        .iter()
+        .map(|(tx, dir)| to_summary_with_direction(tx, dir))
+        .collect();
 
-    for tx in &wallet_txs {
-        let direction = if tx.from.to_lowercase() == wallet_address {
-            "sent"
-        } else if tx.to.to_lowercase() == wallet_address {
-            "received"
-        } else {
-            "sent"
-        };
-        summaries.push(to_summary_with_direction(tx, direction));
-    }
-
-    // Fuji-only deployment: hide non-fuji historical records.
     summaries.retain(|tx| tx.network == "fuji");
 
-    // Full scans need sorting; limited scans are already in newest-first order.
-    if !used_limited_scan {
-        summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    }
-
-    // Apply direction filter
     if let Some(ref direction) = query.direction {
         summaries.retain(|s| s.direction == *direction);
     }
 
-    if used_limited_scan {
-        let has_more = summaries.len() > limit;
-        summaries.truncate(limit);
-        let next_cursor = if has_more {
-            Some(limit.to_string())
-        } else {
-            None
-        };
-        return Ok(Json(TransactionListResponse {
-            transactions: summaries,
-            next_cursor,
-        }));
+    if query.cursor.is_none() && query.direction.is_none() {
+        if let Some(tx_cache) = &state.tx_cache {
+            tx_cache.put_first_page(&wallet_address, updated_results, next_cursor.clone());
+        }
     }
-
-    // JSON fallback pagination uses a numeric offset cursor.
-    let offset = parse_json_fallback_cursor(query.cursor.as_deref());
-    if offset >= summaries.len() {
-        return Ok(Json(TransactionListResponse {
-            transactions: Vec::new(),
-            next_cursor: None,
-        }));
-    }
-    let end = offset.saturating_add(limit).min(summaries.len());
-    let page = summaries[offset..end].to_vec();
-    let next_cursor = if end < summaries.len() {
-        Some(end.to_string())
-    } else {
-        None
-    };
 
     Ok(Json(TransactionListResponse {
-        transactions: page,
+        transactions: summaries,
         next_cursor,
     }))
 }
@@ -770,12 +730,19 @@ pub async fn get_transaction_status(
         return Err(ApiError::forbidden("You do not own this wallet"));
     }
 
-    // Get transaction from storage
-    let tx_repo = TransactionRepository::new(&storage);
-    let tx = tx_repo.get(&wallet_id, &tx_hash).map_err(|e| match e {
-        crate::storage::StorageError::NotFound(_) => ApiError::not_found("Transaction not found"),
-        _ => ApiError::internal(&format!("Failed to get transaction: {}", e)),
-    })?;
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .expect("transaction database must be configured");
+    let tx = tx_db
+        .get_transaction(&tx_hash)
+        .map_err(|e| ApiError::internal(&format!("Failed to get transaction: {}", e)))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+    if !tx.from.eq_ignore_ascii_case(&wallet.public_address)
+        && !tx.to.eq_ignore_ascii_case(&wallet.public_address)
+    {
+        return Err(ApiError::not_found("Transaction not found"));
+    }
 
     // If pending, check blockchain for updates
     if tx.status == TxStatus::Pending {
@@ -806,42 +773,19 @@ pub async fn get_transaction_status(
 
         // Check for receipt
         if let Ok(Some(receipt)) = tx_builder.get_transaction_status(&tx_hash).await {
-            // Update stored transaction
-            let _ = tx_repo.update_from_receipt(
-                &wallet_id,
+            let new_status = if receipt.success {
+                TxStatus::Confirmed
+            } else {
+                TxStatus::Failed
+            };
+            let _ = tx_db.update_status(
                 &tx_hash,
-                receipt.block_number,
-                receipt.gas_used,
-                receipt.success,
+                new_status,
+                Some(receipt.block_number),
+                Some(receipt.gas_used),
             );
-
-            // Keep mirrored internal counterparty record in sync, if present.
-            if let Some(counterparty_wallet_id) = &tx.counterparty_wallet_id {
-                let _ = tx_repo.update_from_receipt(
-                    counterparty_wallet_id,
-                    &tx_hash,
-                    receipt.block_number,
-                    receipt.gas_used,
-                    receipt.success,
-                );
-            }
-
-            // Update redb status + invalidate cache
-            if let Some(tx_db) = &state.tx_db {
-                let new_status = if receipt.success {
-                    TxStatus::Confirmed
-                } else {
-                    TxStatus::Failed
-                };
-                let _ = tx_db.update_status(
-                    &tx_hash,
-                    new_status,
-                    Some(receipt.block_number),
-                    Some(receipt.gas_used),
-                );
-                if let Some(tx_cache) = &state.tx_cache {
-                    tx_cache.invalidate(&wallet.public_address);
-                }
+            if let Some(tx_cache) = &state.tx_cache {
+                tx_cache.invalidate(&wallet.public_address);
             }
 
             let confirmations = current_block.saturating_sub(receipt.block_number);
@@ -902,7 +846,7 @@ pub async fn get_transaction_status(
 mod tests {
     use super::*;
     use crate::auth::{AuthenticatedUser, Role};
-    use crate::storage::{TransactionRepository, WalletMetadata, WalletRepository};
+    use crate::storage::{WalletMetadata, WalletRepository};
     use axum::extract::{Path, Query, State};
     use chrono::Utc;
 
@@ -932,7 +876,7 @@ mod tests {
         let state = AppState::default();
         let storage = state.storage();
         let wallet_repo = WalletRepository::new(storage);
-        let tx_repo = TransactionRepository::new(storage);
+        let tx_db = state.tx_db.as_ref().unwrap();
 
         let sender_wallet_id = "sender-wallet-1";
         let receiver_wallet_id = "receiver-wallet-1";
@@ -952,6 +896,8 @@ mod tests {
                 b"test-key-b",
             )
             .unwrap();
+        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
+        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
 
         let sender_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -964,21 +910,15 @@ mod tests {
             "fuji".to_string(),
             "https://testnet.snowtrace.io/tx/0xabc111".to_string(),
         );
-        tx_repo.create(&sender_tx).unwrap();
-
-        let mut receiver_tx = StoredTransaction::new_pending(
-            tx_hash.to_string(),
-            receiver_wallet_id.to_string(),
-            Some(sender_wallet_id.to_string()),
-            sender_addr.to_string(),
-            receiver_addr.to_string(),
-            "5".to_string(),
-            TokenType::Native,
-            "fuji".to_string(),
-            "https://testnet.snowtrace.io/tx/0xabc111".to_string(),
-        );
-        receiver_tx.status = TxStatus::Confirmed;
-        tx_repo.create(&receiver_tx).unwrap();
+        tx_db
+            .upsert_transaction(
+                &sender_tx,
+                &[
+                    (sender_addr.to_string(), "sent"),
+                    (receiver_addr.to_string(), "received"),
+                ],
+            )
+            .unwrap();
 
         let response = list_transactions(
             mock_auth("user-b"),
@@ -1006,7 +946,7 @@ mod tests {
         let state = AppState::default();
         let storage = state.storage();
         let wallet_repo = WalletRepository::new(storage);
-        let tx_repo = TransactionRepository::new(storage);
+        let tx_db = state.tx_db.as_ref().unwrap();
 
         let sender_wallet_id = "sender-wallet-2";
         let receiver_wallet_id = "receiver-wallet-2";
@@ -1026,6 +966,8 @@ mod tests {
                 b"test-key-b2",
             )
             .unwrap();
+        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
+        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
 
         let mut receiver_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -1041,7 +983,12 @@ mod tests {
         receiver_tx.status = TxStatus::Confirmed;
         receiver_tx.block_number = None;
         receiver_tx.gas_used = None;
-        tx_repo.create(&receiver_tx).unwrap();
+        tx_db
+            .upsert_transaction(
+                &receiver_tx,
+                &[(receiver_addr.to_string(), "received")],
+            )
+            .unwrap();
 
         let response = get_transaction_status(
             mock_auth("user-b"),

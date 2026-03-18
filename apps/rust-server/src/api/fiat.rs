@@ -41,7 +41,7 @@ use crate::{
     storage::{
         AuditEventType, FiatDirection, FiatRequestRepository, FiatRequestStatus,
         FiatServiceWalletMetadata, FiatServiceWalletRepository, StoredFiatRequest,
-        StoredTransaction, TokenType, TransactionRepository, TxStatus, WalletRepository,
+        StoredTransaction, TokenType, TxCache, TxDatabase, TxStatus, WalletRepository,
         WalletStatus,
     },
 };
@@ -810,8 +810,32 @@ async fn mint_to_address_from_service_wallet(
         .map_err(|e| ApiError::service_unavailable(format!("Reserve mint failed: {e}")))
 }
 
+fn list_wallet_transactions(
+    tx_db: &TxDatabase,
+    wallet_address: &str,
+) -> Result<Vec<StoredTransaction>, ApiError> {
+    let mut cursor = None;
+    let mut transactions = Vec::new();
+
+    loop {
+        let (page, next_cursor) = tx_db
+            .list_by_wallet(wallet_address, cursor.as_deref(), 200)
+            .map_err(|e| ApiError::internal(format!("Failed to list wallet transactions: {e}")))?;
+        let page_len = page.len();
+        transactions.extend(page.into_iter().map(|(tx, _direction)| tx));
+
+        if next_cursor.is_none() || page_len < 200 {
+            break;
+        }
+        cursor = next_cursor;
+    }
+
+    Ok(transactions)
+}
+
 async fn detect_confirmed_deposit(
     storage: &Arc<crate::storage::EncryptedStorage>,
+    tx_db: &TxDatabase,
     record: &StoredFiatRequest,
 ) -> Result<Option<String>, ApiError> {
     let reur_contract = resolve_reur_contract_address()?.to_ascii_lowercase();
@@ -829,11 +853,10 @@ async fn detect_confirmed_deposit(
     // (with the same amount) would be matched, causing the payout to
     // fire before the user has made their deposit for THIS request.
     let request_created = record.created_at;
-
-    let tx_repo = TransactionRepository::new(storage);
-    let candidate_txs = tx_repo
-        .list_by_wallet(&record.wallet_id)
-        .map_err(|e| ApiError::internal(format!("Failed to list wallet txs: {e}")))?;
+    let wallet = WalletRepository::new(storage)
+        .get(&record.wallet_id)
+        .map_err(|e| ApiError::internal(format!("Failed to load wallet metadata: {e}")))?;
+    let candidate_txs = list_wallet_transactions(tx_db, &wallet.public_address)?;
 
     let chain = AvaxClient::fuji()
         .await
@@ -888,12 +911,15 @@ async fn detect_confirmed_deposit(
                     })?;
 
                 if let Some(receipt) = receipt {
-                    let _ = tx_repo.update_from_receipt(
-                        &record.wallet_id,
+                    let _ = tx_db.update_status(
                         &tx.tx_hash,
-                        receipt.block_number,
-                        receipt.gas_used,
-                        receipt.success,
+                        if receipt.success {
+                            TxStatus::Confirmed
+                        } else {
+                            TxStatus::Failed
+                        },
+                        Some(receipt.block_number),
+                        Some(receipt.gas_used),
                     );
 
                     if receipt.success {
@@ -913,6 +939,8 @@ async fn detect_confirmed_deposit(
 
 async fn sync_onramp_request(
     storage: &Arc<crate::storage::EncryptedStorage>,
+    tx_db: &TxDatabase,
+    tx_cache: Option<&TxCache>,
     record: &mut StoredFiatRequest,
 ) {
     if matches!(
@@ -1015,13 +1043,15 @@ async fn sync_onramp_request(
                     // The transfer already succeeded on-chain — mark confirmed.
                     let mut tx_record = tx_record;
                     tx_record.status = TxStatus::Confirmed;
-                    let tx_repo = TransactionRepository::new(storage);
-                    if let Err(e) = tx_repo.create(&tx_record) {
+                    let directions = vec![(destination_wallet.public_address.clone(), "received")];
+                    if let Err(e) = tx_db.upsert_transaction(&tx_record, &directions) {
                         warn!(
                             request_id = %record.request_id,
                             tx_hash = %result.tx_hash,
-                            "failed to store on-ramp settlement transaction record: {e}"
+                            "failed to store on-ramp settlement transaction record in tx db: {e}"
                         );
+                    } else if let Some(tx_cache) = tx_cache {
+                        tx_cache.invalidate(&destination_wallet.public_address);
                     }
                 }
                 Err(error) => {
@@ -1056,10 +1086,11 @@ async fn sync_onramp_request(
 
 async fn sync_offramp_request(
     storage: &Arc<crate::storage::EncryptedStorage>,
+    tx_db: &TxDatabase,
     record: &mut StoredFiatRequest,
 ) {
     if record.status == FiatRequestStatus::AwaitingUserDeposit {
-        match detect_confirmed_deposit(storage, record).await {
+        match detect_confirmed_deposit(storage, tx_db, record).await {
             Ok(Some(tx_hash)) => {
                 record.deposit_tx_hash = Some(tx_hash);
                 record.last_chain_sync_at = Some(Utc::now());
@@ -1233,6 +1264,8 @@ async fn sync_offramp_request(
 
 async fn sync_request_internal(
     storage: &Arc<crate::storage::EncryptedStorage>,
+    tx_db: &TxDatabase,
+    tx_cache: Option<&TxCache>,
     record: &mut StoredFiatRequest,
 ) {
     if let Err(error) = ensure_fuji_network(Some(record.chain_network.as_str())) {
@@ -1243,13 +1276,15 @@ async fn sync_request_internal(
     }
 
     match record.direction {
-        FiatDirection::OnRamp => sync_onramp_request(storage, record).await,
-        FiatDirection::OffRamp => sync_offramp_request(storage, record).await,
+        FiatDirection::OnRamp => sync_onramp_request(storage, tx_db, tx_cache, record).await,
+        FiatDirection::OffRamp => sync_offramp_request(storage, tx_db, record).await,
     }
 }
 
 pub(crate) async fn sync_and_persist_request(
     storage: &Arc<crate::storage::EncryptedStorage>,
+    tx_db: &TxDatabase,
+    tx_cache: Option<&TxCache>,
     request_id: &str,
 ) -> Result<StoredFiatRequest, ApiError> {
     let repo = FiatRequestRepository::new(storage);
@@ -1269,7 +1304,7 @@ pub(crate) async fn sync_and_persist_request(
         .get(request_id)
         .map_err(|_| ApiError::not_found("Fiat request not found"))?;
 
-    sync_request_internal(storage, &mut record).await;
+    sync_request_internal(storage, tx_db, tx_cache, &mut record).await;
 
     // Re-read from storage to avoid overwriting webhook-driven terminal status.
     // While we were calling the provider API (~200ms), the webhook handler may
@@ -1720,13 +1755,24 @@ pub async fn truelayer_webhook(
         && record.reserve_transfer_tx_hash.is_none()
     {
         let storage = Arc::clone(storage);
+        let tx_db = state
+            .tx_db
+            .clone()
+            .ok_or_else(|| ApiError::internal("transaction database must be configured"))?;
         let request_id = record.request_id.clone();
         tokio::spawn(async move {
             info!(
                 request_id = %request_id,
                 "Webhook: triggering immediate settlement"
             );
-            match sync_and_persist_request(&storage, &request_id).await {
+            match sync_and_persist_request(
+                &storage,
+                tx_db.as_ref(),
+                state.tx_cache.as_deref(),
+                &request_id,
+            )
+            .await
+            {
                 Ok(r) => {
                     info!(
                         request_id = %r.request_id,
@@ -1919,7 +1965,17 @@ pub async fn sync_fiat_request_admin(
     State(state): State<AppState>,
     Path(request_id): Path<String>,
 ) -> Result<Json<FiatSyncResponse>, ApiError> {
-    let record = sync_and_persist_request(state.storage(), &request_id).await?;
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .ok_or_else(|| ApiError::internal("transaction database must be configured"))?;
+    let record = sync_and_persist_request(
+        state.storage(),
+        tx_db.as_ref(),
+        state.tx_cache.as_deref(),
+        &request_id,
+    )
+    .await?;
     Ok(Json(FiatSyncResponse {
         request: to_response(&record),
     }))

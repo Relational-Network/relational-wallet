@@ -20,5 +20,5 @@ pub use fiat::{FiatDirection, FiatRequestRepository, FiatRequestStatus, StoredFi
 pub use invites::InviteRepository;
 pub use recurring::RecurringRepository;
 pub use service_wallet::{FiatServiceWalletMetadata, FiatServiceWalletRepository};
-pub use transactions::{StoredTransaction, TokenType, TransactionRepository, TxStatus};
+pub use transactions::{StoredTransaction, TokenType, TxStatus};
 pub use wallets::{WalletMetadata, WalletRepository, WalletResponse, WalletStatus};

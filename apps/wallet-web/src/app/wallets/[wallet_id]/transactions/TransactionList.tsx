@@ -233,7 +233,7 @@ export function TransactionList({ walletId, refreshKey, className }: Transaction
             <span>Status</span>
             <span>Date</span>
           </div>
-          {[1, 2, 3, 4, 5, 6].map((row) => (
+          {[1, 2, 3, 4, 5].map((row) => (
             <div key={row} className="transaction-table-loading-row">
               <div className="transaction-table-loading-cell transaction-table-loading-cell-primary">
                 <div className="skeleton" style={{ width: row % 2 === 0 ? "9.5rem" : "10.75rem", height: "0.875rem" }} />
@@ -277,7 +277,7 @@ export function TransactionList({ walletId, refreshKey, className }: Transaction
       <div className="transaction-list-meta">
         <div>
           <p className="helper-text" style={{ margin: 0 }}>
-            Latest first. Showing up to {PAGE_SIZE} transactions per page.
+            Your full transaction history, with the newest activity first.
           </p>
         </div>
         <div className="transaction-page-indicator" aria-live="polite">

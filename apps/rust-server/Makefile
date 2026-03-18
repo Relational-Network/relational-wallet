@@ -107,7 +107,8 @@ rust-server.manifest: rust-server.manifest.template $(SELF_EXE) | $(DATA_DIR)
 rust-server.manifest.sgx rust-server.sig &: rust-server.manifest
 	gramine-sgx-sign \
 		--manifest $< \
-		--output $<.sgx
+		--output $<.sgx \
+		--date 0000-00-00
 
 .PHONY: start-rust-server
 start-rust-server: all

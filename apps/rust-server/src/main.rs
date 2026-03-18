@@ -25,6 +25,8 @@ mod tls;
 
 #[cfg(not(test))]
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
+#[cfg(not(test))]
+use axum_server::Handle;
 
 #[cfg(not(test))]
 use api::router;
@@ -148,44 +150,60 @@ async fn main() {
         }
     }
 
-    let state = AppState::new(encrypted_storage).with_auth_config(auth_config);
-
     // ========== Initialize Transaction Database (redb) ==========
     info!("Opening transaction database...");
-    let tx_db_path = state.storage().paths().root().join("tx.redb");
-    let tx_db = match storage::TxDatabase::open(&tx_db_path) {
-        Ok(db) => {
-            info!(path = %tx_db_path.display(), "Transaction database opened");
-            Arc::new(db)
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                "Failed to open transaction database — transaction indexing disabled"
-            );
-            // Continue without tx_db; handlers fall back to JSON-based storage
-            Arc::new(
-                storage::TxDatabase::open(
-                    &std::env::temp_dir()
-                        .join(format!("fallback-tx-{}.redb", uuid::Uuid::new_v4())),
-                )
-                .expect("Failed to create fallback tx database"),
+    let tx_db_path = encrypted_storage.paths().root().join("tx.redb");
+    let tx_db = Arc::new(
+        storage::TxDatabase::open(&tx_db_path).unwrap_or_else(|error| {
+            panic!(
+                "Failed to open transaction database at {}: {}",
+                tx_db_path.display(),
+                error
             )
-        }
-    };
+        }),
+    );
+    info!(path = %tx_db_path.display(), "Transaction database opened");
 
-    // Run JSON → redb migration (idempotent)
-    if let Err(e) = storage::migrate_from_json(&tx_db, state.storage()) {
-        warn!(error = %e, "Transaction migration failed — some history may be incomplete");
+    // ========== Register wallet addresses in tx_db ==========
+    // Ensures the address→wallet_id map is always consistent, even after
+    // redb recreation.  This is idempotent and very cheap.
+    {
+        use storage::repository::WalletRepository;
+        let repo = WalletRepository::new(&encrypted_storage);
+        let mut registered = 0u32;
+        if let Ok(wallets) = repo.list_all_wallets() {
+            for w in &wallets {
+                if let Err(e) = tx_db.register_address(&w.public_address, &w.wallet_id) {
+                    warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register wallet address");
+                } else {
+                    registered += 1;
+                }
+            }
+        }
+        // Also register the fiat service wallet so the indexer can
+        // detect incoming transfers to it (off-ramp deposit detection).
+        {
+            let svc_repo = storage::FiatServiceWalletRepository::new(&encrypted_storage);
+            if let Ok(meta) = svc_repo.get() {
+                if let Err(e) = tx_db.register_address(&meta.public_address, &meta.wallet_id) {
+                    warn!(error = %e, "Failed to register service wallet address");
+                } else {
+                    registered += 1;
+                }
+            }
+        }
+        info!(count = registered, "Wallet addresses registered in tx_db");
     }
+
+    let state = AppState::new(encrypted_storage)
+        .with_auth_config(auth_config)
+        .with_tx_db(tx_db.clone());
 
     // Create LRU cache
     let tx_cache = Arc::new(storage::TxCache::new(1000, Duration::from_secs(300)));
 
     // Wire tx_db and tx_cache into state
-    let state = state
-        .with_tx_db(tx_db.clone())
-        .with_tx_cache(tx_cache.clone());
+    let state = state.with_tx_cache(tx_cache.clone());
 
     // ========== Spawn Event Indexer ==========
     let shutdown = CancellationToken::new();
@@ -208,7 +226,11 @@ async fn main() {
 
     // ========== Spawn Fiat Request Poller ==========
     {
-        let fiat_poller = fiat_poller::FiatPoller::new(state.storage().clone());
+        let fiat_poller = fiat_poller::FiatPoller::new(
+            state.storage().clone(),
+            tx_db.clone(),
+            tx_cache.clone(),
+        );
         let shutdown_clone = shutdown.clone();
         tokio::spawn(async move {
             fiat_poller.run(shutdown_clone).await;
@@ -270,11 +292,45 @@ async fn main() {
         "Persistent storage: Gramine encrypted filesystem"
     );
 
+    // ========== Graceful Shutdown ==========
+    // Install a Ctrl+C (SIGINT) handler that:
+    //   1. Cancels background tasks (indexer, fiat poller) via the CancellationToken
+    //   2. Gracefully drains in-flight HTTP connections
+    //   3. Lets the Database drop normally so redb can flush & close cleanly
+    let handle = Handle::new();
+    let server_handle = handle.clone();
+    let shutdown_token = shutdown.clone();
+    tokio::spawn(async move {
+        // Wait for Ctrl+C (SIGINT)
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!(error = %e, "Failed to listen for Ctrl+C");
+            return;
+        }
+        tracing::info!("Received Ctrl+C — initiating graceful shutdown");
+
+        // 1. Signal background tasks to stop
+        shutdown_token.cancel();
+
+        // 2. Tell axum-server to stop accepting new connections and drain
+        //    existing ones within 5 seconds
+        server_handle.graceful_shutdown(Some(Duration::from_secs(5)));
+    });
+
     // Start HTTPS server (TLS is mandatory - no HTTP fallback)
     axum_server::bind_rustls(addr, tls_config)
+        .handle(handle)
         .serve(app.into_make_service())
         .await
         .expect("HTTPS server failed");
+
+    // Server has stopped — give background tasks a moment to finish
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Drop the Arc<TxDatabase> so redb can flush and close cleanly.
+    // If other Arcs are still held by tasks that haven't finished,
+    // the Drop will happen when the last reference is released.
+    drop(tx_db);
+    info!("Shutdown complete");
 }
 
 /// Initialize the tracing subscriber with JSON output for production.

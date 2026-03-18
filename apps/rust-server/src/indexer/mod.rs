@@ -127,7 +127,13 @@ impl EventIndexer {
 
         // Determine start block
         let start = if checkpoint == 0 {
-            head.saturating_sub(INITIAL_LOOKBACK_BLOCKS)
+            let s = head.saturating_sub(INITIAL_LOOKBACK_BLOCKS);
+            tracing::info!(
+                head_block = head,
+                start_block = s,
+                "Indexer: first run — scanning last {INITIAL_LOOKBACK_BLOCKS} blocks"
+            );
+            s
         } else {
             checkpoint + 1
         };
@@ -135,6 +141,16 @@ impl EventIndexer {
         if start > head {
             // Already caught up
             return Ok(());
+        }
+
+        let blocks_behind = head - start;
+        if blocks_behind > self.chunk_size {
+            tracing::info!(
+                start_block = start,
+                head_block = head,
+                blocks_behind = blocks_behind,
+                "Indexer: catching up"
+            );
         }
 
         // Process in chunks
@@ -149,7 +165,7 @@ impl EventIndexer {
 
             let indexed = self.fetch_and_store_logs(provider, from, to).await?;
             if indexed > 0 {
-                tracing::debug!(
+                tracing::info!(
                     from_block = from,
                     to_block = to,
                     events = indexed,
@@ -250,8 +266,35 @@ impl EventIndexer {
                 directions.push((to_addr.clone(), "received"));
             }
 
-            // Check if this tx already exists (avoid duplicates on re-index)
-            if self.db.get_transaction(&tx_hash)?.is_some() {
+            // Check if this tx already exists
+            if let Some(existing) = self.db.get_transaction(&tx_hash)? {
+                // If the existing record is still pending, promote it to
+                // confirmed — we are reading from finalised on-chain logs so
+                // this transaction has definitely landed.
+                if existing.status == crate::storage::repository::transactions::TxStatus::Pending {
+                    if let Err(e) = self.db.update_status(
+                        &tx_hash,
+                        crate::storage::repository::transactions::TxStatus::Confirmed,
+                        block_number,
+                        None,
+                    ) {
+                        tracing::warn!(
+                            tx_hash = %tx_hash,
+                            error = %e,
+                            "Failed to confirm pending indexed transaction"
+                        );
+                    } else {
+                        tracing::info!(
+                            tx_hash = %tx_hash,
+                            block_number = ?block_number,
+                            "Indexer: promoted pending tx to confirmed"
+                        );
+                        // Invalidate cache for affected wallets
+                        for (addr, _) in &directions {
+                            self.cache.invalidate(addr);
+                        }
+                    }
+                }
                 continue;
             }
 

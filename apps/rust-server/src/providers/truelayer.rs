@@ -438,7 +438,10 @@ impl TrueLayerClient {
                     "type": "iban",
                     "iban": request.beneficiary_iban
                 },
-                "reference": format!("rw-offramp-{}", request.request_id)
+                // Reference must be ≤18 chars (UK FPS / sandbox limit).
+                // Use a short prefix + first 8 hex chars of the request UUID.
+                // Full request_id is preserved in metadata for traceability.
+                "reference": format!("rw-{}", &request.request_id[..8])
             },
             "merchant_account_id": merchant_account_id,
             "metadata": metadata

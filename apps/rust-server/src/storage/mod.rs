@@ -24,7 +24,6 @@
 //!   wallets/{wallet_id}/
 //!     meta.json       # Wallet metadata (owner, address, status)
 //!     key.pem         # Private key (NEVER exposed via API)
-//!     txs/            # Transaction history (TODO)
 //!   bookmarks/
 //!     {bookmark_id}.json
 //!   invites/
@@ -57,8 +56,8 @@ pub use paths::StoragePaths;
 pub use repository::{
     BookmarkRepository, FiatDirection, FiatRequestRepository, FiatRequestStatus,
     FiatServiceWalletMetadata, FiatServiceWalletRepository, InviteRepository, RecurringRepository,
-    StoredBookmark, StoredFiatRequest, StoredTransaction, TokenType, TransactionRepository,
-    TxStatus, WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
+    StoredBookmark, StoredFiatRequest, StoredTransaction, TokenType, TxStatus, WalletMetadata,
+    WalletRepository, WalletResponse, WalletStatus,
 };
 pub use tx_cache::TxCache;
-pub use tx_database::{migrate_from_json, TxDatabase};
+pub use tx_database::TxDatabase;

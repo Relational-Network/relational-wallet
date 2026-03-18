@@ -35,35 +35,37 @@ export default async function HomePage() {
 
       {/* ── Hero ────────────────────────────────────────────── */}
       <section className="landing-hero">
-        <span className="badge badge-brand" style={{ marginBottom: "0.75rem" }}>
-          Avalanche Fuji Testnet
-        </span>
-        <h1>
-          Your money, protected by&nbsp;
-          <span>hardware&nbsp;enclaves</span>
-        </h1>
-        <p>
-          Send and receive rEUR and AVAX with a wallet whose private keys never
-          leave a secure Intel SGX enclave. Fast, simple, auditable.
-        </p>
+        <div className="landing-hero-panel">
+          <span className="badge badge-brand" style={{ marginBottom: "0.75rem" }}>
+            Avalanche Fuji Testnet
+          </span>
+          <h1>
+            Your money, protected by&nbsp;
+            <span>hardware&nbsp;enclaves</span>
+          </h1>
+          <p>
+            Send and receive rEUR and AVAX with a wallet whose private keys never
+            leave a secure Intel SGX enclave. Fast, simple, auditable.
+          </p>
 
-        <SignedOut>
-          <div
-            className="row"
-            style={{
-              justifyContent: "center",
-              gap: "0.75rem",
-              marginTop: "1.5rem",
-            }}
-          >
-            <Link className="btn btn-primary" href="/sign-up">
-              Get started — it&apos;s free
-            </Link>
-            <Link className="btn btn-secondary" href="/sign-in">
-              Sign in
-            </Link>
-          </div>
-        </SignedOut>
+          <SignedOut>
+            <div
+              className="row"
+              style={{
+                justifyContent: "center",
+                gap: "0.75rem",
+                marginTop: "1.5rem",
+              }}
+            >
+              <Link className="btn btn-primary" href="/sign-up">
+                Get started — it&apos;s free
+              </Link>
+              <Link className="btn btn-secondary" href="/sign-in">
+                Sign in
+              </Link>
+            </div>
+          </SignedOut>
+        </div>
       </section>
 
       {/* ── Features ────────────────────────────────────────── */}
