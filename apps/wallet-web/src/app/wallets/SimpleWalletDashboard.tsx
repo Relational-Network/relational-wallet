@@ -1078,6 +1078,8 @@ export function SimpleWalletDashboard({
           onClose={() => setActiveDialog(null)}
           title="Send"
           wide
+          dialogClassName="send-dialog"
+          bodyClassName="send-dialog-body"
         >
           <SendForm
             walletId={selectedWallet.wallet_id}

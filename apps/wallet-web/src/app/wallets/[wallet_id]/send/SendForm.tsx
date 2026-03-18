@@ -115,7 +115,7 @@ export function SendForm({
   const [isEstimating, setIsEstimating] = useState(false);
   const [pollCount, setPollCount] = useState(0);
 
-  const MAX_POLLS = 12;
+  const MAX_POLLS = 30;
 
   useEffect(() => {
     if (shortcuts.length > 0) setSavedRecipients(shortcuts);
@@ -316,7 +316,7 @@ export function SendForm({
 
     const timer = setTimeout(() => {
       void pollStatus();
-    }, pollCount === 0 ? 1000 : 9000);
+    }, pollCount === 0 ? 500 : 1500);
 
     return () => clearTimeout(timer);
   }, [txState, pollCount, pollStatus]);
@@ -325,8 +325,8 @@ export function SendForm({
 
   if (txState.step === "success") {
     return (
-      <div className="stack" style={{ minHeight: "16rem" }}>
-        <div style={{ textAlign: "center", padding: "1.5rem 0 0.5rem" }}>
+      <div className={`stack send-step-shell centered${mode === "dialog" ? " dialog" : ""}`}>
+        <div className="send-step-card send-status-content" style={{ textAlign: "center" }}>
           <div style={{
             width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem",
             background: "var(--success-light)", display: "grid", placeItems: "center",
@@ -360,8 +360,8 @@ export function SendForm({
 
   if (txState.step === "failed") {
     return (
-      <div className="stack" style={{ minHeight: "16rem" }}>
-        <div style={{ textAlign: "center", padding: "1.5rem 0 0.5rem" }}>
+      <div className={`stack send-step-shell centered${mode === "dialog" ? " dialog" : ""}`}>
+        <div className="send-step-card send-status-content" style={{ textAlign: "center" }}>
           <div style={{
             width: 56, height: 56, borderRadius: "50%", margin: "0 auto 1rem",
             background: "var(--danger-light)", display: "grid", placeItems: "center",
@@ -385,17 +385,19 @@ export function SendForm({
 
   if (txState.step === "polling" || txState.step === "sending") {
     return (
-      <div className="stack" style={{ minHeight: "16rem", alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-        <div className="send-spinner" />
-        <h3 style={{ margin: 0 }}>{txState.step === "sending" ? "Signing & broadcasting…" : "Waiting for confirmation…"}</h3>
-        <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>
-          {txState.step === "sending"
-            ? "Your transaction is being signed inside the enclave."
-            : `Checking network status (${pollCount}/${MAX_POLLS})`}
-        </p>
-        {txState.step === "polling" ? (
-          <span className="mono-sm" style={{ marginTop: "0.25rem", wordBreak: "break-all" }}>{txState.txHash}</span>
-        ) : null}
+      <div className={`stack send-step-shell centered${mode === "dialog" ? " dialog" : ""}`}>
+        <div className="send-status-panel send-status-content" style={{ textAlign: "center" }}>
+          <div className="send-spinner" />
+          <h3 style={{ margin: 0 }}>{txState.step === "sending" ? "Signing & broadcasting…" : "Waiting for confirmation…"}</h3>
+          <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>
+            {txState.step === "sending"
+              ? "Your transaction is being signed inside the enclave."
+              : `Checking network status (${pollCount}/${MAX_POLLS})`}
+          </p>
+          {txState.step === "polling" ? (
+            <span className="mono-sm" style={{ marginTop: "0.25rem", wordBreak: "break-all" }}>{txState.txHash}</span>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -405,8 +407,8 @@ export function SendForm({
   if (txState.step === "confirm") {
     const { gasEstimate } = txState;
     return (
-      <div className="stack">
-        <div className="card card-pad">
+      <div className={`stack send-step-shell centered${mode === "dialog" ? " dialog" : ""}`}>
+        <div className="card card-pad send-step-card">
           <h3 className="section-title">Confirm transfer</h3>
           <p className="text-muted" style={{ margin: "0.25rem 0 0" }}>
             From {walletLabel || "Wallet"}
@@ -448,179 +450,176 @@ export function SendForm({
   /* ── Main form ───────────────────────────────────────────────────── */
 
   return (
-    <div className="stack" style={{ maxWidth: "28rem", margin: "0 auto" }}>
-      <div className="text-muted" style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", justifyContent: "center" }}>
-        From <strong style={{ color: "var(--ink)" }}>{walletLabel || "Wallet"}</strong>
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
-          {shortenAddr(publicAddress)}
-        </span>
-      </div>
-
-      {prefillWarnings.length > 0 ? (
-        <div className="alert alert-warning">
-          Link fields were adjusted.
-          <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
-            {prefillWarnings.map((warning) => (
-              <li key={warning}>{warning}</li>
-            ))}
-          </ul>
+    <div className={`stack send-step-shell${mode === "dialog" ? " dialog" : ""}`}>
+      <div
+        className="stack send-form-scroll"
+        style={{ maxWidth: mode === "dialog" ? "100%" : "28rem", margin: "0 auto" }}
+      >
+        <div className="text-muted" style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap", justifyContent: "center" }}>
+          From <strong style={{ color: "var(--ink)" }}>{walletLabel || "Wallet"}</strong>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>
+            {shortenAddr(publicAddress)}
+          </span>
         </div>
-      ) : null}
 
-      {/* ── Recipient ─────────────────────────────────────────────── */}
-
-      <div className="field">
-        <label>Recipient address</label>
-        <input
-          value={toAddress}
-          onChange={(event) => setToAddress(event.target.value)}
-          placeholder="0x\u2026"
-          style={{ fontFamily: "var(--font-mono)" }}
-        />
-      </div>
-
-      <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
-          <Scan size={16} /> Scan QR code
-        </button>
-        <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
-          <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
-        </button>
-      </div>
-
-      {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
-
-      {savedRecipients.length > 0 ? (
-        <div className="stack-sm">
-          {savedRecipients.length >= 4 ? (
-            <input
-              value={recipientSearch}
-              onChange={(event) => setRecipientSearch(event.target.value)}
-              placeholder="Search saved recipients…"
-              style={{ fontSize: "0.8125rem" }}
-            />
-          ) : null}
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", maxHeight: "12rem", overflowY: "auto" }}>
-            {savedRecipients
-              .filter((recipient) => {
-                if (!recipientSearch.trim()) return true;
-                const query = recipientSearch.toLowerCase();
-                return (
-                  recipient.name.toLowerCase().includes(query) ||
-                  recipient.address.toLowerCase().includes(query)
-                );
-              })
-              .map((recipient) => (
-            <button
-              key={recipient.id}
-              type="button"
-              className={`bookmark-contact${toAddress.toLowerCase() === recipient.address.toLowerCase() ? " active" : ""}`}
-              onClick={() => {
-                setToAddress(recipient.address);
-                setError(null);
-              }}
-            >
-              <div className="bookmark-avatar">
-                {recipient.name.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <div className="bookmark-name">{recipient.name}</div>
-                <div className="bookmark-addr">{shortenAddr(recipient.address)}</div>
-              </div>
-            </button>
-          ))}
+        {prefillWarnings.length > 0 ? (
+          <div className="alert alert-warning">
+            Link fields were adjusted.
+            <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+              {prefillWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {showSaveRecipient ? (
-        <div className="inline-form">
+        <div className="field">
+          <label>Recipient address</label>
           <input
-            value={saveRecipientName}
-            onChange={(event) => setSaveRecipientName(event.target.value)}
-            placeholder="Recipient name"
-            className="input"
+            value={toAddress}
+            onChange={(event) => setToAddress(event.target.value)}
+            placeholder="0x\u2026"
+            style={{ fontFamily: "var(--font-mono)" }}
           />
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void handleSaveRecipient()}
-            disabled={isSavingRecipient}
-          >
-            {isSavingRecipient ? "Saving\u2026" : "Save"}
+        </div>
+
+        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
+            <Scan size={16} /> Scan QR code
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
+            <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
           </button>
         </div>
-      ) : null}
 
-      {saveRecipientMessage ? <p className="text-muted" style={{ margin: 0 }}>{saveRecipientMessage}</p> : null}
+        {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
 
-      {/* ── Amount ────────────────────────────────────────────────── */}
-
-      <div className="field">
-        <label>Amount</label>
-        <input
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          placeholder="0.0"
-          inputMode="decimal"
-        />
-      </div>
-
-      <div className="row" style={{ gap: "0.375rem" }}>
-        <button
-          type="button"
-          className={`chip${token === "native" ? " active" : ""}`}
-          onClick={() => setToken("native")}
-        >
-          AVAX
-        </button>
-        <button
-          type="button"
-          className={`chip${token === "reur" ? " active" : ""}`}
-          onClick={() => setToken("reur")}
-        >
-          rEUR
-        </button>
-      </div>
-
-      {/* ── Advanced ──────────────────────────────────────────────── */}
-
-      <button
-        type="button"
-        className="btn btn-ghost"
-        onClick={() => setShowAdvanced((state) => !state)}
-        style={{ justifyContent: "flex-start" }}
-      >
-        {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        {showAdvanced ? "Hide advanced" : "Advanced options"}
-      </button>
-
-      {showAdvanced ? (
-        <div className="stack">
-          <div className="field">
-            <label>Gas limit override</label>
-            <input
-              value={gasLimitOverride}
-              onChange={(event) => setGasLimitOverride(event.target.value)}
-              placeholder="21000"
-            />
+        {savedRecipients.length > 0 ? (
+          <div className="stack-sm">
+            {savedRecipients.length >= 4 ? (
+              <input
+                value={recipientSearch}
+                onChange={(event) => setRecipientSearch(event.target.value)}
+                placeholder="Search saved recipients…"
+                style={{ fontSize: "0.8125rem" }}
+              />
+            ) : null}
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", maxHeight: "12rem", overflowY: "auto" }}>
+              {savedRecipients
+                .filter((recipient) => {
+                  if (!recipientSearch.trim()) return true;
+                  const query = recipientSearch.toLowerCase();
+                  return (
+                    recipient.name.toLowerCase().includes(query) ||
+                    recipient.address.toLowerCase().includes(query)
+                  );
+                })
+                .map((recipient) => (
+                  <button
+                    key={recipient.id}
+                    type="button"
+                    className={`bookmark-contact${toAddress.toLowerCase() === recipient.address.toLowerCase() ? " active" : ""}`}
+                    onClick={() => {
+                      setToAddress(recipient.address);
+                      setError(null);
+                    }}
+                  >
+                    <div className="bookmark-avatar">
+                      {recipient.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="bookmark-name">{recipient.name}</div>
+                      <div className="bookmark-addr">{shortenAddr(recipient.address)}</div>
+                    </div>
+                  </button>
+                ))}
+            </div>
           </div>
-          <div className="field">
-            <label>Priority fee override (wei)</label>
+        ) : null}
+
+        {showSaveRecipient ? (
+          <div className="inline-form">
             <input
-              value={priorityFeeOverride}
-              onChange={(event) => setPriorityFeeOverride(event.target.value)}
-              placeholder="1500000000"
+              value={saveRecipientName}
+              onChange={(event) => setSaveRecipientName(event.target.value)}
+              placeholder="Recipient name"
+              className="input"
             />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void handleSaveRecipient()}
+              disabled={isSavingRecipient}
+            >
+              {isSavingRecipient ? "Saving\u2026" : "Save"}
+            </button>
           </div>
+        ) : null}
+
+        {saveRecipientMessage ? <p className="text-muted" style={{ margin: 0 }}>{saveRecipientMessage}</p> : null}
+
+        <div className="field">
+          <label>Amount</label>
+          <input
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="0.0"
+            inputMode="decimal"
+          />
         </div>
-      ) : null}
 
-      {/* ── Actions ───────────────────────────────────────────────── */}
+        <div className="row" style={{ gap: "0.375rem" }}>
+          <button
+            type="button"
+            className={`chip${token === "native" ? " active" : ""}`}
+            onClick={() => setToken("native")}
+          >
+            AVAX
+          </button>
+          <button
+            type="button"
+            className={`chip${token === "reur" ? " active" : ""}`}
+            onClick={() => setToken("reur")}
+          >
+            rEUR
+          </button>
+        </div>
 
-      {error ? <div className="alert alert-error">{error}</div> : null}
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => setShowAdvanced((state) => !state)}
+          style={{ justifyContent: "flex-start" }}
+        >
+          {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {showAdvanced ? "Hide advanced" : "Advanced options"}
+        </button>
 
-      <div className="row" style={{ gap: "0.5rem" }}>
+        {showAdvanced ? (
+          <div className="stack">
+            <div className="field">
+              <label>Gas limit override</label>
+              <input
+                value={gasLimitOverride}
+                onChange={(event) => setGasLimitOverride(event.target.value)}
+                placeholder="21000"
+              />
+            </div>
+            <div className="field">
+              <label>Priority fee override (wei)</label>
+              <input
+                value={priorityFeeOverride}
+                onChange={(event) => setPriorityFeeOverride(event.target.value)}
+                placeholder="1500000000"
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {error ? <div className="alert alert-error">{error}</div> : null}
+      </div>
+
+      <div className="row send-form-actions" style={{ gap: "0.5rem" }}>
         <button
           type="button"
           className="btn btn-primary"
