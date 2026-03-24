@@ -1110,7 +1110,7 @@
           "payment_links"
         ],
         "summary": "Resolve a payment link token (no authentication required).",
-        "description": "Returns the public address and optional amount/note for the payment link.",
+        "description": "Returns the tagged recipient info and optional amount/note for the payment link.",
         "operationId": "resolve_payment_link",
         "parameters": [
           {
@@ -1762,7 +1762,7 @@
           "payment_links"
         ],
         "summary": "Create a payment link for a wallet.",
-        "description": "Generates an opaque token that resolves to the wallet's public address.\nNo PII is stored — only wallet ID, address, and optional amount/note.",
+        "description": "Generates an opaque token that resolves to either the wallet's public\naddress or the owner's verified email hash/display, depending on the\nrequested recipient type.",
         "operationId": "create_payment_link",
         "parameters": [
           {
@@ -2444,6 +2444,13 @@
             ],
             "description": "Pre-filled amount (optional)."
           },
+          "email_display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Masked email for display (required when recipient_type=email)."
+          },
           "expires_hours": {
             "type": "integer",
             "format": "int64",
@@ -2457,9 +2464,20 @@
             ],
             "description": "Note for the recipient (optional)."
           },
+          "recipient_type": {
+            "type": "string",
+            "description": "Recipient type: \"address\" or \"email\". Defaults to \"address\"."
+          },
           "single_use": {
             "type": "boolean",
             "description": "Whether the link can only be used once (default: false)."
+          },
+          "to_email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 hash of the normalized email (required when recipient_type=email)."
           },
           "token": {
             "type": [
@@ -3077,7 +3095,7 @@
         "type": "object",
         "description": "Public info returned when resolving a payment link (no auth required).",
         "required": [
-          "public_address"
+          "recipient_type"
         ],
         "properties": {
           "amount": {
@@ -3087,6 +3105,13 @@
             ],
             "description": "Pre-filled amount (if set)."
           },
+          "email_display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Masked email for display (when recipient_type=email)."
+          },
           "note": {
             "type": [
               "string",
@@ -3095,8 +3120,22 @@
             "description": "Note from the requester (if set)."
           },
           "public_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recipient's public address (when recipient_type=address)."
+          },
+          "recipient_type": {
             "type": "string",
-            "description": "Recipient's public address."
+            "description": "Recipient type: \"address\" or \"email\"."
+          },
+          "to_email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recipient email hash (when recipient_type=email)."
           },
           "token_type": {
             "type": [

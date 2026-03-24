@@ -9,6 +9,8 @@ import { QRCodeSVG } from "qrcode.react";
 interface PaymentRequestBuilderProps {
   walletId: string;
   compact?: boolean;
+  verifiedEmailHash?: string | null;
+  verifiedEmailDisplay?: string | null;
 }
 
 /**
@@ -17,8 +19,14 @@ interface PaymentRequestBuilderProps {
  * Instead of encoding the wallet address directly in the URL, we create
  * an opaque token server-side and generate a `/pay?ref=<token>` link.
  */
-export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequestBuilderProps) {
+export function PaymentRequestBuilder({
+  walletId,
+  compact = false,
+  verifiedEmailHash = null,
+  verifiedEmailDisplay = null,
+}: PaymentRequestBuilderProps) {
   const QR_SIZE = 220;
+  const [recipientMode, setRecipientMode] = useState<"address" | "email">("address");
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"native" | "reur">("native");
   const [note, setNote] = useState("");
@@ -28,6 +36,7 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const hasAmount = amount.trim().length > 0;
+  const emailLinkReady = Boolean(verifiedEmailHash && verifiedEmailDisplay);
 
   const requestLink = useMemo(() => {
     if (!linkToken) return "";
@@ -37,6 +46,11 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
   }, [linkToken]);
 
   const generateLink = async () => {
+    if (recipientMode === "email" && !emailLinkReady) {
+      setGenError("A verified email is required before you can create an email payment link.");
+      return;
+    }
+
     setGenerating(true);
     setGenError(null);
     try {
@@ -45,6 +59,9 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          recipient_type: recipientMode,
+          to_email_hash: recipientMode === "email" ? verifiedEmailHash : undefined,
+          email_display: recipientMode === "email" ? verifiedEmailDisplay : undefined,
           amount: amount.trim() || undefined,
           token: token === "native" ? undefined : token,
           note: note.trim() || undefined,
@@ -69,7 +86,7 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
   // Reset the token when parameters change
   useEffect(() => {
     setLinkToken(null);
-  }, [amount, token, note]);
+  }, [amount, note, recipientMode, token]);
 
   const copyLink = async () => {
     if (compact && !hasAmount) return;
@@ -147,7 +164,42 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
     return (
       <div className="stack" style={{ width: "100%" }}>
         <p className="text-muted" style={{ margin: 0, textAlign: "center" }}>
-          Request a specific amount via shareable payment link.
+          Request a specific amount via a shareable payment link.
+        </p>
+
+        <div className="row" style={{ gap: "0.375rem", justifyContent: "center" }}>
+          <button
+            type="button"
+            className={`chip${recipientMode === "address" ? " active" : ""}`}
+            onClick={() => {
+              setRecipientMode("address");
+              setGenError(null);
+            }}
+          >
+            Address
+          </button>
+          <button
+            type="button"
+            className={`chip${recipientMode === "email" ? " active" : ""}`}
+            onClick={() => {
+              setRecipientMode("email");
+              if (!emailLinkReady) {
+                setGenError("Verify a Clerk email on your account to create email payment links.");
+              } else {
+                setGenError(null);
+              }
+            }}
+          >
+            Email
+          </button>
+        </div>
+
+        <p className="text-muted" style={{ margin: 0, textAlign: "center", fontSize: "0.8125rem" }}>
+          {recipientMode === "email"
+            ? verifiedEmailDisplay
+              ? `Email links will target ${verifiedEmailDisplay}.`
+              : "Add a verified Clerk email to enable email payment links."
+            : "Address links resolve to your wallet address after the token is opened."}
         </p>
 
         <div className="grid-2">
@@ -221,6 +273,46 @@ export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequ
       <p className="text-secondary" style={{ margin: "0.25rem 0 0.75rem" }}>
         Generate a shareable link that prefills the send form for the payer.
       </p>
+
+      <div className="row" style={{ gap: "0.375rem", marginBottom: "0.75rem" }}>
+        <button
+          type="button"
+          className={`chip${recipientMode === "address" ? " active" : ""}`}
+          onClick={() => {
+            setRecipientMode("address");
+            setGenError(null);
+          }}
+        >
+          Address
+        </button>
+        <button
+          type="button"
+          className={`chip${recipientMode === "email" ? " active" : ""}`}
+          onClick={() => {
+            setRecipientMode("email");
+            if (!emailLinkReady) {
+              setGenError("Verify a Clerk email on your account to create email payment links.");
+            } else {
+              setGenError(null);
+            }
+          }}
+        >
+          Email
+        </button>
+      </div>
+
+      <div className="card" style={{ padding: "0.875rem", marginBottom: "0.75rem", background: "var(--bg-subtle)" }}>
+        <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>
+          {recipientMode === "email" ? "Email recipient" : "Address recipient"}
+        </div>
+        <div className="text-secondary" style={{ fontSize: "0.875rem" }}>
+          {recipientMode === "email"
+            ? verifiedEmailDisplay
+              ? `This link keeps the payer in email-send mode and shows ${verifiedEmailDisplay}.`
+              : "A verified Clerk email is required before you can create an email payment link."
+            : "This link resolves to your wallet address only after the opaque token is opened."}
+        </div>
+      </div>
 
       <div className="grid-2">
         <div className="field">

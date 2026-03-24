@@ -27,6 +27,7 @@ import { PrimaryActions } from "@/components/PrimaryActions";
 import { PrimaryBalanceCard } from "@/components/PrimaryBalanceCard";
 import { RecentActivityPreview, type DashboardActivityItem } from "@/components/RecentActivityPreview";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
+import { bookmarkToRecipientShortcut, type RecipientShortcut } from "@/lib/recipients";
 
 interface TokenBalance {
   symbol: string;
@@ -268,6 +269,8 @@ interface SimpleWalletDashboardProps {
   initialTransactions?: TransactionListResponse | null;
   /** Whether the current user has admin role (from Clerk public metadata). */
   isAdmin?: boolean;
+  verifiedEmailHash?: string | null;
+  verifiedEmailDisplay?: string | null;
 }
 
 export function SimpleWalletDashboard({
@@ -276,6 +279,8 @@ export function SimpleWalletDashboard({
   initialBalance,
   initialTransactions,
   isAdmin = false,
+  verifiedEmailHash = null,
+  verifiedEmailDisplay = null,
 }: SimpleWalletDashboardProps = {}) {
   const hasSSRData = !!(initialWallets && initialWallets.length > 0);
   const ssrHasDetails = hasSSRData && !!(initialBalance || initialTransactions);
@@ -1096,7 +1101,9 @@ export function SimpleWalletDashboard({
             walletId={selectedWallet.wallet_id}
             publicAddress={selectedWallet.public_address}
             walletLabel={selectedWallet.label ?? null}
-            shortcuts={bookmarks.filter((b) => !!b.address).map((b) => ({ id: b.id, name: b.name, address: b.address! }))}
+            shortcuts={bookmarks
+              .map(bookmarkToRecipientShortcut)
+              .filter((bookmark): bookmark is RecipientShortcut => bookmark !== null)}
             mode="dialog"
             onRequestClose={() => setActiveDialog(null)}
             onComplete={() => {
@@ -1121,7 +1128,12 @@ export function SimpleWalletDashboard({
             <AddressQRCode address={selectedWallet.public_address} size={180} />
             <CopyAddress address={selectedWallet.public_address} />
             <hr className="divider" style={{ width: "100%" }} />
-            <PaymentRequestBuilder walletId={selectedWallet.wallet_id} compact />
+            <PaymentRequestBuilder
+              walletId={selectedWallet.wallet_id}
+              compact
+              verifiedEmailHash={verifiedEmailHash}
+              verifiedEmailDisplay={verifiedEmailDisplay}
+            />
           </div>
         </ActionDialog>
       ) : null}

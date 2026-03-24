@@ -15,7 +15,10 @@ export interface PaymentRequestQuery {
 }
 
 export interface ParsedPaymentRequest {
+  recipientType?: "address" | "email";
   to?: string;
+  to_email_hash?: string;
+  email_display?: string;
   amount?: string;
   token: "native" | "reur";
   note?: string;
@@ -57,6 +60,7 @@ export function parsePaymentRequestQuery(
   if (to) {
     if (ETH_ADDRESS_REGEX.test(to)) {
       prefill.to = to;
+      prefill.recipientType = "address";
     } else {
       warnings.push("Ignored invalid recipient address from the payment link.");
     }

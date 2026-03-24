@@ -17,9 +17,13 @@ interface PayEntryProps {
 
 export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWarnings }: PayEntryProps) {
   const [selectedWalletId, setSelectedWalletId] = useState<string>(wallets[0]?.wallet_id || "");
-  const [prefill, setPrefill] = useState(initialPrefill);
   const [warnings, setWarnings] = useState(initialWarnings);
+  const [recipientType, setRecipientType] = useState<"address" | "email">(
+    initialPrefill.recipientType ?? (initialPrefill.to_email_hash ? "email" : "address")
+  );
   const [to, setTo] = useState(initialPrefill.to ?? "");
+  const [toEmailHash, setToEmailHash] = useState(initialPrefill.to_email_hash ?? "");
+  const [emailDisplay, setEmailDisplay] = useState(initialPrefill.email_display ?? "");
   const [amount, setAmount] = useState(initialPrefill.amount ?? "");
   const [token, setToken] = useState<"native" | "reur">(initialPrefill.token);
   const [note, setNote] = useState(initialPrefill.note ?? "");
@@ -39,15 +43,24 @@ export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWa
         if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
-          const resolvedTo = data.public_address ?? "";
           const resolvedAmount = data.amount ?? "";
           const resolvedToken = data.token_type === "reur" ? "reur" as const : "native" as const;
           const resolvedNote = data.note ?? "";
-          setTo(resolvedTo);
+          if (data.recipient_type === "email" && data.to_email_hash && data.email_display) {
+            setRecipientType("email");
+            setTo("");
+            setToEmailHash(data.to_email_hash);
+            setEmailDisplay(data.email_display);
+          } else {
+            const resolvedTo = data.public_address ?? "";
+            setRecipientType("address");
+            setTo(resolvedTo);
+            setToEmailHash("");
+            setEmailDisplay("");
+          }
           setAmount(resolvedAmount);
           setToken(resolvedToken);
           setNote(resolvedNote);
-          setPrefill({ to: resolvedTo, amount: resolvedAmount, token: resolvedToken, note: resolvedNote });
         } else {
           setWarnings((w) => [...w, "Payment link not found or expired."]);
         }
@@ -62,8 +75,12 @@ export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWa
   }, [initialPrefill.ref]);
 
   const canContinue = useMemo(
-    () => Boolean(selectedWalletId && to.trim()),
-    [selectedWalletId, to]
+    () =>
+      Boolean(
+        selectedWalletId &&
+          (recipientType === "address" ? to.trim() : toEmailHash.trim())
+      ),
+    [recipientType, selectedWalletId, to, toEmailHash]
   );
 
   const selectedWallet = wallets.find((w) => w.wallet_id === selectedWalletId);
@@ -92,7 +109,10 @@ export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWa
               publicAddress={selectedWallet.public_address || ""}
               walletLabel={selectedWallet.label ?? null}
               prefill={{
-                to: to.trim(),
+                recipientType,
+                to: recipientType === "address" ? to.trim() : undefined,
+                to_email_hash: recipientType === "email" ? toEmailHash : undefined,
+                email_display: recipientType === "email" ? emailDisplay : undefined,
                 amount: amount.trim() || undefined,
                 token,
                 note: note.trim() || undefined,
@@ -169,15 +189,22 @@ export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWa
 
               <hr className="divider" />
 
-              <div className="field">
-                <label>Recipient address</label>
-                <input
-                  value={to}
-                  onChange={(event) => setTo(event.target.value)}
-                  placeholder="0x\u2026"
-                  style={{ fontFamily: "var(--font-mono)" }}
-                />
-              </div>
+              {recipientType === "email" ? (
+                <div className="field">
+                  <label>Recipient email</label>
+                  <input value={emailDisplay} readOnly />
+                </div>
+              ) : (
+                <div className="field">
+                  <label>Recipient address</label>
+                  <input
+                    value={to}
+                    onChange={(event) => setTo(event.target.value)}
+                    placeholder="0x\u2026"
+                    style={{ fontFamily: "var(--font-mono)" }}
+                  />
+                </div>
+              )}
 
               <hr className="divider" />
 

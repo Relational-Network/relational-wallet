@@ -188,6 +188,9 @@ export interface ResolveEmailResponse {
 // =============================================================================
 
 export interface CreatePaymentLinkRequest {
+  recipient_type?: "address" | "email";
+  to_email_hash?: string;
+  email_display?: string;
   amount?: string;
   token?: string;
   note?: string;
@@ -201,7 +204,10 @@ export interface CreatePaymentLinkResponse {
 }
 
 export interface PaymentLinkInfo {
-  public_address: string;
+  recipient_type: "address" | "email";
+  public_address?: string;
+  to_email_hash?: string;
+  email_display?: string;
   amount?: string;
   token_type?: string;
   note?: string;

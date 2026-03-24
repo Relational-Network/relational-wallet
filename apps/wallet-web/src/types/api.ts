@@ -486,7 +486,7 @@ export interface paths {
         };
         /**
          * Resolve a payment link token (no authentication required).
-         * @description Returns the public address and optional amount/note for the payment link.
+         * @description Returns the tagged recipient info and optional amount/note for the payment link.
          */
         get: operations["resolve_payment_link"];
         put?: never;
@@ -737,8 +737,9 @@ export interface paths {
         put?: never;
         /**
          * Create a payment link for a wallet.
-         * @description Generates an opaque token that resolves to the wallet's public address.
-         *     No PII is stored — only wallet ID, address, and optional amount/note.
+         * @description Generates an opaque token that resolves to either the wallet's public
+         *     address or the owner's verified email hash/display, depending on the
+         *     requested recipient type.
          */
         post: operations["create_payment_link"];
         delete?: never;
@@ -946,6 +947,8 @@ export interface components {
         CreatePaymentLinkRequest: {
             /** @description Pre-filled amount (optional). */
             amount?: string | null;
+            /** @description Masked email for display (required when recipient_type=email). */
+            email_display?: string | null;
             /**
              * Format: int64
              * @description Hours until expiry (default: 24).
@@ -953,8 +956,12 @@ export interface components {
             expires_hours?: number;
             /** @description Note for the recipient (optional). */
             note?: string | null;
+            /** @description Recipient type: "address" or "email". Defaults to "address". */
+            recipient_type?: string;
             /** @description Whether the link can only be used once (default: false). */
             single_use?: boolean;
+            /** @description SHA-256 hash of the normalized email (required when recipient_type=email). */
+            to_email_hash?: string | null;
             /** @description Token type: "native" or "reur" (optional). */
             token?: string | null;
         };
@@ -1205,10 +1212,16 @@ export interface components {
         PaymentLinkInfo: {
             /** @description Pre-filled amount (if set). */
             amount?: string | null;
+            /** @description Masked email for display (when recipient_type=email). */
+            email_display?: string | null;
             /** @description Note from the requester (if set). */
             note?: string | null;
-            /** @description Recipient's public address. */
-            public_address: string;
+            /** @description Recipient's public address (when recipient_type=address). */
+            public_address?: string | null;
+            /** @description Recipient type: "address" or "email". */
+            recipient_type: string;
+            /** @description Recipient email hash (when recipient_type=email). */
+            to_email_hash?: string | null;
             /** @description Token type (if set). */
             token_type?: string | null;
         };

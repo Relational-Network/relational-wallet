@@ -4,6 +4,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { SimpleWalletDashboard } from "./SimpleWalletDashboard";
+import { getCurrentVerifiedEmailIdentity } from "@/lib/serverEmailIdentity";
 import type {
   BalanceResponse,
   TransactionListResponse,
@@ -41,6 +42,7 @@ export default async function WalletsPage() {
 
   const isAdmin =
     (sessionClaims?.publicMetadata as { role?: string } | undefined)?.role === "admin";
+  const verifiedEmailIdentity = await getCurrentVerifiedEmailIdentity();
 
   const token =
     (await getToken({ template: "default" }).catch(() => null)) ??
@@ -48,7 +50,13 @@ export default async function WalletsPage() {
 
   if (!token) {
     // Can't prefetch without a token — fall back to client-side loading.
-    return <SimpleWalletDashboard isAdmin={isAdmin} />;
+    return (
+      <SimpleWalletDashboard
+        isAdmin={isAdmin}
+        verifiedEmailHash={verifiedEmailIdentity?.emailHash ?? null}
+        verifiedEmailDisplay={verifiedEmailIdentity?.emailDisplay ?? null}
+      />
+    );
   }
 
   // Prefetch wallets during SSR
@@ -87,6 +95,8 @@ export default async function WalletsPage() {
       initialBalance={initialBalance}
       initialTransactions={initialTransactions}
       isAdmin={isAdmin}
+      verifiedEmailHash={verifiedEmailIdentity?.emailHash ?? null}
+      verifiedEmailDisplay={verifiedEmailIdentity?.emailDisplay ?? null}
     />
   );
 }

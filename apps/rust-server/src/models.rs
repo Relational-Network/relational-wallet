@@ -175,6 +175,15 @@ pub struct ResolveEmailResponse {
 /// Request to create a payment link.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePaymentLinkRequest {
+    /// Recipient type: "address" or "email". Defaults to "address".
+    #[serde(default = "default_recipient_type_address")]
+    pub recipient_type: String,
+    /// SHA-256 hash of the normalized email (required when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_email_hash: Option<String>,
+    /// Masked email for display (required when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
     /// Pre-filled amount (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<String>,
@@ -208,8 +217,17 @@ pub struct CreatePaymentLinkResponse {
 /// Public info returned when resolving a payment link (no auth required).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PaymentLinkInfo {
-    /// Recipient's public address.
-    pub public_address: String,
+    /// Recipient type: "address" or "email".
+    pub recipient_type: String,
+    /// Recipient's public address (when recipient_type=address).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_address: Option<String>,
+    /// Recipient email hash (when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_email_hash: Option<String>,
+    /// Masked email for display (when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
     /// Pre-filled amount (if set).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<String>,

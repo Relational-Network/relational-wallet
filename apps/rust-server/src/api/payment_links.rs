@@ -20,14 +20,16 @@ use crate::{
     auth::Auth,
     error::ApiError,
     models::{CreatePaymentLinkRequest, CreatePaymentLinkResponse, PaymentLinkInfo},
+    providers::email,
     state::AppState,
     storage::{OwnershipEnforcer, PaymentLinkData, PaymentLinkRepository, WalletRepository},
 };
 
 /// Create a payment link for a wallet.
 ///
-/// Generates an opaque token that resolves to the wallet's public address.
-/// No PII is stored — only wallet ID, address, and optional amount/note.
+/// Generates an opaque token that resolves to either the wallet's public
+/// address or the owner's verified email hash/display, depending on the
+/// requested recipient type.
 #[utoipa::path(
     post,
     path = "/v1/wallets/{wallet_id}/payment-link",
@@ -75,9 +77,54 @@ pub async fn create_payment_link(
 
     let expires_at = Utc::now() + Duration::hours(expires_hours as i64);
 
+    let (recipient_type, public_address, to_email_hash, email_display) =
+        match request.recipient_type.as_str() {
+            "email" => {
+                let email_hash = request.to_email_hash.ok_or_else(|| {
+                    ApiError::bad_request("to_email_hash is required for email payment links")
+                })?;
+                if !email::validate_email_hash(&email_hash) {
+                    return Err(ApiError::bad_request(
+                        "to_email_hash must be 64 hex characters",
+                    ));
+                }
+
+                let email_display = request.email_display.ok_or_else(|| {
+                    ApiError::bad_request("email_display is required for email payment links")
+                })?;
+
+                let expected_lookup_key = wallet.email_lookup_key.as_ref().ok_or_else(|| {
+                    ApiError::unprocessable("Wallet is not linked to a verified email")
+                })?;
+                let actual_lookup_key =
+                    email::hmac_lookup_key(&state.email_hmac_key, &email_hash);
+                if &actual_lookup_key != expected_lookup_key {
+                    return Err(ApiError::unprocessable(
+                        "Email payment links must use the wallet owner's verified email",
+                    ));
+                }
+
+                ("email".to_string(), None, Some(email_hash), Some(email_display))
+            }
+            "address" => (
+                "address".to_string(),
+                Some(wallet.public_address.clone()),
+                None,
+                None,
+            ),
+            _ => {
+                return Err(ApiError::bad_request(
+                    "recipient_type must be 'address' or 'email'",
+                ))
+            }
+        };
+
     let link_data = PaymentLinkData {
         wallet_id: wallet_id.clone(),
-        public_address: wallet.public_address.clone(),
+        recipient_type,
+        public_address,
+        to_email_hash,
+        email_display,
         amount: request.amount,
         token_type: request.token,
         note: request.note,
@@ -99,7 +146,7 @@ pub async fn create_payment_link(
 
 /// Resolve a payment link token (no authentication required).
 ///
-/// Returns the public address and optional amount/note for the payment link.
+/// Returns the tagged recipient info and optional amount/note for the payment link.
 #[utoipa::path(
     get,
     path = "/v1/payment-link/{token}",
@@ -128,7 +175,10 @@ pub async fn resolve_payment_link(
         .ok_or_else(|| ApiError::not_found("Payment link not found or expired"))?;
 
     Ok(Json(PaymentLinkInfo {
+        recipient_type: data.recipient_type,
         public_address: data.public_address,
+        to_email_hash: data.to_email_hash,
+        email_display: data.email_display,
         amount: data.amount,
         token_type: data.token_type,
         note: data.note,

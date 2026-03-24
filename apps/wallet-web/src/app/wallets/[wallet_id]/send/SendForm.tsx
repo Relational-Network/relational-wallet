@@ -14,14 +14,12 @@ import type {
 } from "@/lib/api";
 import { RecipientQrScanner } from "@/components/RecipientQrScanner";
 import { hashEmail, maskEmail } from "@/lib/emailHash";
+import {
+  recipientMatchesQuery,
+  type RecipientShortcut,
+} from "@/lib/recipients";
 
 const REUR_FUJI_ADDRESS = "0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63";
-
-interface RecipientShortcut {
-  id: string;
-  name: string;
-  address: string;
-}
 
 interface SendFormProps {
   walletId: string;
@@ -31,7 +29,10 @@ interface SendFormProps {
   shortcuts?: RecipientShortcut[];
   shortcutsLoadError?: string | null;
   prefill?: {
+    recipientType?: "address" | "email";
     to?: string;
+    to_email_hash?: string;
+    email_display?: string;
     amount?: string;
     token?: string;
     note?: string;
@@ -92,15 +93,20 @@ export function SendForm({
   const router = useRouter();
 
   const prefillTo = prefill?.to ?? "";
+  const prefillRecipientMode =
+    prefill?.recipientType ?? (prefill?.to_email_hash ? "email" : "address");
   const prefillAmount = prefill?.amount ?? "";
   const prefillToken =
     prefill?.token === "reur" ? "reur" : "native";
 
   const [toAddress, setToAddress] = useState(prefillTo);
-  const [recipientMode, setRecipientMode] = useState<"address" | "email">("address");
+  const [recipientMode, setRecipientMode] = useState<"address" | "email">(prefillRecipientMode);
   const [toEmail, setToEmail] = useState("");
-  const [emailHash, setEmailHash] = useState<string | null>(null);
-  const [emailResolved, setEmailResolved] = useState<boolean | null>(null);
+  const [emailHash, setEmailHash] = useState<string | null>(prefill?.to_email_hash ?? null);
+  const [emailResolved, setEmailResolved] = useState<boolean | null>(
+    prefill?.to_email_hash ? true : null
+  );
+  const [emailDisplay, setEmailDisplay] = useState<string | null>(prefill?.email_display ?? null);
   const [emailChecking, setEmailChecking] = useState(false);
   const [amount, setAmount] = useState(prefillAmount);
   const [token, setToken] = useState<"native" | "reur">(prefillToken);
@@ -124,31 +130,50 @@ export function SendForm({
   const MAX_POLLS = 30;
 
   useEffect(() => {
-    if (shortcuts.length > 0) setSavedRecipients(shortcuts);
+    setSavedRecipients(shortcuts);
   }, [shortcuts]);
 
   const handleSaveRecipient = async () => {
-    const normalized = toAddress.trim();
     const name = saveRecipientName.trim();
 
     setSaveRecipientMessage(null);
-
-    if (!isValidAddress(normalized)) {
-      setSaveRecipientMessage("Enter a valid recipient address first.");
-      return;
-    }
 
     if (!name) {
       setSaveRecipientMessage("Recipient name is required.");
       return;
     }
 
-    const existing = savedRecipients.find(
-      (recipient) => recipient.address.toLowerCase() === normalized.toLowerCase()
-    );
-    if (existing) {
-      setSaveRecipientMessage(`Already saved as \"${existing.name}\".`);
-      return;
+    if (recipientMode === "address") {
+      const normalized = toAddress.trim();
+      if (!isValidAddress(normalized)) {
+        setSaveRecipientMessage("Enter a valid recipient address first.");
+        return;
+      }
+
+      const existing = savedRecipients.find(
+        (recipient) =>
+          recipient.recipientType === "address" &&
+          recipient.address.toLowerCase() === normalized.toLowerCase()
+      );
+      if (existing) {
+        setSaveRecipientMessage(`Already saved as "${existing.name}".`);
+        return;
+      }
+    } else {
+      if (!emailResolved || !emailHash || !emailDisplay) {
+        setSaveRecipientMessage("Verify the email recipient before saving it.");
+        return;
+      }
+
+      const existing = savedRecipients.find(
+        (recipient) =>
+          recipient.recipientType === "email" &&
+          recipient.emailHash.toLowerCase() === emailHash.toLowerCase()
+      );
+      if (existing) {
+        setSaveRecipientMessage(`Already saved as "${existing.name}".`);
+        return;
+      }
     }
 
     setIsSavingRecipient(true);
@@ -158,11 +183,22 @@ export function SendForm({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          wallet_id: walletId,
-          name,
-          address: normalized,
-        }),
+        body: JSON.stringify(
+          recipientMode === "address"
+            ? {
+                wallet_id: walletId,
+                name,
+                recipient_type: "address",
+                address: toAddress.trim(),
+              }
+            : {
+                wallet_id: walletId,
+                name,
+                recipient_type: "email",
+                email_hash: emailHash,
+                email_display: emailDisplay,
+              }
+        ),
       });
 
       if (!response.ok) {
@@ -171,11 +207,26 @@ export function SendForm({
         return;
       }
 
-      const payload = (await response.json()) as RecipientShortcut;
-      setSavedRecipients((current) => [...current, payload]);
+      const payload = await response.json();
+      const savedShortcut: RecipientShortcut =
+        payload.recipient_type === "email"
+          ? {
+              id: payload.id,
+              name: payload.name,
+              recipientType: "email",
+              emailHash: payload.email_hash,
+              emailDisplay: payload.email_display,
+            }
+          : {
+              id: payload.id,
+              name: payload.name,
+              recipientType: "address",
+              address: payload.address,
+            };
+      setSavedRecipients((current) => [...current, savedShortcut]);
       setShowSaveRecipient(false);
       setSaveRecipientName("");
-      setSaveRecipientMessage(`Saved \"${payload.name}\".`);
+      setSaveRecipientMessage(`Saved "${savedShortcut.name}".`);
     } catch (saveError) {
       setSaveRecipientMessage(
         saveError instanceof Error ? saveError.message : "Unable to save recipient"
@@ -206,14 +257,19 @@ export function SendForm({
         const data = await response.json();
         setEmailResolved(data.found);
         if (!data.found) {
+          setEmailDisplay(null);
           setError("No wallet found for this email address.");
+        } else {
+          setEmailDisplay(maskEmail(email));
         }
       } else {
         setEmailResolved(null);
+        setEmailDisplay(null);
         setError("Failed to check email.");
       }
     } catch {
       setEmailResolved(null);
+      setEmailDisplay(null);
       setError("Failed to check email.");
     } finally {
       setEmailChecking(false);
@@ -485,7 +541,7 @@ export function SendForm({
             <div className="row-between">
               <span className="text-secondary">To</span>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>
-                {recipientMode === "email" ? maskEmail(toEmail) : shortenAddr(toAddress)}
+                {recipientMode === "email" ? emailDisplay ?? maskEmail(toEmail) : shortenAddr(toAddress)}
               </span>
             </div>
             <hr className="divider" />
@@ -582,19 +638,41 @@ export function SendForm({
           </>
         ) : (
           <>
-            <div className="field">
-              <label>Recipient email</label>
-              <input
-                type="email"
-                value={toEmail}
-                onChange={(event) => {
-                  setToEmail(event.target.value);
-                  setEmailHash(null);
-                  setEmailResolved(null);
-                }}
-                placeholder="recipient@example.com"
-              />
-            </div>
+            {emailDisplay && !toEmail.trim() ? (
+              <div className="card" style={{ padding: "0.875rem", background: "var(--bg-subtle)" }}>
+                <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Verified recipient</div>
+                <div className="text-secondary" style={{ fontSize: "0.875rem" }}>{emailDisplay}</div>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ marginTop: "0.75rem" }}
+                  onClick={() => {
+                    setToEmail("");
+                    setEmailHash(null);
+                    setEmailDisplay(null);
+                    setEmailResolved(null);
+                    setError(null);
+                  }}
+                >
+                  Choose a different email
+                </button>
+              </div>
+            ) : (
+              <div className="field">
+                <label>Recipient email</label>
+                <input
+                  type="email"
+                  value={toEmail}
+                  onChange={(event) => {
+                    setToEmail(event.target.value);
+                    setEmailHash(null);
+                    setEmailResolved(null);
+                    setEmailDisplay(null);
+                  }}
+                  placeholder="recipient@example.com"
+                />
+              </div>
+            )}
 
             <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
               <button
@@ -604,6 +682,13 @@ export function SendForm({
                 disabled={emailChecking || !toEmail.trim()}
               >
                 {emailChecking ? "Checking…" : "Verify recipient"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowSaveRecipient((state) => !state)}
+              >
+                <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
               </button>
               {emailResolved === true && (
                 <span style={{ color: "var(--success)", fontSize: "0.8125rem" }}>✓ Wallet found</span>
@@ -630,20 +715,38 @@ export function SendForm({
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", maxHeight: "12rem", overflowY: "auto" }}>
               {savedRecipients
                 .filter((recipient) => {
-                  if (!recipientSearch.trim()) return true;
-                  const query = recipientSearch.toLowerCase();
-                  return (
-                    recipient.name.toLowerCase().includes(query) ||
-                    recipient.address.toLowerCase().includes(query)
-                  );
+                  return recipientMatchesQuery(recipient, recipientSearch);
                 })
                 .map((recipient) => (
                   <button
                     key={recipient.id}
                     type="button"
-                    className={`bookmark-contact${toAddress.toLowerCase() === recipient.address.toLowerCase() ? " active" : ""}`}
+                    className={`bookmark-contact${
+                      recipient.recipientType === "address"
+                        ? recipientMode === "address" &&
+                          toAddress.toLowerCase() === recipient.address.toLowerCase()
+                          ? " active"
+                          : ""
+                        : recipientMode === "email" &&
+                            emailHash?.toLowerCase() === recipient.emailHash.toLowerCase()
+                          ? " active"
+                          : ""
+                    }`}
                     onClick={() => {
-                      setToAddress(recipient.address);
+                      if (recipient.recipientType === "address") {
+                        setRecipientMode("address");
+                        setToAddress(recipient.address);
+                        setToEmail("");
+                        setEmailHash(null);
+                        setEmailDisplay(null);
+                        setEmailResolved(null);
+                      } else {
+                        setRecipientMode("email");
+                        setToEmail("");
+                        setEmailHash(recipient.emailHash);
+                        setEmailDisplay(recipient.emailDisplay);
+                        setEmailResolved(true);
+                      }
                       setError(null);
                     }}
                   >
@@ -652,7 +755,11 @@ export function SendForm({
                     </div>
                     <div>
                       <div className="bookmark-name">{recipient.name}</div>
-                      <div className="bookmark-addr">{shortenAddr(recipient.address)}</div>
+                      <div className="bookmark-addr">
+                        {recipient.recipientType === "address"
+                          ? shortenAddr(recipient.address)
+                          : recipient.emailDisplay}
+                      </div>
                     </div>
                   </button>
                 ))}

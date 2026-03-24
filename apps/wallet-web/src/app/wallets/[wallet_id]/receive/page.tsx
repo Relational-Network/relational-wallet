@@ -6,6 +6,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect, notFound } from "next/navigation";
 import { apiClient, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import { getCurrentVerifiedEmailIdentity } from "@/lib/serverEmailIdentity";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { CopyAddress } from "@/components/CopyAddress";
 import { AddressQRCode } from "@/components/AddressQRCode";
@@ -29,6 +30,7 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
 
   const { wallet_id } = await params;
   const token = await getSessionToken();
+  const verifiedEmailIdentity = await getCurrentVerifiedEmailIdentity();
 
   let wallet: WalletResponse | null = null;
   let error: string | null = null;
@@ -77,7 +79,11 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
             </div>
           </div>
 
-          <PaymentRequestBuilder walletId={wallet_id} />
+          <PaymentRequestBuilder
+            walletId={wallet_id}
+            verifiedEmailHash={verifiedEmailIdentity?.emailHash ?? null}
+            verifiedEmailDisplay={verifiedEmailIdentity?.emailDisplay ?? null}
+          />
 
           <div className="card card-pad">
             <h3 className="section-title">Receive by email</h3>

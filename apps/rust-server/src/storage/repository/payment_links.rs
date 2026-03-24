@@ -20,7 +20,13 @@ use super::super::tx_database::{TxDatabase, TxDbResult};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentLinkData {
     pub wallet_id: String,
-    pub public_address: String,
+    pub recipient_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_email_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,7 +132,10 @@ mod tests {
     fn sample_link_data() -> PaymentLinkData {
         PaymentLinkData {
             wallet_id: "wallet-1".to_string(),
-            public_address: "0xabc123".to_string(),
+            recipient_type: "address".to_string(),
+            public_address: Some("0xabc123".to_string()),
+            to_email_hash: None,
+            email_display: None,
             amount: Some("1.5".to_string()),
             token_type: Some("native".to_string()),
             note: Some("Lunch".to_string()),
@@ -147,8 +156,32 @@ mod tests {
 
         let resolved = repo.resolve(&token).unwrap().unwrap();
         assert_eq!(resolved.wallet_id, "wallet-1");
-        assert_eq!(resolved.public_address, "0xabc123");
+        assert_eq!(resolved.public_address.as_deref(), Some("0xabc123"));
         assert_eq!(resolved.amount, Some("1.5".to_string()));
+    }
+
+    #[test]
+    fn create_and_resolve_email_link() {
+        let (db, _dir) = temp_db();
+        let repo = PaymentLinkRepository::new(db);
+        let email_hash = "a".repeat(64);
+
+        let mut data = sample_link_data();
+        data.recipient_type = "email".to_string();
+        data.public_address = None;
+        data.to_email_hash = Some(email_hash.clone());
+        data.email_display = Some("a***e@example.com".to_string());
+
+        let token = repo.create(data).unwrap();
+        let resolved = repo.resolve(&token).unwrap().unwrap();
+
+        assert_eq!(resolved.recipient_type, "email");
+        assert!(resolved.public_address.is_none());
+        assert_eq!(resolved.to_email_hash.as_deref(), Some(email_hash.as_str()));
+        assert_eq!(
+            resolved.email_display.as_deref(),
+            Some("a***e@example.com")
+        );
     }
 
     #[test]

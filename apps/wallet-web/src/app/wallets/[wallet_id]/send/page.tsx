@@ -6,6 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { apiClient, type Bookmark, type WalletResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
 import { parsePaymentRequestQuery } from "@/lib/paymentRequest";
+import { bookmarkToRecipientShortcut, type RecipientShortcut } from "@/lib/recipients";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { SendForm } from "./SendForm";
 
@@ -38,6 +39,7 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
 
   let wallet: WalletResponse | null = null;
   let bookmarks: Bookmark[] = [];
+  let shortcuts: RecipientShortcut[] = [];
   let error: string | null = null;
   let shortcutError: string | null = null;
 
@@ -67,6 +69,9 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
     const bookmarksResponse = await apiClient.listBookmarks(token, wallet_id);
     if (bookmarksResponse.success) {
       bookmarks = bookmarksResponse.data;
+      shortcuts = bookmarks
+        .map(bookmarkToRecipientShortcut)
+        .filter((bookmark): bookmark is RecipientShortcut => bookmark !== null);
     } else if (bookmarksResponse.error.status === 401) {
       redirect("/sign-in");
     } else if (bookmarksResponse.error.status !== 404) {
@@ -94,11 +99,7 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
           walletLabel={wallet.label ?? null}
           prefill={parsedRequest.prefill}
           prefillWarnings={parsedRequest.warnings}
-          shortcuts={bookmarks.filter((bookmark) => !!bookmark.address).map((bookmark) => ({
-            id: bookmark.id,
-            name: bookmark.name,
-            address: bookmark.address!,
-          }))}
+          shortcuts={shortcuts}
           shortcutsLoadError={shortcutError}
         />
       ) : null}
