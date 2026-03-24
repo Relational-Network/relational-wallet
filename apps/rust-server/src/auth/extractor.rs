@@ -146,6 +146,8 @@ async fn verify_jwt_production(
     jwks: &super::JwksManager,
     auth_config: &crate::state::AuthConfig,
 ) -> Result<AuthenticatedUser, AuthError> {
+    super::jwt_crypto::ensure_provider_installed();
+
     // Decode header to get kid (key ID)
     let header = decode_header(token).map_err(|_| AuthError::MalformedToken)?;
 

@@ -137,6 +137,8 @@ pub async fn auth_middleware(
 
 /// Validate a JWT token and return the authenticated user.
 async fn validate_token(token: &str, config: &AuthConfig) -> Result<AuthenticatedUser, AuthError> {
+    super::jwt_crypto::ensure_provider_installed();
+
     // Decode header to get kid
     let header = decode_header(token).map_err(|_| AuthError::MalformedToken)?;
 
