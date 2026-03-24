@@ -4,7 +4,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { SimpleWalletDashboard } from "./SimpleWalletDashboard";
-import { getCurrentVerifiedEmailIdentity } from "@/lib/serverEmailIdentity";
+import { getCurrentEmailLinkIdentity } from "@/lib/serverEmailIdentity";
 import type {
   BalanceResponse,
   TransactionListResponse,
@@ -42,7 +42,7 @@ export default async function WalletsPage() {
 
   const isAdmin =
     (sessionClaims?.publicMetadata as { role?: string } | undefined)?.role === "admin";
-  const verifiedEmailIdentity = await getCurrentVerifiedEmailIdentity();
+  const emailLinkIdentity = await getCurrentEmailLinkIdentity();
 
   const token =
     (await getToken({ template: "default" }).catch(() => null)) ??
@@ -53,8 +53,9 @@ export default async function WalletsPage() {
     return (
       <SimpleWalletDashboard
         isAdmin={isAdmin}
-        verifiedEmailHash={verifiedEmailIdentity?.emailHash ?? null}
-        verifiedEmailDisplay={verifiedEmailIdentity?.emailDisplay ?? null}
+        verifiedEmailHash={emailLinkIdentity.emailHash}
+        verifiedEmailDisplay={emailLinkIdentity.emailDisplay}
+        emailLinkWarning={emailLinkIdentity.warning}
       />
     );
   }
@@ -95,8 +96,9 @@ export default async function WalletsPage() {
       initialBalance={initialBalance}
       initialTransactions={initialTransactions}
       isAdmin={isAdmin}
-      verifiedEmailHash={verifiedEmailIdentity?.emailHash ?? null}
-      verifiedEmailDisplay={verifiedEmailIdentity?.emailDisplay ?? null}
+      verifiedEmailHash={emailLinkIdentity.emailHash}
+      verifiedEmailDisplay={emailLinkIdentity.emailDisplay}
+      emailLinkWarning={emailLinkIdentity.warning}
     />
   );
 }

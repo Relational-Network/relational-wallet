@@ -91,7 +91,7 @@ export function RecipientQrScanner({ open, onClose, onScan }: RecipientQrScanner
     <ActionDialog open={open} onClose={onClose} title="Scan recipient QR">
       <div className="simple-stack">
         <p className="simple-muted" style={{ marginTop: 0 }}>
-          Point the camera at a wallet QR code. If scanning fails, paste address manually.
+          Point the camera at a wallet QR code or payment request QR. If scanning fails, paste the address or link manually.
         </p>
         {error ? <div className="simple-error">{error}</div> : null}
         <video ref={videoRef} className="simple-scanner-video" playsInline muted />

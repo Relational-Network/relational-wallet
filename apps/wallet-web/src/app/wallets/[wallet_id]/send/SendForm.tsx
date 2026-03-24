@@ -3,17 +3,20 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { Scan, Bookmark, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Scan, Bookmark, ChevronDown, ChevronUp, ExternalLink, Trash2 } from "lucide-react";
 import type {
   EstimateGasRequest,
   EstimateGasResponse,
+  PaymentLinkInfo,
   SendTransactionRequest,
   SendTransactionResponse,
 } from "@/lib/api";
+import { ActionDialog } from "@/components/ActionDialog";
 import { RecipientQrScanner } from "@/components/RecipientQrScanner";
 import { hashEmail, maskEmail } from "@/lib/emailHash";
+import { parsePaymentRequestQuery, type ParsedPaymentRequest } from "@/lib/paymentRequest";
 import {
   recipientMatchesQuery,
   type RecipientShortcut,
@@ -78,6 +81,18 @@ function tokenAddress(token: "native" | "reur"): string {
   return REUR_FUJI_ADDRESS;
 }
 
+function clearEmailRecipientState(
+  setToEmail: Dispatch<SetStateAction<string>>,
+  setEmailHash: Dispatch<SetStateAction<string | null>>,
+  setEmailDisplay: Dispatch<SetStateAction<string | null>>,
+  setEmailResolved: Dispatch<SetStateAction<boolean | null>>
+) {
+  setToEmail("");
+  setEmailHash(null);
+  setEmailDisplay(null);
+  setEmailResolved(null);
+}
+
 export function SendForm({
   walletId,
   publicAddress,
@@ -115,6 +130,10 @@ export function SendForm({
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
 
   const [savedRecipients, setSavedRecipients] = useState<RecipientShortcut[]>(shortcuts);
+  const [showRecipientPicker, setShowRecipientPicker] = useState(false);
+  const [pendingDeleteRecipient, setPendingDeleteRecipient] = useState<RecipientShortcut | null>(null);
+  const [deletingRecipientId, setDeletingRecipientId] = useState<string | null>(null);
+  const [recipientPickerMessage, setRecipientPickerMessage] = useState<string | null>(null);
   const [showSaveRecipient, setShowSaveRecipient] = useState(false);
   const [saveRecipientName, setSaveRecipientName] = useState("");
   const [isSavingRecipient, setIsSavingRecipient] = useState(false);
@@ -132,6 +151,144 @@ export function SendForm({
   useEffect(() => {
     setSavedRecipients(shortcuts);
   }, [shortcuts]);
+
+  const trimmedAddress = toAddress.trim();
+  const savedAddressRecipient = isValidAddress(trimmedAddress)
+    ? savedRecipients.find(
+        (recipient) =>
+          recipient.recipientType === "address" &&
+          recipient.address.toLowerCase() === trimmedAddress.toLowerCase()
+      )
+    : undefined;
+  const savedEmailRecipient =
+    emailHash && emailResolved
+      ? savedRecipients.find(
+          (recipient) =>
+            recipient.recipientType === "email" &&
+            recipient.emailHash.toLowerCase() === emailHash.toLowerCase()
+        )
+      : undefined;
+  const canSaveCurrentRecipient =
+    recipientMode === "address"
+      ? isValidAddress(trimmedAddress) && !savedAddressRecipient
+      : Boolean(emailResolved && emailHash && emailDisplay && !savedEmailRecipient);
+  const activeSavedRecipient = recipientMode === "address" ? savedAddressRecipient : savedEmailRecipient;
+  const filteredRecipients = savedRecipients.filter((recipient) =>
+    recipientMatchesQuery(recipient, recipientSearch)
+  );
+
+  useEffect(() => {
+    if (!canSaveCurrentRecipient && showSaveRecipient) {
+      setShowSaveRecipient(false);
+      setSaveRecipientName("");
+    }
+  }, [canSaveCurrentRecipient, showSaveRecipient]);
+
+  const applyResolvedPaymentLink = (data: PaymentLinkInfo) => {
+    const resolvedAmount = data.amount ?? "";
+    const resolvedToken = data.token_type === "reur" ? "reur" : "native";
+
+    setAmount(resolvedAmount);
+    setToken(resolvedToken);
+
+    if (data.recipient_type === "email" && data.to_email_hash && data.email_display) {
+      setRecipientMode("email");
+      setToAddress("");
+      setToEmail("");
+      setEmailHash(data.to_email_hash);
+      setEmailDisplay(data.email_display);
+      setEmailResolved(true);
+      return;
+    }
+
+    if (data.public_address) {
+      setRecipientMode("address");
+      setToAddress(data.public_address);
+      clearEmailRecipientState(setToEmail, setEmailHash, setEmailDisplay, setEmailResolved);
+    }
+  };
+
+  const applyParsedPaymentRequest = (prefill: ParsedPaymentRequest) => {
+    if (prefill.amount) {
+      setAmount(prefill.amount);
+    }
+    setToken(prefill.token === "reur" ? "reur" : "native");
+
+    if (prefill.recipientType === "email" && prefill.to_email_hash && prefill.email_display) {
+      setRecipientMode("email");
+      setToAddress("");
+      setToEmail("");
+      setEmailHash(prefill.to_email_hash);
+      setEmailDisplay(prefill.email_display);
+      setEmailResolved(true);
+      return;
+    }
+
+    if (prefill.to) {
+      setRecipientMode("address");
+      setToAddress(prefill.to);
+      clearEmailRecipientState(setToEmail, setEmailHash, setEmailDisplay, setEmailResolved);
+    }
+  };
+
+  const handleQrScan = async (value: string) => {
+    const trimmed = value.trim();
+    const maybeAddressMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
+    if (maybeAddressMatch) {
+      setRecipientMode("address");
+      setToAddress(maybeAddressMatch[0]);
+      clearEmailRecipientState(setToEmail, setEmailHash, setEmailDisplay, setEmailResolved);
+      setError(null);
+      return;
+    }
+
+    try {
+      const baseOrigin =
+        typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
+      const scannedUrl = new URL(trimmed, baseOrigin);
+      if (scannedUrl.pathname.endsWith("/pay")) {
+        const parsed = parsePaymentRequestQuery({
+          to: scannedUrl.searchParams.get("to") ?? undefined,
+          amount: scannedUrl.searchParams.get("amount") ?? undefined,
+          token: scannedUrl.searchParams.get("token") ?? undefined,
+          note: scannedUrl.searchParams.get("note") ?? undefined,
+          ref: scannedUrl.searchParams.get("ref") ?? undefined,
+        });
+
+        if (parsed.warnings.length > 0) {
+          setError(parsed.warnings[0]);
+        } else {
+          setError(null);
+        }
+
+        if (parsed.prefill.ref) {
+          const response = await fetch(
+            `/api/proxy/v1/payment-link/${encodeURIComponent(parsed.prefill.ref)}`,
+            {
+              method: "GET",
+              credentials: "include",
+            }
+          );
+
+          if (!response.ok) {
+            setError("Scanned payment link could not be resolved.");
+            return;
+          }
+
+          const data: PaymentLinkInfo = await response.json();
+          applyResolvedPaymentLink(data);
+          return;
+        }
+
+        applyParsedPaymentRequest(parsed.prefill);
+        return;
+      }
+    } catch {
+      // Fall through to unsupported QR payload below.
+    }
+
+    setError("Scanned QR code did not contain a wallet address or supported payment link.");
+  };
 
   const handleSaveRecipient = async () => {
     const name = saveRecipientName.trim();
@@ -233,6 +390,48 @@ export function SendForm({
       );
     } finally {
       setIsSavingRecipient(false);
+    }
+  };
+
+  const handleDeleteRecipient = async () => {
+    if (!pendingDeleteRecipient) {
+      return;
+    }
+
+    setRecipientPickerMessage(null);
+    setDeletingRecipientId(pendingDeleteRecipient.id);
+
+    try {
+      const response = await fetch(
+        `/api/proxy/v1/bookmarks/${encodeURIComponent(pendingDeleteRecipient.id)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        setRecipientPickerMessage(text || `Failed to delete recipient (${response.status})`);
+        return;
+      }
+
+      setSavedRecipients((current) => {
+        const next = current.filter((recipient) => recipient.id !== pendingDeleteRecipient.id);
+        if (next.length === 0) {
+          setShowRecipientPicker(false);
+          setRecipientSearch("");
+        }
+        return next;
+      });
+      setRecipientPickerMessage("Recipient removed.");
+      setPendingDeleteRecipient(null);
+    } catch (deleteError) {
+      setRecipientPickerMessage(
+        deleteError instanceof Error ? deleteError.message : "Unable to delete recipient"
+      );
+    } finally {
+      setDeletingRecipientId(null);
     }
   };
 
@@ -617,8 +816,24 @@ export function SendForm({
 
         {recipientMode === "address" ? (
           <>
-            <div className="field">
-              <label>Recipient address</label>
+            <div className="field recipient-field-shell">
+              <div className="recipient-field-header">
+                <label>Recipient address</label>
+                <div className="recipient-field-header__actions">
+                  {activeSavedRecipient ? (
+                    <span className="badge badge-neutral">Saved</span>
+                  ) : null}
+                  {canSaveCurrentRecipient || showSaveRecipient ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost recipient-save-action"
+                      onClick={() => setShowSaveRecipient((state) => !state)}
+                    >
+                      <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
               <input
                 value={toAddress}
                 onChange={(event) => setToAddress(event.target.value)}
@@ -627,54 +842,85 @@ export function SendForm({
               />
             </div>
 
-            <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+            <div className="send-recipient-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
                 <Scan size={16} /> Scan QR code
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
-                <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
-              </button>
+              {savedRecipients.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary recipient-picker-toggle"
+                  onClick={() => setShowRecipientPicker((state) => !state)}
+                >
+                  <Bookmark size={15} />
+                  Saved recipients
+                  {showRecipientPicker ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              ) : null}
             </div>
           </>
         ) : (
           <>
-            {emailDisplay && !toEmail.trim() ? (
-              <div className="card" style={{ padding: "0.875rem", background: "var(--bg-subtle)" }}>
-                <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Verified recipient</div>
-                <div className="text-secondary" style={{ fontSize: "0.875rem" }}>{emailDisplay}</div>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ marginTop: "0.75rem" }}
-                  onClick={() => {
-                    setToEmail("");
-                    setEmailHash(null);
-                    setEmailDisplay(null);
-                    setEmailResolved(null);
-                    setError(null);
-                  }}
-                >
-                  Choose a different email
-                </button>
-              </div>
-            ) : (
-              <div className="field">
+            <div className="field recipient-field-shell recipient-field-shell--email">
+              <div className="recipient-field-header">
                 <label>Recipient email</label>
-                <input
-                  type="email"
-                  value={toEmail}
-                  onChange={(event) => {
-                    setToEmail(event.target.value);
-                    setEmailHash(null);
-                    setEmailResolved(null);
-                    setEmailDisplay(null);
-                  }}
-                  placeholder="recipient@example.com"
-                />
+                <div className="recipient-field-header__actions">
+                  {activeSavedRecipient ? (
+                    <span className="badge badge-neutral">Saved</span>
+                  ) : null}
+                  {canSaveCurrentRecipient || showSaveRecipient ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost recipient-save-action"
+                      onClick={() => setShowSaveRecipient((state) => !state)}
+                    >
+                      <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
-            )}
+              <div className="recipient-field-shell__body">
+                {emailDisplay && !toEmail.trim() ? (
+                  <div className="recipient-summary-card">
+                    <div className="recipient-summary-card__header">
+                      <div>
+                        <div className="recipient-summary-card__eyebrow">Verified recipient</div>
+                        <div className="recipient-summary-card__value">{emailDisplay}</div>
+                      </div>
+                      <span className="badge badge-success">Wallet found</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ marginTop: "0.25rem", justifyContent: "flex-start" }}
+                      onClick={() => {
+                        setToEmail("");
+                        setEmailHash(null);
+                        setEmailDisplay(null);
+                        setEmailResolved(null);
+                        setError(null);
+                      }}
+                    >
+                      Choose a different email
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="email"
+                    value={toEmail}
+                    onChange={(event) => {
+                      setToEmail(event.target.value);
+                      setEmailHash(null);
+                      setEmailResolved(null);
+                      setEmailDisplay(null);
+                    }}
+                    placeholder="recipient@example.com"
+                  />
+                )}
+              </div>
+            </div>
 
-            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+            <div className="send-recipient-actions send-recipient-actions--email">
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -683,86 +929,126 @@ export function SendForm({
               >
                 {emailChecking ? "Checking…" : "Verify recipient"}
               </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setShowSaveRecipient((state) => !state)}
-              >
-                <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
-              </button>
-              {emailResolved === true && (
-                <span style={{ color: "var(--success)", fontSize: "0.8125rem" }}>✓ Wallet found</span>
-              )}
-              {emailResolved === false && (
-                <span style={{ color: "var(--danger)", fontSize: "0.8125rem" }}>✕ Not found</span>
-              )}
+              {savedRecipients.length > 0 ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary recipient-picker-toggle"
+                  onClick={() => setShowRecipientPicker((state) => !state)}
+                >
+                  <Bookmark size={15} />
+                  Saved recipients
+                  {showRecipientPicker ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              ) : null}
+              <div className="send-recipient-status">
+                {emailResolved === true && (
+                  <span style={{ color: "var(--success)", fontSize: "0.8125rem" }}>✓ Wallet found</span>
+                )}
+                {emailResolved === false && (
+                  <span style={{ color: "var(--danger)", fontSize: "0.8125rem" }}>✕ Not found</span>
+                )}
+              </div>
             </div>
           </>
         )}
 
         {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
 
-        {savedRecipients.length > 0 ? (
-          <div className="stack-sm">
-            {savedRecipients.length >= 4 ? (
-              <input
-                value={recipientSearch}
-                onChange={(event) => setRecipientSearch(event.target.value)}
-                placeholder="Search saved recipients…"
-                style={{ fontSize: "0.8125rem" }}
-              />
+        {savedRecipients.length > 0 && showRecipientPicker ? (
+          <div className="stack-sm recipient-picker-panel">
+            <div className="row-between">
+              <div>
+                <div className="bookmark-name">Saved recipients</div>
+                <div className="text-muted">{savedRecipients.length} saved recipients across email and address.</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setShowRecipientPicker(false)}
+              >
+                Close
+              </button>
+            </div>
+            <input
+              value={recipientSearch}
+              onChange={(event) => setRecipientSearch(event.target.value)}
+              placeholder="Search by name, email, or address…"
+              className="input"
+            />
+            {recipientPickerMessage ? (
+              <p className="text-muted" style={{ margin: 0 }}>{recipientPickerMessage}</p>
             ) : null}
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", maxHeight: "12rem", overflowY: "auto" }}>
-              {savedRecipients
-                .filter((recipient) => {
-                  return recipientMatchesQuery(recipient, recipientSearch);
-                })
-                .map((recipient) => (
-                  <button
+            <div className="recipient-picker-list">
+              {filteredRecipients.map((recipient) => (
+                  <div
                     key={recipient.id}
-                    type="button"
-                    className={`bookmark-contact${
-                      recipient.recipientType === "address"
-                        ? recipientMode === "address" &&
-                          toAddress.toLowerCase() === recipient.address.toLowerCase()
-                          ? " active"
-                          : ""
-                        : recipientMode === "email" &&
-                            emailHash?.toLowerCase() === recipient.emailHash.toLowerCase()
-                          ? " active"
-                          : ""
-                    }`}
-                    onClick={() => {
-                      if (recipient.recipientType === "address") {
-                        setRecipientMode("address");
-                        setToAddress(recipient.address);
-                        setToEmail("");
-                        setEmailHash(null);
-                        setEmailDisplay(null);
-                        setEmailResolved(null);
-                      } else {
-                        setRecipientMode("email");
-                        setToEmail("");
-                        setEmailHash(recipient.emailHash);
-                        setEmailDisplay(recipient.emailDisplay);
-                        setEmailResolved(true);
-                      }
-                      setError(null);
-                    }}
+                    className="recipient-picker-item"
                   >
-                    <div className="bookmark-avatar">
-                      {recipient.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="bookmark-name">{recipient.name}</div>
-                      <div className="bookmark-addr">
-                        {recipient.recipientType === "address"
-                          ? shortenAddr(recipient.address)
-                          : recipient.emailDisplay}
+                    <button
+                      type="button"
+                      className={`bookmark-contact recipient-picker-select${
+                        recipient.recipientType === "address"
+                          ? recipientMode === "address" &&
+                            toAddress.toLowerCase() === recipient.address.toLowerCase()
+                            ? " active"
+                            : ""
+                          : recipientMode === "email" &&
+                              emailHash?.toLowerCase() === recipient.emailHash.toLowerCase()
+                            ? " active"
+                            : ""
+                      }`}
+                      onClick={() => {
+                        if (recipient.recipientType === "address") {
+                          setRecipientMode("address");
+                          setToAddress(recipient.address);
+                          setToEmail("");
+                          setEmailHash(null);
+                          setEmailDisplay(null);
+                          setEmailResolved(null);
+                        } else {
+                          setRecipientMode("email");
+                          setToEmail("");
+                          setEmailHash(recipient.emailHash);
+                          setEmailDisplay(recipient.emailDisplay);
+                          setEmailResolved(true);
+                        }
+                        setShowRecipientPicker(false);
+                        setError(null);
+                      }}
+                    >
+                      <div className="bookmark-avatar">
+                        {recipient.name.charAt(0).toUpperCase()}
                       </div>
-                    </div>
-                  </button>
+                      <div>
+                        <div className="bookmark-name-row">
+                          <div className="bookmark-name">{recipient.name}</div>
+                          <span className={`badge ${recipient.recipientType === "email" ? "badge-brand" : "badge-neutral"}`}>
+                            {recipient.recipientType === "email" ? "Email" : "Address"}
+                          </span>
+                        </div>
+                        <div className="bookmark-addr">
+                          {recipient.recipientType === "address"
+                            ? shortenAddr(recipient.address)
+                            : recipient.emailDisplay}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-icon recipient-picker-delete"
+                      aria-label={`Delete ${recipient.name}`}
+                      onClick={() => setPendingDeleteRecipient(recipient)}
+                      disabled={deletingRecipientId === recipient.id}
+                    >
+                  <Trash2 size={15} />
+                    </button>
+                  </div>
                 ))}
+              {filteredRecipients.length === 0 ? (
+                <div className="text-muted recipient-picker-empty">
+                  No saved recipients match "{recipientSearch.trim()}".
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -874,11 +1160,50 @@ export function SendForm({
         open={showQrScanner}
         onClose={() => setShowQrScanner(false)}
         onScan={(value) => {
-          const maybeAddressMatch = value.match(/0x[a-fA-F0-9]{40}/);
-          setToAddress(maybeAddressMatch?.[0] || value.trim());
-          setError(null);
+          void handleQrScan(value);
         }}
       />
+
+      <ActionDialog
+        open={pendingDeleteRecipient !== null}
+        onClose={() => {
+          if (!deletingRecipientId) {
+            setPendingDeleteRecipient(null);
+          }
+        }}
+        title="Delete saved recipient"
+      >
+        <div className="stack">
+          <p className="text-secondary" style={{ margin: 0 }}>
+            Remove "{pendingDeleteRecipient?.name}" from your saved recipients?
+          </p>
+          <p className="text-muted" style={{ margin: 0 }}>
+            {pendingDeleteRecipient?.recipientType === "email"
+              ? pendingDeleteRecipient.emailDisplay
+              : pendingDeleteRecipient?.recipientType === "address"
+                ? shortenAddr(pendingDeleteRecipient.address)
+                : ""}
+          </p>
+          <div className="row" style={{ gap: "0.5rem", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setPendingDeleteRecipient(null)}
+              disabled={Boolean(deletingRecipientId)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void handleDeleteRecipient()}
+              disabled={Boolean(deletingRecipientId)}
+            >
+              {deletingRecipientId ? "Deleting..." : "Delete recipient"}
+            </button>
+          </div>
+        </div>
+      </ActionDialog>
     </div>
   );
 }

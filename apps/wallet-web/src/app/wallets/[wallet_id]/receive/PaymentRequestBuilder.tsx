@@ -11,6 +11,7 @@ interface PaymentRequestBuilderProps {
   compact?: boolean;
   verifiedEmailHash?: string | null;
   verifiedEmailDisplay?: string | null;
+  emailLinkWarning?: string | null;
 }
 
 /**
@@ -24,6 +25,7 @@ export function PaymentRequestBuilder({
   compact = false,
   verifiedEmailHash = null,
   verifiedEmailDisplay = null,
+  emailLinkWarning = null,
 }: PaymentRequestBuilderProps) {
   const QR_SIZE = 220;
   const [recipientMode, setRecipientMode] = useState<"address" | "email">("address");
@@ -45,10 +47,10 @@ export function PaymentRequestBuilder({
     return `${window.location.origin}${path}`;
   }, [linkToken]);
 
-  const generateLink = async () => {
+  const generateLink = async (): Promise<boolean> => {
     if (recipientMode === "email" && !emailLinkReady) {
       setGenError("A verified email is required before you can create an email payment link.");
-      return;
+      return false;
     }
 
     setGenerating(true);
@@ -72,12 +74,15 @@ export function PaymentRequestBuilder({
       if (response.ok) {
         const data = await response.json();
         setLinkToken(data.token);
+        return true;
       } else {
         const text = await response.text();
         setGenError(text || "Failed to create payment link");
+        return false;
       }
     } catch {
       setGenError("Failed to create payment link");
+      return false;
     } finally {
       setGenerating(false);
     }
@@ -117,7 +122,10 @@ export function PaymentRequestBuilder({
 
   const openQr = async () => {
     if (!linkToken) {
-      await generateLink();
+      const created = await generateLink();
+      if (!created) {
+        return;
+      }
     }
     setShowQrPopup(true);
   };
@@ -198,7 +206,7 @@ export function PaymentRequestBuilder({
           {recipientMode === "email"
             ? verifiedEmailDisplay
               ? `Email links will target ${verifiedEmailDisplay}.`
-              : "Add a verified Clerk email to enable email payment links."
+              : emailLinkWarning ?? "Add a verified Clerk email to enable email payment links."
             : "Address links resolve to your wallet address after the token is opened."}
         </p>
 
@@ -309,7 +317,7 @@ export function PaymentRequestBuilder({
           {recipientMode === "email"
             ? verifiedEmailDisplay
               ? `This link keeps the payer in email-send mode and shows ${verifiedEmailDisplay}.`
-              : "A verified Clerk email is required before you can create an email payment link."
+              : emailLinkWarning ?? "A verified Clerk email is required before you can create an email payment link."
             : "This link resolves to your wallet address only after the opaque token is opened."}
         </div>
       </div>

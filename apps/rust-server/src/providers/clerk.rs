@@ -10,6 +10,51 @@
 
 use super::email::{normalize_email, EmailError};
 
+fn is_verified_email(email_address: &serde_json::Value) -> bool {
+    email_address["verification"]["status"].as_str() == Some("verified")
+}
+
+fn extract_single_verified_primary_email(
+    body: &serde_json::Value,
+    user_id: &str,
+) -> Result<String, ClerkError> {
+    let primary_id = body["primary_email_address_id"]
+        .as_str()
+        .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
+
+    let email_addresses = body["email_addresses"]
+        .as_array()
+        .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
+
+    if email_addresses.len() != 1 {
+        return Err(ClerkError::InvalidEmailConfiguration {
+            user_id: user_id.to_string(),
+            message: format!(
+                "expected exactly 1 email address, found {}",
+                email_addresses.len()
+            ),
+        });
+    }
+
+    let primary_email = email_addresses
+        .iter()
+        .find(|ea| ea["id"].as_str() == Some(primary_id))
+        .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
+
+    if !is_verified_email(primary_email) {
+        return Err(ClerkError::InvalidEmailConfiguration {
+            user_id: user_id.to_string(),
+            message: "primary email must be verified".to_string(),
+        });
+    }
+
+    let primary_email = primary_email["email_address"]
+        .as_str()
+        .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
+
+    Ok(primary_email.to_string())
+}
+
 /// Errors from Clerk API operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ClerkError {
@@ -21,6 +66,9 @@ pub enum ClerkError {
 
     #[error("No primary email found for user {0}")]
     NoPrimaryEmail(String),
+
+    #[error("Invalid Clerk email configuration for user {user_id}: {message}")]
+    InvalidEmailConfiguration { user_id: String, message: String },
 
     #[error("Email normalization failed: {0}")]
     EmailNormalization(#[from] EmailError),
@@ -71,26 +119,75 @@ impl ClerkClient {
 
         let body: serde_json::Value = response.json().await?;
 
-        // Extract primary email:
-        // The response has:
-        //   "primary_email_address_id": "<id>",
-        //   "email_addresses": [{ "id": "<id>", "email_address": "...", ... }]
-        let primary_id = body["primary_email_address_id"]
-            .as_str()
-            .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
-
-        let email_addresses = body["email_addresses"]
-            .as_array()
-            .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
-
-        let primary_email = email_addresses
-            .iter()
-            .find(|ea| ea["id"].as_str() == Some(primary_id))
-            .and_then(|ea| ea["email_address"].as_str())
-            .ok_or_else(|| ClerkError::NoPrimaryEmail(user_id.to_string()))?;
+        let primary_email = extract_single_verified_primary_email(&body, user_id)?;
 
         // Normalize per frozen spec
-        let normalized = normalize_email(primary_email)?;
+        let normalized = normalize_email(&primary_email)?;
         Ok(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn extracts_single_verified_primary_email() {
+        let body = json!({
+            "primary_email_address_id": "em_123",
+            "email_addresses": [{
+                "id": "em_123",
+                "email_address": "alice@example.com",
+                "verification": { "status": "verified" }
+            }]
+        });
+
+        let email = extract_single_verified_primary_email(&body, "user_123").unwrap();
+        assert_eq!(email, "alice@example.com");
+    }
+
+    #[test]
+    fn rejects_multiple_email_addresses() {
+        let body = json!({
+            "primary_email_address_id": "em_123",
+            "email_addresses": [
+                {
+                    "id": "em_123",
+                    "email_address": "alice@example.com",
+                    "verification": { "status": "verified" }
+                },
+                {
+                    "id": "em_456",
+                    "email_address": "other@example.com",
+                    "verification": { "status": "verified" }
+                }
+            ]
+        });
+
+        let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
+        assert!(matches!(
+            err,
+            ClerkError::InvalidEmailConfiguration { .. }
+        ));
+    }
+
+    #[test]
+    fn rejects_unverified_primary_email() {
+        let body = json!({
+            "primary_email_address_id": "em_123",
+            "email_addresses": [{
+                "id": "em_123",
+                "email_address": "alice@example.com",
+                "verification": { "status": "unverified" }
+            }]
+        });
+
+        let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
+        assert!(matches!(
+            err,
+            ClerkError::InvalidEmailConfiguration { .. }
+        ));
     }
 }

@@ -56,14 +56,26 @@ async function proxyRequest(
   ]);
   const token = templateToken ?? sessionToken;
 
+  if (!token) {
+    return NextResponse.json(
+      {
+        error: "Unauthorized",
+        message: "No active Clerk session token was available for this request.",
+      },
+      {
+        status: 401,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+  }
+
   // Build headers
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  headers["Authorization"] = `Bearer ${token}`;
 
   // Forward any x-request-id header
   const requestId = request.headers.get("x-request-id");

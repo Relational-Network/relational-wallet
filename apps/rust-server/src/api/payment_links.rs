@@ -20,7 +20,7 @@ use crate::{
     auth::Auth,
     error::ApiError,
     models::{CreatePaymentLinkRequest, CreatePaymentLinkResponse, PaymentLinkInfo},
-    providers::email,
+    providers::{clerk::ClerkError, email},
     state::AppState,
     storage::{OwnershipEnforcer, PaymentLinkData, PaymentLinkRepository, WalletRepository},
 };
@@ -80,6 +80,27 @@ pub async fn create_payment_link(
     let (recipient_type, public_address, to_email_hash, email_display) =
         match request.recipient_type.as_str() {
             "email" => {
+                let clerk = state.clerk_client.as_ref().ok_or_else(|| {
+                    ApiError::service_unavailable(
+                        "Email payment links require Clerk verification support",
+                    )
+                })?;
+                let normalized_email = clerk
+                    .get_user_email(&user.user_id)
+                    .await
+                    .map_err(|e| match e {
+                        ClerkError::InvalidEmailConfiguration { message, .. } => {
+                            ApiError::unprocessable(format!(
+                                "Email payment links require exactly one verified primary Clerk email: {}",
+                                message
+                            ))
+                        }
+                        other => ApiError::internal(format!(
+                            "Failed to verify Clerk email configuration: {}",
+                            other
+                        )),
+                    })?;
+
                 let email_hash = request.to_email_hash.ok_or_else(|| {
                     ApiError::bad_request("to_email_hash is required for email payment links")
                 })?;
@@ -96,6 +117,12 @@ pub async fn create_payment_link(
                 let expected_lookup_key = wallet.email_lookup_key.as_ref().ok_or_else(|| {
                     ApiError::unprocessable("Wallet is not linked to a verified email")
                 })?;
+                let expected_email_hash = email::sha256_email(&normalized_email);
+                if expected_email_hash != email_hash {
+                    return Err(ApiError::unprocessable(
+                        "Email payment links must use your current verified primary Clerk email",
+                    ));
+                }
                 let actual_lookup_key =
                     email::hmac_lookup_key(&state.email_hmac_key, &email_hash);
                 if &actual_lookup_key != expected_lookup_key {

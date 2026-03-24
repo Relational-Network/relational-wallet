@@ -7,31 +7,83 @@ import { createHash } from "node:crypto";
 import { currentUser } from "@clerk/nextjs/server";
 import { maskEmail, normalizeEmail } from "@/lib/emailHash";
 
-export interface VerifiedEmailIdentity {
-  emailHash: string;
-  emailDisplay: string;
+type CurrentClerkUser = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+
+export interface EmailLinkIdentity {
+  eligible: boolean;
+  emailHash: string | null;
+  emailDisplay: string | null;
+  primaryEmail: string | null;
+  warning: string | null;
+  emailCount: number;
 }
 
-export async function getCurrentVerifiedEmailIdentity(): Promise<VerifiedEmailIdentity | null> {
-  const clerkUser = await currentUser();
+export function getEmailLinkIdentityFromClerkUser(
+  clerkUser: CurrentClerkUser | null
+): EmailLinkIdentity {
   if (!clerkUser) {
-    return null;
+    return {
+      eligible: false,
+      emailHash: null,
+      emailDisplay: null,
+      primaryEmail: null,
+      warning: null,
+      emailCount: 0,
+    };
   }
 
-  const verifiedEmail =
-    (clerkUser.primaryEmailAddress?.verification?.status === "verified"
-      ? clerkUser.primaryEmailAddress.emailAddress
-      : null) ??
-    clerkUser.emailAddresses.find((email) => email.verification?.status === "verified")?.emailAddress ??
-    null;
+  const emailCount = clerkUser.emailAddresses.length;
+  const primaryEmailAddress = clerkUser.primaryEmailAddress ?? null;
+  const primaryEmail = primaryEmailAddress?.emailAddress ?? null;
 
-  if (!verifiedEmail) {
-    return null;
+  if (emailCount !== 1) {
+    return {
+      eligible: false,
+      emailHash: null,
+      emailDisplay: null,
+      primaryEmail,
+      warning:
+        "Email-linked wallet features require exactly one email address on your Clerk account. Remove extra emails to continue.",
+      emailCount,
+    };
   }
 
-  const normalized = normalizeEmail(verifiedEmail);
+  if (!primaryEmailAddress || !primaryEmail) {
+    return {
+      eligible: false,
+      emailHash: null,
+      emailDisplay: null,
+      primaryEmail: null,
+      warning:
+        "Email-linked wallet features require one verified primary Clerk email.",
+      emailCount,
+    };
+  }
+
+  if (primaryEmailAddress.verification?.status !== "verified") {
+    return {
+      eligible: false,
+      emailHash: null,
+      emailDisplay: null,
+      primaryEmail,
+      warning:
+        "Verify your primary Clerk email before using email-linked wallet features.",
+      emailCount,
+    };
+  }
+
+  const normalized = normalizeEmail(primaryEmail);
   return {
+    eligible: true,
     emailHash: createHash("sha256").update(normalized).digest("hex"),
     emailDisplay: maskEmail(normalized),
+    primaryEmail: normalized,
+    warning: null,
+    emailCount,
   };
+}
+
+export async function getCurrentEmailLinkIdentity(): Promise<EmailLinkIdentity> {
+  const clerkUser = await currentUser();
+  return getEmailLinkIdentityFromClerkUser(clerkUser);
 }

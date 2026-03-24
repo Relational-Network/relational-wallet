@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Relational Network
 
 import type { ReactNode } from "react";
+import { ProtectedSessionResync } from "@/components/ProtectedSessionResync";
 
 interface SimpleWalletShellProps {
   topBar?: ReactNode;
@@ -11,6 +12,7 @@ interface SimpleWalletShellProps {
 export function SimpleWalletShell({ topBar, children }: SimpleWalletShellProps) {
   return (
     <main className="app-container">
+      <ProtectedSessionResync />
       {topBar && <header className="app-top-bar">{topBar}</header>}
       {children}
       <footer className="app-footer">

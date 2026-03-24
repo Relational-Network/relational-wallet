@@ -20,7 +20,7 @@ use crate::{
     audit_log,
     auth::Auth,
     error::ApiError,
-    providers::email,
+    providers::{clerk::ClerkError, email},
     state::AppState,
     storage::{
         AuditEventType, AuditRepository, EmailIndexRepository, OwnershipEnforcer, WalletMetadata,
@@ -101,7 +101,15 @@ pub async fn create_wallet(
         let normalized_email = clerk
             .get_user_email(&user.user_id)
             .await
-            .map_err(|e| ApiError::internal(&format!("Failed to fetch email: {}", e)))?;
+            .map_err(|e| match e {
+                ClerkError::InvalidEmailConfiguration { message, .. } => ApiError::unprocessable(
+                    format!(
+                        "Email-linked wallets require exactly one verified primary Clerk email: {}",
+                        message
+                    ),
+                ),
+                other => ApiError::internal(format!("Failed to fetch email: {}", other)),
+            })?;
 
         let sha256_hex = email::sha256_email(&normalized_email);
         let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, &sha256_hex);

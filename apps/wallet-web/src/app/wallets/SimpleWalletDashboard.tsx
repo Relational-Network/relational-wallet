@@ -271,6 +271,7 @@ interface SimpleWalletDashboardProps {
   isAdmin?: boolean;
   verifiedEmailHash?: string | null;
   verifiedEmailDisplay?: string | null;
+  emailLinkWarning?: string | null;
 }
 
 export function SimpleWalletDashboard({
@@ -281,6 +282,7 @@ export function SimpleWalletDashboard({
   isAdmin = false,
   verifiedEmailHash = null,
   verifiedEmailDisplay = null,
+  emailLinkWarning = null,
 }: SimpleWalletDashboardProps = {}) {
   const hasSSRData = !!(initialWallets && initialWallets.length > 0);
   const ssrHasDetails = hasSSRData && !!(initialBalance || initialTransactions);
@@ -1133,6 +1135,7 @@ export function SimpleWalletDashboard({
               compact
               verifiedEmailHash={verifiedEmailHash}
               verifiedEmailDisplay={verifiedEmailDisplay}
+              emailLinkWarning={emailLinkWarning}
             />
           </div>
         </ActionDialog>

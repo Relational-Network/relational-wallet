@@ -5,6 +5,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { apiClient, type UserMeResponse } from "@/lib/api";
 import { getSessionToken } from "@/lib/auth";
+import { getEmailLinkIdentityFromClerkUser } from "@/lib/serverEmailIdentity";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 import { TokenDisplay } from "@/components/TokenDisplay";
 
@@ -13,6 +14,7 @@ export default async function AccountPage() {
   if (!userId) redirect("/sign-in");
 
   const clerkUser = await currentUser();
+  const emailLinkIdentity = getEmailLinkIdentityFromClerkUser(clerkUser);
   const token = await getSessionToken();
 
   let backendUser: UserMeResponse | null = null;
@@ -42,14 +44,27 @@ export default async function AccountPage() {
 
         <div className="card card-pad">
           <h3 className="section-title">Clerk profile</h3>
+          {emailLinkIdentity.warning ? (
+            <div className="alert alert-warning" style={{ marginTop: "0.75rem" }}>
+              {emailLinkIdentity.warning}
+            </div>
+          ) : null}
           <div className="grid-2" style={{ marginTop: "0.75rem" }}>
             <div>
               <div className="text-muted">User ID</div>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{clerkUser?.id || "N/A"}</div>
             </div>
             <div>
-              <div className="text-muted">Email</div>
-              <div>{clerkUser?.emailAddresses?.[0]?.emailAddress || "N/A"}</div>
+              <div className="text-muted">Primary email</div>
+              <div>{clerkUser?.primaryEmailAddress?.emailAddress || "N/A"}</div>
+            </div>
+            <div>
+              <div className="text-muted">Email addresses</div>
+              <div>{clerkUser?.emailAddresses?.length ?? 0}</div>
+            </div>
+            <div>
+              <div className="text-muted">Email-linked features</div>
+              <div>{emailLinkIdentity.eligible ? "Ready" : "Unavailable"}</div>
             </div>
             <div>
               <div className="text-muted">Name</div>
