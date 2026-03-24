@@ -51,6 +51,9 @@ loader.env.TRUELAYER_AUTH_BASE_URL = { passthrough = true }
 loader.env.TRUELAYER_HOSTED_PAYMENTS_BASE_URL = { passthrough = true }
 loader.env.TRUELAYER_CURRENCY = { passthrough = true }
 
+# ========== BLOCKCHAIN RPC ==========
+loader.env.FUJI_RPC_URL = { passthrough = true }
+
 # ========== FIAT RESERVE SETTLEMENT (FUJI) ==========
 loader.env.REUR_CONTRACT_ADDRESS_FUJI = { passthrough = true }
 loader.env.FIAT_RESERVE_BOOTSTRAP_ENABLED = { passthrough = true }

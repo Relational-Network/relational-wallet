@@ -4,6 +4,8 @@
 
 //! Blockchain types and constants.
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -20,11 +22,42 @@ pub struct NetworkConfig {
     pub explorer_url: &'static str,
 }
 
+/// Default Fuji RPC endpoint.
+const DEFAULT_FUJI_RPC: &str = "https://avalanche-fuji-c-chain-rpc.publicnode.com";
+
+/// Environment variable to override the Fuji RPC URL at runtime.
+const FUJI_RPC_URL_ENV: &str = "FUJI_RPC_URL";
+
+/// Cached Fuji RPC URL (resolved once from env or default).
+static FUJI_RPC: OnceLock<&'static str> = OnceLock::new();
+
+/// Resolve the Fuji RPC URL, checking `FUJI_RPC_URL` env var first.
+fn fuji_rpc_url() -> &'static str {
+    FUJI_RPC.get_or_init(|| match std::env::var(FUJI_RPC_URL_ENV) {
+        Ok(url) if !url.is_empty() => Box::leak(url.into_boxed_str()),
+        _ => DEFAULT_FUJI_RPC,
+    })
+}
+
 /// Avalanche Fuji Testnet configuration.
+///
+/// The RPC URL can be overridden at runtime via `FUJI_RPC_URL` env var.
+/// Call this function (not a const) so that the env override is resolved.
+pub fn avax_fuji() -> NetworkConfig {
+    NetworkConfig {
+        name: "Avalanche Fuji Testnet",
+        chain_id: 43113,
+        rpc_url: fuji_rpc_url(),
+        explorer_url: "https://testnet.snowtrace.io",
+    }
+}
+
+/// Legacy constant for backwards compatibility in tests.
+/// Prefer `avax_fuji()` which supports env var override.
 pub const AVAX_FUJI: NetworkConfig = NetworkConfig {
     name: "Avalanche Fuji Testnet",
     chain_id: 43113,
-    rpc_url: "https://api.avax-test.network/ext/bc/C/rpc",
+    rpc_url: DEFAULT_FUJI_RPC,
     explorer_url: "https://testnet.snowtrace.io",
 };
 

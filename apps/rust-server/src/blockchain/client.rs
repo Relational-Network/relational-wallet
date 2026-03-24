@@ -59,7 +59,7 @@ impl AvaxClient {
 
     /// Create a client for Avalanche Fuji testnet.
     pub async fn fuji() -> Result<Self, AvaxClientError> {
-        Self::new(AVAX_FUJI).await
+        Self::new(avax_fuji()).await
     }
 
     /// Get the native AVAX balance for an address.

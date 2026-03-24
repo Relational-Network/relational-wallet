@@ -15,7 +15,7 @@ use crate::{
     auth::Auth,
     blockchain::{
         ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
-        AVAX_FUJI, REUR_TOKEN,
+        avax_fuji, REUR_TOKEN,
     },
     error::ApiError,
     state::AppState,
@@ -297,7 +297,7 @@ pub async fn estimate_gas(
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
     // Determine network (Fuji-only).
-    let network_config = AVAX_FUJI;
+    let network_config = avax_fuji();
 
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config, eth_wallet)
@@ -398,7 +398,7 @@ pub async fn send_transaction(
         .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
     // Determine network (Fuji-only).
-    let network_config = AVAX_FUJI;
+    let network_config = avax_fuji();
 
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config.clone(), eth_wallet)
@@ -767,7 +767,7 @@ pub async fn get_transaction_status(
         let eth_wallet = wallet_from_pem(&private_key_pem)
             .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
 
-        let tx_builder = TxBuilder::new(AVAX_FUJI, eth_wallet)
+        let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
             .await
             .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
 

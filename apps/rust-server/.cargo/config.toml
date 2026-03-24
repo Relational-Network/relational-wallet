@@ -14,7 +14,7 @@ dev-test = "test --features dev"
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [build]
-incremental = true
+incremental = false
 rustc-wrapper = "sccache"
 
 [profile.dev]

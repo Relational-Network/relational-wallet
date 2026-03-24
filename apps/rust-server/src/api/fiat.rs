@@ -30,7 +30,7 @@ use crate::{
     audit_log,
     auth::{AdminOnly, Auth},
     blockchain::{
-        ensure_fuji_network, parse_amount, wallet_from_pem, AvaxClient, TxBuilder, AVAX_FUJI,
+        ensure_fuji_network, parse_amount, wallet_from_pem, avax_fuji, AvaxClient, TxBuilder,
     },
     error::ApiError,
     providers::truelayer::{
@@ -762,7 +762,7 @@ async fn send_reserve_transfer(
         .map_err(|e| ApiError::internal(format!("Failed to load service wallet signer: {e}")))?;
 
     let amount_minor = parse_amount_to_token_minor_u256(amount_eur)?;
-    let tx_builder = TxBuilder::new(AVAX_FUJI, eth_wallet)
+    let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
         .await
         .map_err(|e| ApiError::service_unavailable(format!("Failed to connect to chain: {e}")))?;
 
@@ -800,7 +800,7 @@ async fn mint_to_address_from_service_wallet(
         amount: amount_minor,
     };
 
-    let tx_builder = TxBuilder::new(AVAX_FUJI, eth_wallet)
+    let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
         .await
         .map_err(|e| ApiError::service_unavailable(format!("Failed to connect to chain: {e}")))?;
 

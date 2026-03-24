@@ -212,7 +212,7 @@ async fn main() {
         let event_indexer = indexer::EventIndexer::new(
             tx_db.clone(),
             tx_cache.clone(),
-            blockchain::AVAX_FUJI,
+            blockchain::avax_fuji(),
             token_contracts,
         );
         let shutdown_clone = shutdown.clone();
