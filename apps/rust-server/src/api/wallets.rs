@@ -20,10 +20,11 @@ use crate::{
     audit_log,
     auth::Auth,
     error::ApiError,
+    providers::email,
     state::AppState,
     storage::{
-        AuditEventType, AuditRepository, OwnershipEnforcer, WalletMetadata, WalletRepository,
-        WalletResponse, WalletStatus,
+        AuditEventType, AuditRepository, EmailIndexRepository, OwnershipEnforcer, WalletMetadata,
+        WalletRepository, WalletResponse, WalletStatus,
     },
 };
 
@@ -84,6 +85,35 @@ pub async fn create_wallet(
     Json(request): Json<CreateWalletRequest>,
 ) -> Result<(StatusCode, Json<CreateWalletResponse>), ApiError> {
     let storage = state.storage();
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .expect("transaction database must be configured");
+
+    // ── O(1) 1-wallet-per-user check via redb ──
+    if let Ok(Some(_)) = tx_db.get_user_wallet(&user.user_id) {
+        return Err(ApiError::conflict("You already have a wallet"));
+    }
+
+    // ── Fetch email from Clerk and enforce 1-wallet-per-email ──
+    let mut email_lookup_key: Option<String> = None;
+    if let Some(ref clerk) = state.clerk_client {
+        let normalized_email = clerk
+            .get_user_email(&user.user_id)
+            .await
+            .map_err(|e| ApiError::internal(&format!("Failed to fetch email: {}", e)))?;
+
+        let sha256_hex = email::sha256_email(&normalized_email);
+        let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, &sha256_hex);
+
+        // O(1) email uniqueness check
+        let email_repo = EmailIndexRepository::new(tx_db.clone());
+        if email_repo.exists(&lookup_key).map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))? {
+            return Err(ApiError::conflict("A wallet already exists for this email"));
+        }
+
+        email_lookup_key = Some(lookup_key);
+    }
 
     // Generate wallet ID
     let wallet_id = uuid::Uuid::new_v4().to_string();
@@ -100,6 +130,7 @@ pub async fn create_wallet(
         created_at: Utc::now(),
         status: WalletStatus::Active,
         label: request.label,
+        email_lookup_key: email_lookup_key.clone(),
     };
 
     // Store wallet
@@ -108,16 +139,33 @@ pub async fn create_wallet(
         .map_err(|e| ApiError::internal(&format!("Failed to store wallet: {}", e)))?;
 
     // Register address → wallet_id in redb for the event indexer.
-    let tx_db = state
-        .tx_db
-        .as_ref()
-        .expect("transaction database must be configured");
     if let Err(e) = tx_db.register_address(&public_address, &wallet_id) {
         tracing::warn!(
             error = %e,
             wallet_id = %wallet_id,
             "Failed to register wallet address in tx database"
         );
+    }
+
+    // Register user → wallet mapping (O(1))
+    if let Err(e) = tx_db.register_user_wallet(&user.user_id, &wallet_id) {
+        tracing::warn!(
+            error = %e,
+            wallet_id = %wallet_id,
+            "Failed to register user→wallet mapping"
+        );
+    }
+
+    // Register email lookup index (O(1))
+    if let Some(ref lk) = email_lookup_key {
+        let email_repo = EmailIndexRepository::new(tx_db.clone());
+        if let Err(e) = email_repo.register(lk, &wallet_id, &public_address) {
+            tracing::warn!(
+                error = %e,
+                wallet_id = %wallet_id,
+                "Failed to register email lookup"
+            );
+        }
     }
 
     // Audit log
@@ -153,13 +201,27 @@ pub async fn list_wallets(
     State(state): State<AppState>,
 ) -> Result<Json<WalletListResponse>, ApiError> {
     let storage = state.storage();
+    let tx_db = state.tx_db.as_ref();
     let repo = WalletRepository::new(&storage);
 
-    let wallets = repo
-        .list_by_owner(&user.user_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to list wallets: {}", e)))?;
+    // O(1) path: look up user's wallet from redb, then fetch metadata directly
+    let wallet_responses: Vec<WalletResponse> = if let Some(db) = tx_db {
+        if let Ok(Some(wallet_id)) = db.get_user_wallet(&user.user_id) {
+            match repo.get(&wallet_id) {
+                Ok(meta) if meta.status != WalletStatus::Deleted => vec![meta.into()],
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        // Fallback: O(N) filesystem scan (no tx_db configured)
+        let wallets = repo
+            .list_by_owner(&user.user_id)
+            .map_err(|e| ApiError::internal(&format!("Failed to list wallets: {}", e)))?;
+        wallets.into_iter().map(Into::into).collect()
+    };
 
-    let wallet_responses: Vec<WalletResponse> = wallets.into_iter().map(Into::into).collect();
     let total = wallet_responses.len();
 
     Ok(Json(WalletListResponse {
@@ -253,6 +315,21 @@ pub async fn delete_wallet(
     // Soft delete
     repo.soft_delete(&wallet_id)
         .map_err(|e| ApiError::internal(&format!("Failed to delete wallet: {}", e)))?;
+
+    // Clean up redb index entries so user can create a new wallet
+    if let Some(db) = state.tx_db.as_ref() {
+        // Remove user→wallet mapping
+        let _ = db.remove_user_wallet(&user.user_id);
+
+        // Remove email→wallet mapping if wallet had an email
+        if let Some(ref lookup_key) = metadata.email_lookup_key {
+            let email_repo = EmailIndexRepository::new(db.clone());
+            let _ = email_repo.remove(lookup_key);
+        }
+
+        // Remove address→wallet mapping
+        let _ = db.remove_wallet_address(&metadata.public_address);
+    }
 
     // Audit log
     audit_log!(
@@ -375,6 +452,7 @@ mod tests {
             created_at: Utc::now(),
             status: WalletStatus::Active,
             label: Some("My Wallet".to_string()),
+            email_lookup_key: None,
         };
 
         let response: WalletResponse = metadata.into();

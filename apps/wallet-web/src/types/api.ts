@@ -477,6 +477,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/payment-link/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve a payment link token (no authentication required).
+         * @description Returns the public address and optional amount/note for the payment link.
+         */
+        get: operations["resolve_payment_link"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/recurring/payment": {
         parameters: {
             query?: never;
@@ -551,6 +571,31 @@ export interface paths {
         get: operations["recurring_payments_today"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resolve/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve an email hash to check if it maps to a registered wallet.
+         * @description The client sends a SHA-256 hash of the normalized email. The server
+         *     computes the HMAC lookup key and checks the email index.
+         *
+         *     Returns `{ found: true }` if a wallet exists for that email, `{ found: false }` otherwise.
+         *     **Does NOT reveal the address** — the address is only resolved server-side
+         *     during the actual send flow.
+         */
+        post: operations["resolve_email"];
         delete?: never;
         options?: never;
         head?: never;
@@ -675,6 +720,27 @@ export interface paths {
          * @description Returns estimated gas limit and cost before sending.
          */
         post: operations["estimate_gas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/wallets/{wallet_id}/payment-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a payment link for a wallet.
+         * @description Generates an opaque token that resolves to the wallet's public address.
+         *     No PII is stored — only wallet ID, address, and optional amount/note.
+         */
+        post: operations["create_payment_link"];
         delete?: never;
         options?: never;
         head?: never;
@@ -829,24 +895,35 @@ export interface components {
          * @description A saved wallet address bookmark.
          *
          *     Bookmarks allow users to save frequently-used addresses with friendly names
-         *     for quick access when sending transactions.
+         *     for quick access when sending transactions. Supports both address-based and
+         *     email-based recipients.
          */
         Bookmark: {
-            /** @description The bookmarked wallet address. */
-            address: components["schemas"]["WalletAddress"];
+            address?: null | components["schemas"]["WalletAddress"];
+            /** @description Masked email for display (when recipient_type=email, e.g. "a***e@example.com"). */
+            email_display?: string | null;
+            /** @description SHA-256 hash of email (when recipient_type=email). */
+            email_hash?: string | null;
             /** @description Unique identifier for this bookmark. */
             id: string;
             /** @description User-friendly name for the bookmarked address. */
             name: string;
+            /** @description Recipient type: "address" or "email". */
+            recipient_type: string;
             /** @description The wallet this bookmark belongs to. */
             wallet_id: components["schemas"]["WalletAddress"];
         };
         /** @description Request to create a new bookmark. */
         CreateBookmarkRequest: {
-            /** @description The wallet address to bookmark. */
-            address: components["schemas"]["WalletAddress"];
+            address?: null | components["schemas"]["WalletAddress"];
+            /** @description Masked email for display (required when recipient_type=email). */
+            email_display?: string | null;
+            /** @description SHA-256 hash of email (required when recipient_type=email). */
+            email_hash?: string | null;
             /** @description User-friendly name for the bookmark. */
             name: string;
+            /** @description Recipient type: "address" or "email". Defaults to "address". */
+            recipient_type?: string;
             /** @description The wallet to add the bookmark to (must be owned by the user). */
             wallet_id: components["schemas"]["WalletAddress"];
         };
@@ -864,6 +941,29 @@ export interface components {
             provider?: string | null;
             /** @description Wallet to credit/debit for this fiat request. */
             wallet_id: string;
+        };
+        /** @description Request to create a payment link. */
+        CreatePaymentLinkRequest: {
+            /** @description Pre-filled amount (optional). */
+            amount?: string | null;
+            /**
+             * Format: int64
+             * @description Hours until expiry (default: 24).
+             */
+            expires_hours?: number;
+            /** @description Note for the recipient (optional). */
+            note?: string | null;
+            /** @description Whether the link can only be used once (default: false). */
+            single_use?: boolean;
+            /** @description Token type: "native" or "reur" (optional). */
+            token?: string | null;
+        };
+        /** @description Response after creating a payment link. */
+        CreatePaymentLinkResponse: {
+            /** @description When the link expires. */
+            expires_at: string;
+            /** @description Opaque token for the payment link. */
+            token: string;
         };
         /** @description Request to create a recurring payment schedule. */
         CreateRecurringPaymentRequest: {
@@ -934,8 +1034,10 @@ export interface components {
             amount: string;
             /** @description Network: "fuji" only. */
             network?: string;
-            /** @description Recipient address (0x + 40 hex chars) */
-            to: string;
+            /** @description Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set. */
+            to?: string | null;
+            /** @description SHA-256 hash of recipient's email (alternative to `to`). */
+            to_email_hash?: string | null;
             /** @description Token type: "native" for AVAX or contract address for ERC-20 */
             token?: string;
         };
@@ -1099,6 +1201,17 @@ export interface components {
             /** @description Wallet ID */
             wallet_id: string;
         };
+        /** @description Public info returned when resolving a payment link (no auth required). */
+        PaymentLinkInfo: {
+            /** @description Pre-filled amount (if set). */
+            amount?: string | null;
+            /** @description Note from the requester (if set). */
+            note?: string | null;
+            /** @description Recipient's public address. */
+            public_address: string;
+            /** @description Token type (if set). */
+            token_type?: string | null;
+        };
         /** @description Health check response with individual component status. */
         ReadyResponse: {
             /** @description Individual health checks and their results. */
@@ -1177,6 +1290,16 @@ export interface components {
             /** @description Destination EVM address. */
             to: string;
         };
+        /** @description Request to resolve an email hash to check if a wallet exists. */
+        ResolveEmailRequest: {
+            /** @description SHA-256 hash of the normalized email (64 hex characters). */
+            email_hash: string;
+        };
+        /** @description Response to email resolution. */
+        ResolveEmailResponse: {
+            /** @description Whether a wallet was found for this email. */
+            found: boolean;
+        };
         /**
          * @description User roles for authorization.
          *
@@ -1199,8 +1322,10 @@ export interface components {
             max_priority_fee_per_gas?: string | null;
             /** @description Network: "fuji" only. */
             network?: string;
-            /** @description Recipient address (0x + 40 hex chars) */
-            to: string;
+            /** @description Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set. */
+            to?: string | null;
+            /** @description SHA-256 hash of recipient's email (alternative to `to`). */
+            to_email_hash?: string | null;
             /** @description Token type: "native" for AVAX or contract address for ERC-20 */
             token?: string;
         };
@@ -2448,6 +2573,10 @@ export interface operations {
             query?: {
                 /** @description Optional wallet filter. */
                 wallet_id?: string | null;
+                /** @description When `true`, return only active (non-terminal) requests. */
+                active_only?: boolean | null;
+                /** @description Optional page size limit. */
+                limit?: number | null;
             };
             header?: never;
             path?: never;
@@ -2552,6 +2681,35 @@ export interface operations {
         };
         responses: {
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resolve_payment_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Payment link token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentLinkInfo"];
+                };
+            };
+            /** @description Payment link not found or expired */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2685,6 +2843,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecurringPayment"][];
                 };
+            };
+        };
+    };
+    resolve_email: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveEmailRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveEmailResponse"];
+                };
+            };
+            /** @description Invalid email hash */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3035,6 +3230,53 @@ export interface operations {
             };
             /** @description Blockchain network unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_payment_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Wallet ID */
+                wallet_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePaymentLinkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePaymentLinkResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - not wallet owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Wallet not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

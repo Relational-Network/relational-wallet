@@ -102,7 +102,8 @@ impl From<WalletAddress> for String {
 /// A saved wallet address bookmark.
 ///
 /// Bookmarks allow users to save frequently-used addresses with friendly names
-/// for quick access when sending transactions.
+/// for quick access when sending transactions. Supports both address-based and
+/// email-based recipients.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub struct Bookmark {
     /// Unique identifier for this bookmark.
@@ -111,8 +112,17 @@ pub struct Bookmark {
     pub wallet_id: WalletAddress,
     /// User-friendly name for the bookmarked address.
     pub name: String,
-    /// The bookmarked wallet address.
-    pub address: WalletAddress,
+    /// Recipient type: "address" or "email".
+    pub recipient_type: String,
+    /// The bookmarked wallet address (when recipient_type=address).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<WalletAddress>,
+    /// SHA-256 hash of email (when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_hash: Option<String>,
+    /// Masked email for display (when recipient_type=email, e.g. "a***e@example.com").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
 }
 
 /// Request to create a new bookmark.
@@ -122,8 +132,93 @@ pub struct CreateBookmarkRequest {
     pub wallet_id: WalletAddress,
     /// User-friendly name for the bookmark.
     pub name: String,
-    /// The wallet address to bookmark.
-    pub address: WalletAddress,
+    /// Recipient type: "address" or "email". Defaults to "address".
+    #[serde(default = "default_recipient_type_address")]
+    pub recipient_type: String,
+    /// The wallet address to bookmark (required when recipient_type=address).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<WalletAddress>,
+    /// SHA-256 hash of email (required when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_hash: Option<String>,
+    /// Masked email for display (required when recipient_type=email).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
+}
+
+fn default_recipient_type_address() -> String {
+    "address".to_string()
+}
+
+// =============================================================================
+// Email Resolution Models
+// =============================================================================
+
+/// Request to resolve an email hash to check if a wallet exists.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResolveEmailRequest {
+    /// SHA-256 hash of the normalized email (64 hex characters).
+    pub email_hash: String,
+}
+
+/// Response to email resolution.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResolveEmailResponse {
+    /// Whether a wallet was found for this email.
+    pub found: bool,
+}
+
+// =============================================================================
+// Payment Link Models
+// =============================================================================
+
+/// Request to create a payment link.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreatePaymentLinkRequest {
+    /// Pre-filled amount (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<String>,
+    /// Token type: "native" or "reur" (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Note for the recipient (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Hours until expiry (default: 24).
+    #[serde(default = "default_expires_hours")]
+    pub expires_hours: u64,
+    /// Whether the link can only be used once (default: false).
+    #[serde(default)]
+    pub single_use: bool,
+}
+
+fn default_expires_hours() -> u64 {
+    24
+}
+
+/// Response after creating a payment link.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CreatePaymentLinkResponse {
+    /// Opaque token for the payment link.
+    pub token: String,
+    /// When the link expires.
+    pub expires_at: String,
+}
+
+/// Public info returned when resolving a payment link (no auth required).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PaymentLinkInfo {
+    /// Recipient's public address.
+    pub public_address: String,
+    /// Pre-filled amount (if set).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<String>,
+    /// Token type (if set).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_type: Option<String>,
+    /// Note from the requester (if set).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 // =============================================================================

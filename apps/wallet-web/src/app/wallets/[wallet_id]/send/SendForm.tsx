@@ -13,6 +13,7 @@ import type {
   SendTransactionResponse,
 } from "@/lib/api";
 import { RecipientQrScanner } from "@/components/RecipientQrScanner";
+import { hashEmail, maskEmail } from "@/lib/emailHash";
 
 const REUR_FUJI_ADDRESS = "0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63";
 
@@ -96,6 +97,11 @@ export function SendForm({
     prefill?.token === "reur" ? "reur" : "native";
 
   const [toAddress, setToAddress] = useState(prefillTo);
+  const [recipientMode, setRecipientMode] = useState<"address" | "email">("address");
+  const [toEmail, setToEmail] = useState("");
+  const [emailHash, setEmailHash] = useState<string | null>(null);
+  const [emailResolved, setEmailResolved] = useState<boolean | null>(null);
+  const [emailChecking, setEmailChecking] = useState(false);
   const [amount, setAmount] = useState(prefillAmount);
   const [token, setToken] = useState<"native" | "reur">(prefillToken);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -179,10 +185,52 @@ export function SendForm({
     }
   };
 
-  const handleEstimate = async () => {
-    if (!isValidAddress(toAddress)) {
-      setError("Recipient address must be a valid 0x address.");
+  const handleCheckEmail = async () => {
+    const email = toEmail.trim();
+    if (!email || !email.includes("@")) {
+      setError("Enter a valid email address.");
       return;
+    }
+    setEmailChecking(true);
+    setError(null);
+    try {
+      const hash = await hashEmail(email);
+      setEmailHash(hash);
+      const response = await fetch("/api/proxy/v1/resolve/email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_hash: hash }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setEmailResolved(data.found);
+        if (!data.found) {
+          setError("No wallet found for this email address.");
+        }
+      } else {
+        setEmailResolved(null);
+        setError("Failed to check email.");
+      }
+    } catch {
+      setEmailResolved(null);
+      setError("Failed to check email.");
+    } finally {
+      setEmailChecking(false);
+    }
+  };
+
+  const handleEstimate = async () => {
+    if (recipientMode === "address") {
+      if (!isValidAddress(toAddress)) {
+        setError("Recipient address must be a valid 0x address.");
+        return;
+      }
+    } else {
+      if (!emailHash || !emailResolved) {
+        setError("Please enter an email and verify the recipient first.");
+        return;
+      }
     }
 
     if (!isValidAmount(amount)) {
@@ -194,12 +242,20 @@ export function SendForm({
     setIsEstimating(true);
 
     try {
-      const request: EstimateGasRequest = {
-        to: toAddress.trim(),
-        amount: normalizeAmount(amount.trim()),
-        token: tokenAddress(token),
-        network: "fuji",
-      };
+      const request: EstimateGasRequest =
+        recipientMode === "address"
+          ? {
+              to: toAddress.trim(),
+              amount: normalizeAmount(amount.trim()),
+              token: tokenAddress(token),
+              network: "fuji",
+            }
+          : {
+              to_email_hash: emailHash!,
+              amount: normalizeAmount(amount.trim()),
+              token: tokenAddress(token),
+              network: "fuji",
+            };
 
       const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/estimate`, {
         method: "POST",
@@ -230,14 +286,24 @@ export function SendForm({
     setError(null);
 
     try {
-      const request: SendTransactionRequest = {
-        to: toAddress.trim(),
-        amount: normalizeAmount(amount.trim()),
-        token: tokenAddress(token),
-        network: "fuji",
-        gas_limit: gasLimitOverride.trim() || undefined,
-        max_priority_fee_per_gas: priorityFeeOverride.trim() || undefined,
-      };
+      const request: SendTransactionRequest =
+        recipientMode === "address"
+          ? {
+              to: toAddress.trim(),
+              amount: normalizeAmount(amount.trim()),
+              token: tokenAddress(token),
+              network: "fuji",
+              gas_limit: gasLimitOverride.trim() || undefined,
+              max_priority_fee_per_gas: priorityFeeOverride.trim() || undefined,
+            }
+          : {
+              to_email_hash: emailHash!,
+              amount: normalizeAmount(amount.trim()),
+              token: tokenAddress(token),
+              network: "fuji",
+              gas_limit: gasLimitOverride.trim() || undefined,
+              max_priority_fee_per_gas: priorityFeeOverride.trim() || undefined,
+            };
 
       const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/send`, {
         method: "POST",
@@ -418,7 +484,9 @@ export function SendForm({
           <div className="stack-sm" style={{ marginTop: "1rem" }}>
             <div className="row-between">
               <span className="text-secondary">To</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>{shortenAddr(toAddress)}</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>
+                {recipientMode === "email" ? maskEmail(toEmail) : shortenAddr(toAddress)}
+              </span>
             </div>
             <hr className="divider" />
             <div className="row-between">
@@ -473,24 +541,79 @@ export function SendForm({
           </div>
         ) : null}
 
-        <div className="field">
-          <label>Recipient address</label>
-          <input
-            value={toAddress}
-            onChange={(event) => setToAddress(event.target.value)}
-            placeholder="0x\u2026"
-            style={{ fontFamily: "var(--font-mono)" }}
-          />
+        {/* Recipient mode toggle */}
+        <div className="row" style={{ gap: "0.375rem" }}>
+          <button
+            type="button"
+            className={`chip${recipientMode === "address" ? " active" : ""}`}
+            onClick={() => { setRecipientMode("address"); setError(null); }}
+          >
+            Address
+          </button>
+          <button
+            type="button"
+            className={`chip${recipientMode === "email" ? " active" : ""}`}
+            onClick={() => { setRecipientMode("email"); setError(null); }}
+          >
+            Email
+          </button>
         </div>
 
-        <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
-          <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
-            <Scan size={16} /> Scan QR code
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
-            <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
-          </button>
-        </div>
+        {recipientMode === "address" ? (
+          <>
+            <div className="field">
+              <label>Recipient address</label>
+              <input
+                value={toAddress}
+                onChange={(event) => setToAddress(event.target.value)}
+                placeholder="0x\u2026"
+                style={{ fontFamily: "var(--font-mono)" }}
+              />
+            </div>
+
+            <div className="row" style={{ gap: "0.5rem", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowQrScanner(true)} style={{ flex: 1 }}>
+                <Scan size={16} /> Scan QR code
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowSaveRecipient((state) => !state)}>
+                <Bookmark size={15} /> {showSaveRecipient ? "Cancel" : "Save recipient"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="field">
+              <label>Recipient email</label>
+              <input
+                type="email"
+                value={toEmail}
+                onChange={(event) => {
+                  setToEmail(event.target.value);
+                  setEmailHash(null);
+                  setEmailResolved(null);
+                }}
+                placeholder="recipient@example.com"
+              />
+            </div>
+
+            <div className="row" style={{ gap: "0.5rem", alignItems: "center" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => void handleCheckEmail()}
+                disabled={emailChecking || !toEmail.trim()}
+              >
+                {emailChecking ? "Checking…" : "Verify recipient"}
+              </button>
+              {emailResolved === true && (
+                <span style={{ color: "var(--success)", fontSize: "0.8125rem" }}>✓ Wallet found</span>
+              )}
+              {emailResolved === false && (
+                <span style={{ color: "var(--danger)", fontSize: "0.8125rem" }}>✕ Not found</span>
+              )}
+            </div>
+          </>
+        )}
 
         {shortcutsLoadError ? <div className="alert alert-warning">{shortcutsLoadError}</div> : null}
 
@@ -624,7 +747,11 @@ export function SendForm({
           type="button"
           className="btn btn-primary"
           onClick={() => void handleEstimate()}
-          disabled={isEstimating || !toAddress.trim() || !amount.trim()}
+          disabled={
+            isEstimating ||
+            !amount.trim() ||
+            (recipientMode === "address" ? !toAddress.trim() : !emailResolved)
+          }
           style={{ flex: 1 }}
         >
           {isEstimating ? "Estimating\u2026" : "Review transaction"}

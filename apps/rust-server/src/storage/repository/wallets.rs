@@ -60,6 +60,9 @@ pub struct WalletMetadata {
     /// Optional human-readable label
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// HMAC(node_secret, SHA-256(email)), hex-encoded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_lookup_key: Option<String>,
 }
 
 /// Response returned to API clients (never includes private key).
@@ -308,6 +311,7 @@ mod tests {
             created_at: Utc::now(),
             status: WalletStatus::Active,
             label: Some("My Wallet".to_string()),
+            email_lookup_key: None,
         }
     }
 

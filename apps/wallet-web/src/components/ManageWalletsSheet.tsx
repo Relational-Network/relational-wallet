@@ -165,21 +165,27 @@ export function ManageWalletsSheet({
 
       <hr className="divider" />
 
-      <section>
-        <h3 className="section-title" style={{ marginBottom: "0.5rem" }}>Create wallet</h3>
-        <div className="inline-form">
-          <input
-            className="input"
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="Optional label"
-            disabled={loading}
-          />
-          <button type="button" className="btn btn-primary" onClick={() => void createWallet()} disabled={loading}>
-            {loading ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </section>
+      {wallets.length === 0 ? (
+        <section>
+          <h3 className="section-title" style={{ marginBottom: "0.5rem" }}>Create wallet</h3>
+          <div className="inline-form">
+            <input
+              className="input"
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="Optional label"
+              disabled={loading}
+            />
+            <button type="button" className="btn btn-primary" onClick={() => void createWallet()} disabled={loading}>
+              {loading ? "Creating…" : "Create"}
+            </button>
+          </div>
+        </section>
+      ) : (
+        <p className="text-muted" style={{ textAlign: "center", margin: 0 }}>
+          One wallet per account. Your wallet is linked to your email.
+        </p>
+      )}
     </div>
   );
 }

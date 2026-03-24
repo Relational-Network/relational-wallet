@@ -16,9 +16,11 @@ use crate::{
     auth::Auth,
     error::ApiError,
     models::{Bookmark, CreateBookmarkRequest, WalletAddress},
+    providers::email,
     state::AppState,
     storage::{
-        AuditEventType, BookmarkRepository, OwnershipEnforcer, StoredBookmark, WalletRepository,
+        AuditEventType, BookmarkRepository, OwnershipEnforcer, RecipientType, StoredBookmark,
+        WalletRepository,
     },
 };
 
@@ -70,11 +72,25 @@ pub async fn list_bookmarks(
     // Convert to API response format
     let response: Vec<Bookmark> = bookmarks
         .into_iter()
-        .map(|b| Bookmark {
-            id: b.id,
-            wallet_id: WalletAddress::from(b.wallet_id),
-            name: b.name,
-            address: WalletAddress::from(b.address),
+        .map(|b| {
+            let recipient_type = match b.recipient_type {
+                RecipientType::Email => "email".to_string(),
+                RecipientType::Address => "address".to_string(),
+            };
+            let address = if b.recipient_type == RecipientType::Address && !b.address.is_empty() {
+                Some(WalletAddress::from(b.address))
+            } else {
+                None
+            };
+            Bookmark {
+                id: b.id,
+                wallet_id: WalletAddress::from(b.wallet_id),
+                name: b.name,
+                recipient_type,
+                address,
+                email_hash: b.email_hash,
+                email_display: b.email_display,
+            }
         })
         .collect();
 
@@ -104,11 +120,44 @@ pub async fn create_bookmark(
     let storage = state.storage();
     let wallet_id = request.wallet_id.to_string();
 
-    // Validate the bookmarked address is a valid Ethereum address
-    request
-        .address
-        .validate_eth_address()
-        .map_err(|e| ApiError::bad_request(&e))?;
+    // Validate based on recipient_type
+    let (recipient_type, address_str, email_hash, email_display) = match request
+        .recipient_type
+        .as_str()
+    {
+        "email" => {
+            // Validate email_hash and email_display are provided
+            let hash = request
+                .email_hash
+                .as_deref()
+                .ok_or_else(|| {
+                    ApiError::bad_request("email_hash is required for email bookmarks")
+                })?
+                .to_string();
+            if !email::validate_email_hash(&hash) {
+                return Err(ApiError::bad_request(
+                    "email_hash must be 64 lowercase hex characters",
+                ));
+            }
+            let display = request
+                .email_display
+                .as_deref()
+                .ok_or_else(|| {
+                    ApiError::bad_request("email_display is required for email bookmarks")
+                })?
+                .to_string();
+            (RecipientType::Email, String::new(), Some(hash), Some(display))
+        }
+        "address" | _ => {
+            // Validate the bookmarked address is a valid Ethereum address
+            let addr = request.address.as_ref().ok_or_else(|| {
+                ApiError::bad_request("address is required for address bookmarks")
+            })?;
+            addr.validate_eth_address()
+                .map_err(|e| ApiError::bad_request(&e))?;
+            (RecipientType::Address, addr.to_string(), None, None)
+        }
+    };
 
     // Verify wallet ownership
     let wallet_repo = WalletRepository::new(&storage);
@@ -127,7 +176,10 @@ pub async fn create_bookmark(
         wallet_id: wallet_id.clone(),
         owner_user_id: user.user_id.clone(),
         name: request.name.clone(),
-        address: request.address.to_string(),
+        recipient_type: recipient_type.clone(),
+        address: address_str.clone(),
+        email_hash: email_hash.clone(),
+        email_display: email_display.clone(),
         created_at: Utc::now(),
     };
 
@@ -148,7 +200,17 @@ pub async fn create_bookmark(
         id: stored.id,
         wallet_id: request.wallet_id,
         name: stored.name,
-        address: request.address,
+        recipient_type: match recipient_type {
+            RecipientType::Email => "email".to_string(),
+            RecipientType::Address => "address".to_string(),
+        },
+        address: if address_str.is_empty() {
+            None
+        } else {
+            Some(WalletAddress::from(address_str))
+        },
+        email_hash,
+        email_display,
     };
 
     Ok((StatusCode::CREATED, Json(response)))
@@ -240,6 +302,7 @@ mod tests {
             created_at: Utc::now(),
             status: WalletStatus::Active,
             label: None,
+            email_lookup_key: None,
         };
         let repo = WalletRepository::new(storage);
         repo.create(&metadata, b"test_key").unwrap();
@@ -255,7 +318,10 @@ mod tests {
         let request = CreateBookmarkRequest {
             wallet_id: WalletAddress::from(wallet_id.as_str()),
             name: "test_name".into(),
-            address: WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12"),
+            recipient_type: "address".to_string(),
+            address: Some(WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12")),
+            email_hash: None,
+            email_display: None,
         };
 
         let (status, Json(bookmark)) =
@@ -281,7 +347,10 @@ mod tests {
             wallet_id: wallet_id.clone(),
             owner_user_id: user.user_id.clone(),
             name: "Test".to_string(),
+            recipient_type: RecipientType::Address,
             address: "0xaddr".to_string(),
+            email_hash: None,
+            email_display: None,
             created_at: Utc::now(),
         };
         repo.create(&bookmark).unwrap();
@@ -306,7 +375,10 @@ mod tests {
             wallet_id: wallet_id.clone(),
             owner_user_id: user.user_id.clone(),
             name: "Test2".to_string(),
+            recipient_type: RecipientType::Address,
             address: "0xaddr2".to_string(),
+            email_hash: None,
+            email_display: None,
             created_at: Utc::now(),
         };
         repo.create(&bookmark).unwrap();

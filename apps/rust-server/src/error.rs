@@ -108,6 +108,19 @@ impl ApiError {
     pub fn service_unavailable(message: impl Into<String>) -> Self {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, message)
     }
+
+    /// Create a 409 Conflict error.
+    ///
+    /// Use when the request conflicts with existing state (e.g., duplicate wallet).
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, message)
+    }
+
+    /// Create a 429 Too Many Requests error.
+    #[allow(dead_code)] // Prepared for rate-limiting middleware
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, message)
+    }
 }
 
 impl IntoResponse for ApiError {

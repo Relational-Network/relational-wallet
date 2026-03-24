@@ -34,6 +34,7 @@ loader.env.RUST_BACKTRACE = "full"
 loader.env.CLERK_JWKS_URL  = { passthrough = true }
 loader.env.CLERK_ISSUER    = { passthrough = true }
 loader.env.CLERK_AUDIENCE  = { passthrough = true }
+loader.env.CLERK_SECRET_KEY = { passthrough = true }
 loader.env.CORS_ALLOWED_ORIGINS = { passthrough = true }
 
 # ========== FIAT PROVIDER (TRUELAYER SANDBOX) ==========

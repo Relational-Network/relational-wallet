@@ -956,6 +956,31 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "description": "When `true`, return only active (non-terminal) requests.",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Optional page size limit.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -1075,6 +1100,42 @@
         "responses": {
           "200": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/v1/payment-link/{token}": {
+      "get": {
+        "tags": [
+          "payment_links"
+        ],
+        "summary": "Resolve a payment link token (no authentication required).",
+        "description": "Returns the public address and optional amount/note for the payment link.",
+        "operationId": "resolve_payment_link",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Payment link token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentLinkInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Payment link not found or expired"
           }
         }
       }
@@ -1246,6 +1307,49 @@
             }
           }
         }
+      }
+    },
+    "/v1/resolve/email": {
+      "post": {
+        "tags": [
+          "resolve"
+        ],
+        "summary": "Resolve an email hash to check if it maps to a registered wallet.",
+        "description": "The client sends a SHA-256 hash of the normalized email. The server\ncomputes the HMAC lookup key and checks the email index.\n\nReturns `{ found: true }` if a wallet exists for that email, `{ found: false }` otherwise.\n**Does NOT reveal the address** — the address is only resolved server-side\nduring the actual send flow.",
+        "operationId": "resolve_email",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveEmailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid email hash"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
       }
     },
     "/v1/users/me": {
@@ -1648,6 +1752,63 @@
         "security": [
           {
             "bearer": []
+          }
+        ]
+      }
+    },
+    "/v1/wallets/{wallet_id}/payment-link": {
+      "post": {
+        "tags": [
+          "payment_links"
+        ],
+        "summary": "Create a payment link for a wallet.",
+        "description": "Generates an opaque token that resolves to the wallet's public address.\nNo PII is stored — only wallet ID, address, and optional amount/note.",
+        "operationId": "create_payment_link",
+        "parameters": [
+          {
+            "name": "wallet_id",
+            "in": "path",
+            "description": "Wallet ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePaymentLinkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden - not wallet owner"
+          },
+          "404": {
+            "description": "Wallet not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
           }
         ]
       }
@@ -2128,17 +2289,38 @@
       },
       "Bookmark": {
         "type": "object",
-        "description": "A saved wallet address bookmark.\n\nBookmarks allow users to save frequently-used addresses with friendly names\nfor quick access when sending transactions.",
+        "description": "A saved wallet address bookmark.\n\nBookmarks allow users to save frequently-used addresses with friendly names\nfor quick access when sending transactions. Supports both address-based and\nemail-based recipients.",
         "required": [
           "id",
           "wallet_id",
           "name",
-          "address"
+          "recipient_type"
         ],
         "properties": {
           "address": {
-            "$ref": "#/components/schemas/WalletAddress",
-            "description": "The bookmarked wallet address."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WalletAddress",
+                "description": "The bookmarked wallet address (when recipient_type=address)."
+              }
+            ]
+          },
+          "email_display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Masked email for display (when recipient_type=email, e.g. \"a***e@example.com\")."
+          },
+          "email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 hash of email (when recipient_type=email)."
           },
           "id": {
             "type": "string",
@@ -2147,6 +2329,10 @@
           "name": {
             "type": "string",
             "description": "User-friendly name for the bookmarked address."
+          },
+          "recipient_type": {
+            "type": "string",
+            "description": "Recipient type: \"address\" or \"email\"."
           },
           "wallet_id": {
             "$ref": "#/components/schemas/WalletAddress",
@@ -2159,17 +2345,41 @@
         "description": "Request to create a new bookmark.",
         "required": [
           "wallet_id",
-          "name",
-          "address"
+          "name"
         ],
         "properties": {
           "address": {
-            "$ref": "#/components/schemas/WalletAddress",
-            "description": "The wallet address to bookmark."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WalletAddress",
+                "description": "The wallet address to bookmark (required when recipient_type=address)."
+              }
+            ]
+          },
+          "email_display": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Masked email for display (required when recipient_type=email)."
+          },
+          "email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 hash of email (required when recipient_type=email)."
           },
           "name": {
             "type": "string",
             "description": "User-friendly name for the bookmark."
+          },
+          "recipient_type": {
+            "type": "string",
+            "description": "Recipient type: \"address\" or \"email\". Defaults to \"address\"."
           },
           "wallet_id": {
             "$ref": "#/components/schemas/WalletAddress",
@@ -2220,6 +2430,61 @@
           "wallet_id": {
             "type": "string",
             "description": "Wallet to credit/debit for this fiat request."
+          }
+        }
+      },
+      "CreatePaymentLinkRequest": {
+        "type": "object",
+        "description": "Request to create a payment link.",
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pre-filled amount (optional)."
+          },
+          "expires_hours": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Hours until expiry (default: 24).",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Note for the recipient (optional)."
+          },
+          "single_use": {
+            "type": "boolean",
+            "description": "Whether the link can only be used once (default: false)."
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Token type: \"native\" or \"reur\" (optional)."
+          }
+        }
+      },
+      "CreatePaymentLinkResponse": {
+        "type": "object",
+        "description": "Response after creating a payment link.",
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "description": "When the link expires."
+          },
+          "token": {
+            "type": "string",
+            "description": "Opaque token for the payment link."
           }
         }
       },
@@ -2361,7 +2626,6 @@
         "type": "object",
         "description": "Request to estimate gas for a transaction.",
         "required": [
-          "to",
           "amount"
         ],
         "properties": {
@@ -2374,8 +2638,18 @@
             "description": "Network: \"fuji\" only."
           },
           "to": {
-            "type": "string",
-            "description": "Recipient address (0x + 40 hex chars)"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set."
+          },
+          "to_email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 hash of recipient's email (alternative to `to`)."
           },
           "token": {
             "type": "string",
@@ -2799,6 +3073,40 @@
           }
         }
       },
+      "PaymentLinkInfo": {
+        "type": "object",
+        "description": "Public info returned when resolving a payment link (no auth required).",
+        "required": [
+          "public_address"
+        ],
+        "properties": {
+          "amount": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pre-filled amount (if set)."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Note from the requester (if set)."
+          },
+          "public_address": {
+            "type": "string",
+            "description": "Recipient's public address."
+          },
+          "token_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Token type (if set)."
+          }
+        }
+      },
       "ReadyResponse": {
         "type": "object",
         "description": "Health check response with individual component status.",
@@ -2952,6 +3260,32 @@
           }
         }
       },
+      "ResolveEmailRequest": {
+        "type": "object",
+        "description": "Request to resolve an email hash to check if a wallet exists.",
+        "required": [
+          "email_hash"
+        ],
+        "properties": {
+          "email_hash": {
+            "type": "string",
+            "description": "SHA-256 hash of the normalized email (64 hex characters)."
+          }
+        }
+      },
+      "ResolveEmailResponse": {
+        "type": "object",
+        "description": "Response to email resolution.",
+        "required": [
+          "found"
+        ],
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Whether a wallet was found for this email."
+          }
+        }
+      },
       "Role": {
         "type": "string",
         "description": "User roles for authorization.\n\n## Role Hierarchy\n\n- `Admin` - Full access to all endpoints and wallets\n- `Client` - Normal user, can only access own wallets\n- `Support` - Read-only access to metadata (no private keys)\n- `Auditor` - Read-only access to audit logs",
@@ -2966,7 +3300,6 @@
         "type": "object",
         "description": "Request to send a transaction.",
         "required": [
-          "to",
           "amount"
         ],
         "properties": {
@@ -2993,8 +3326,18 @@
             "description": "Network: \"fuji\" only."
           },
           "to": {
-            "type": "string",
-            "description": "Recipient address (0x + 40 hex chars)"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set."
+          },
+          "to_email_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "SHA-256 hash of recipient's email (alternative to `to`)."
           },
           "token": {
             "type": "string",
@@ -3911,6 +4254,14 @@
     {
       "name": "Bookmarks",
       "description": "Bookmark management"
+    },
+    {
+      "name": "resolve",
+      "description": "Email resolution"
+    },
+    {
+      "name": "payment_links",
+      "description": "Payment link generation and resolution"
     },
     {
       "name": "Invites",

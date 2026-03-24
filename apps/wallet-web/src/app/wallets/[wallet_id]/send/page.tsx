@@ -94,10 +94,10 @@ export default async function SendPage({ params, searchParams }: SendPageProps) 
           walletLabel={wallet.label ?? null}
           prefill={parsedRequest.prefill}
           prefillWarnings={parsedRequest.warnings}
-          shortcuts={bookmarks.map((bookmark) => ({
+          shortcuts={bookmarks.filter((bookmark) => !!bookmark.address).map((bookmark) => ({
             id: bookmark.id,
             name: bookmark.name,
-            address: bookmark.address,
+            address: bookmark.address!,
           }))}
           shortcutsLoadError={shortcutError}
         />

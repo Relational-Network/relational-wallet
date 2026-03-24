@@ -77,7 +77,14 @@ export default async function ReceivePage({ params }: ReceivePageProps) {
             </div>
           </div>
 
-          <PaymentRequestBuilder recipientAddress={wallet.public_address} />
+          <PaymentRequestBuilder walletId={wallet_id} />
+
+          <div className="card card-pad">
+            <h3 className="section-title">Receive by email</h3>
+            <p className="text-secondary" style={{ margin: "0.25rem 0 0" }}>
+              Others can send funds to you by entering your email address in their send form — no wallet address needed.
+            </p>
+          </div>
 
           <div className="card card-pad">
             <h3 className="section-title">Testnet faucets</h3>

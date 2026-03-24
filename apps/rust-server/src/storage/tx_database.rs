@@ -34,6 +34,15 @@ const ADDRESS_WALLET_MAP: TableDefinition<&str, &str> = TableDefinition::new("ad
 /// Indexer state: key → value bytes (e.g., "last_block_fuji" → u64 big-endian).
 const INDEXER_STATE: TableDefinition<&str, &[u8]> = TableDefinition::new("indexer_state");
 
+/// Email lookup: HMAC(node_secret, SHA-256(email)) → JSON { wallet_id, public_address }.
+const EMAIL_LOOKUP: TableDefinition<&str, &str> = TableDefinition::new("email_lookup");
+
+/// User → wallet map: Clerk user_id → wallet_id. Enables O(1) 1-wallet-per-user check.
+const USER_WALLET_MAP: TableDefinition<&str, &str> = TableDefinition::new("user_wallet_map");
+
+/// Payment links: opaque token → JSON PaymentLinkData.
+const PAYMENT_LINKS: TableDefinition<&str, &str> = TableDefinition::new("payment_links");
+
 // =============================================================================
 // Error Type
 // =============================================================================
@@ -156,6 +165,9 @@ impl TxDatabase {
             let _ = write_txn.open_table(WALLET_TX_INDEX)?;
             let _ = write_txn.open_table(ADDRESS_WALLET_MAP)?;
             let _ = write_txn.open_table(INDEXER_STATE)?;
+            let _ = write_txn.open_table(EMAIL_LOOKUP)?;
+            let _ = write_txn.open_table(USER_WALLET_MAP)?;
+            let _ = write_txn.open_table(PAYMENT_LINKS)?;
         }
         write_txn.commit()?;
 
@@ -344,6 +356,18 @@ impl TxDatabase {
         }
     }
 
+    /// Remove an address→wallet mapping (used on wallet deletion).
+    pub fn remove_wallet_address(&self, address: &str) -> TxDbResult<()> {
+        let addr = address.to_lowercase();
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(ADDRESS_WALLET_MAP)?;
+            table.remove(addr.as_str())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
     // =========================================================================
     // Indexer checkpoint
     // =========================================================================
@@ -377,6 +401,171 @@ impl TxDatabase {
         }
         write_txn.commit()?;
         Ok(())
+    }
+
+    // =========================================================================
+    // Email Lookup (Phase 1)
+    // =========================================================================
+
+    /// Register an email lookup key → { wallet_id, public_address }.
+    pub fn register_email_lookup(
+        &self,
+        lookup_key: &str,
+        wallet_id: &str,
+        public_address: &str,
+    ) -> TxDbResult<()> {
+        let value = serde_json::json!({
+            "wallet_id": wallet_id,
+            "public_address": public_address,
+        });
+        let json = value.to_string();
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(EMAIL_LOOKUP)?;
+            table.insert(lookup_key, json.as_str())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Look up a wallet by email lookup key.
+    pub fn lookup_email(
+        &self,
+        lookup_key: &str,
+    ) -> TxDbResult<Option<(String, String)>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(EMAIL_LOOKUP)?;
+        match table.get(lookup_key)? {
+            Some(v) => {
+                let parsed: serde_json::Value = serde_json::from_str(v.value())?;
+                let wallet_id = parsed["wallet_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                let public_address = parsed["public_address"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                Ok(Some((wallet_id, public_address)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if an email lookup key exists.
+    pub fn email_lookup_exists(&self, lookup_key: &str) -> TxDbResult<bool> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(EMAIL_LOOKUP)?;
+        Ok(table.get(lookup_key)?.is_some())
+    }
+
+    /// Remove an email lookup key.
+    pub fn remove_email_lookup(&self, lookup_key: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(EMAIL_LOOKUP)?;
+            table.remove(lookup_key)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // User → Wallet Map (Phase 1)
+    // =========================================================================
+
+    /// Register user → wallet mapping. O(1).
+    pub fn register_user_wallet(&self, user_id: &str, wallet_id: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(USER_WALLET_MAP)?;
+            table.insert(user_id, wallet_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Look up user's wallet ID. O(1). Returns None if no wallet registered.
+    pub fn get_user_wallet(&self, user_id: &str) -> TxDbResult<Option<String>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(USER_WALLET_MAP)?;
+        match table.get(user_id)? {
+            Some(v) => Ok(Some(v.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Remove user → wallet mapping (on soft-delete). O(1).
+    pub fn remove_user_wallet(&self, user_id: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(USER_WALLET_MAP)?;
+            table.remove(user_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    // =========================================================================
+    // Payment Links (Phase 1)
+    // =========================================================================
+
+    /// Store a payment link token → JSON data.
+    pub fn store_payment_link(&self, token: &str, data_json: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PAYMENT_LINKS)?;
+            table.insert(token, data_json)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get a payment link by token.
+    pub fn get_payment_link(&self, token: &str) -> TxDbResult<Option<String>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PAYMENT_LINKS)?;
+        match table.get(token)? {
+            Some(v) => Ok(Some(v.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Update a payment link (e.g., mark as used).
+    pub fn update_payment_link(&self, token: &str, data_json: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PAYMENT_LINKS)?;
+            table.insert(token, data_json)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Remove a payment link.
+    pub fn remove_payment_link(&self, token: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PAYMENT_LINKS)?;
+            table.remove(token)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Iterate all payment links (for cleanup). Returns token and JSON pairs.
+    pub fn iter_payment_links(&self) -> TxDbResult<Vec<(String, String)>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(PAYMENT_LINKS)?;
+        let mut results = Vec::new();
+        for entry in table.iter()? {
+            let entry = entry?;
+            results.push((
+                entry.0.value().to_string(),
+                entry.1.value().to_string(),
+            ));
+        }
+        Ok(results)
     }
 
 }
@@ -533,5 +722,54 @@ mod tests {
         let key_old = make_index_key("0xaddr", 1000, "0xtx1");
         let key_new = make_index_key("0xaddr", 2000, "0xtx2");
         assert!(key_new < key_old, "Newer timestamps should sort first");
+    }
+
+    #[test]
+    fn user_wallet_map_crud() {
+        let (db, _dir) = temp_db();
+        let user = "user_clerk_123";
+
+        // Initially empty
+        assert_eq!(db.get_user_wallet(user).unwrap(), None);
+
+        // Register
+        db.register_user_wallet(user, "wallet-1").unwrap();
+        assert_eq!(
+            db.get_user_wallet(user).unwrap(),
+            Some("wallet-1".to_string())
+        );
+
+        // Overwrite
+        db.register_user_wallet(user, "wallet-2").unwrap();
+        assert_eq!(
+            db.get_user_wallet(user).unwrap(),
+            Some("wallet-2".to_string())
+        );
+
+        // Remove
+        db.remove_user_wallet(user).unwrap();
+        assert_eq!(db.get_user_wallet(user).unwrap(), None);
+    }
+
+    #[test]
+    fn email_lookup_crud() {
+        let (db, _dir) = temp_db();
+        let key = "hmac_key_abc123";
+
+        // Initially not found
+        assert!(!db.email_lookup_exists(key).unwrap());
+        assert_eq!(db.lookup_email(key).unwrap(), None);
+
+        // Register
+        db.register_email_lookup(key, "wallet-99", "0xDeadBeef")
+            .unwrap();
+        assert!(db.email_lookup_exists(key).unwrap());
+        let (wid, addr) = db.lookup_email(key).unwrap().unwrap();
+        assert_eq!(wid, "wallet-99");
+        assert_eq!(addr, "0xDeadBeef");
+
+        // Remove
+        db.remove_email_lookup(key).unwrap();
+        assert!(!db.email_lookup_exists(key).unwrap());
     }
 }

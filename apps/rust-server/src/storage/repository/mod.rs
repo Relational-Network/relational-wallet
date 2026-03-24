@@ -8,16 +8,20 @@
 //! using the EncryptedStorage for all file operations.
 
 pub mod bookmarks;
+pub mod email_index;
 pub mod fiat;
 pub mod invites;
+pub mod payment_links;
 pub mod recurring;
 pub mod service_wallet;
 pub mod transactions;
 pub mod wallets;
 
-pub use bookmarks::{BookmarkRepository, StoredBookmark};
+pub use bookmarks::{BookmarkRepository, RecipientType, StoredBookmark};
+pub use email_index::EmailIndexRepository;
 pub use fiat::{FiatDirection, FiatRequestRepository, FiatRequestStatus, StoredFiatRequest};
 pub use invites::InviteRepository;
+pub use payment_links::{PaymentLinkData, PaymentLinkRepository};
 pub use recurring::RecurringRepository;
 pub use service_wallet::{FiatServiceWalletMetadata, FiatServiceWalletRepository};
 pub use transactions::{StoredTransaction, TokenType, TxStatus};

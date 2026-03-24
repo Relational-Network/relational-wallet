@@ -13,6 +13,20 @@ use utoipa::ToSchema;
 
 use super::super::{EncryptedStorage, StorageError, StorageResult};
 
+/// Bookmark recipient type.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RecipientType {
+    Address,
+    Email,
+}
+
+impl Default for RecipientType {
+    fn default() -> Self {
+        Self::Address
+    }
+}
+
 /// Bookmark stored on encrypted filesystem.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 pub struct StoredBookmark {
@@ -24,8 +38,18 @@ pub struct StoredBookmark {
     pub owner_user_id: String,
     /// Human-readable label
     pub name: String,
-    /// Target address
+    /// Recipient type: address or email
+    #[serde(default)]
+    pub recipient_type: RecipientType,
+    /// Target address (when recipient_type=Address)
+    #[serde(default)]
     pub address: String,
+    /// SHA-256 hash of email (when recipient_type=Email)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_hash: Option<String>,
+    /// Masked email for display (when recipient_type=Email, e.g. "a***e@example.com")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_display: Option<String>,
     /// When the bookmark was created
     pub created_at: DateTime<Utc>,
 }
@@ -205,7 +229,10 @@ mod tests {
             wallet_id: "wallet-123".to_string(),
             owner_user_id: "user-456".to_string(),
             name: "Exchange".to_string(),
+            recipient_type: RecipientType::Address,
             address: "0xabc...def".to_string(),
+            email_hash: None,
+            email_display: None,
             created_at: Utc::now(),
         }
     }

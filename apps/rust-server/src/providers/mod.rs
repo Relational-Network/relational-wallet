@@ -4,4 +4,6 @@
 
 //! External provider integrations.
 
+pub mod clerk;
+pub mod email;
 pub mod truelayer;

@@ -10,6 +10,8 @@ export interface PaymentRequestQuery {
   amount?: string;
   token?: string;
   note?: string;
+  /** Opaque payment-link token (takes precedence over to/amount/token/note). */
+  ref?: string;
 }
 
 export interface ParsedPaymentRequest {
@@ -17,6 +19,8 @@ export interface ParsedPaymentRequest {
   amount?: string;
   token: "native" | "reur";
   note?: string;
+  /** If set, this was resolved from an opaque payment-link token. */
+  ref?: string;
 }
 
 export interface PaymentRequestParseResult {
@@ -41,6 +45,13 @@ export function parsePaymentRequestQuery(
   const prefill: ParsedPaymentRequest = {
     token: "native",
   };
+
+  // If an opaque ref token is present, pass it through for server-side resolution
+  const ref = clean(query.ref);
+  if (ref) {
+    prefill.ref = ref;
+    return { prefill, warnings };
+  }
 
   const to = clean(query.to);
   if (to) {

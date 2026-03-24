@@ -17,8 +17,10 @@ use crate::{
     auth::Role,
     blockchain::{TokenBalance, WalletBalanceResponse},
     models::{
-        Bookmark, CreateBookmarkRequest, CreateRecurringPaymentRequest, Invite, RecurringPayment,
-        RedeemInviteRequest, UpdateLastPaidDateRequest, UpdateRecurringPaymentRequest,
+        Bookmark, CreateBookmarkRequest, CreatePaymentLinkRequest, CreatePaymentLinkResponse,
+        CreateRecurringPaymentRequest, Invite, PaymentLinkInfo, RecurringPayment,
+        RedeemInviteRequest, ResolveEmailRequest, ResolveEmailResponse,
+        UpdateLastPaidDateRequest, UpdateRecurringPaymentRequest,
         WalletAddress,
     },
     state::AppState,
@@ -33,7 +35,9 @@ pub mod bookmarks;
 pub mod fiat;
 pub mod health;
 pub mod invites;
+pub mod payment_links;
 pub mod recurring;
+pub mod resolve;
 pub mod transactions;
 pub mod users;
 pub mod wallets;
@@ -85,6 +89,17 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/bookmarks/{bookmark_id}",
             delete(bookmarks::delete_bookmark),
+        )
+        // Email resolution
+        .route("/resolve/email", post(resolve::resolve_email))
+        // Payment link endpoints
+        .route(
+            "/wallets/{wallet_id}/payment-link",
+            post(payment_links::create_payment_link),
+        )
+        .route(
+            "/payment-link/{token}",
+            get(payment_links::resolve_payment_link),
         )
         // Invite endpoints
         .route("/invite", get(invites::get_invite))
@@ -264,6 +279,11 @@ fn build_cors_layer() -> CorsLayer {
         bookmarks::list_bookmarks,
         bookmarks::create_bookmark,
         bookmarks::delete_bookmark,
+        // Email resolution
+        resolve::resolve_email,
+        // Payment link endpoints
+        payment_links::create_payment_link,
+        payment_links::resolve_payment_link,
         // Invite endpoints
         invites::get_invite,
         invites::redeem_invite,
@@ -362,6 +382,13 @@ fn build_cors_layer() -> CorsLayer {
             CreateRecurringPaymentRequest,
             UpdateRecurringPaymentRequest,
             UpdateLastPaidDateRequest,
+            // Email resolution schemas
+            ResolveEmailRequest,
+            ResolveEmailResponse,
+            // Payment link schemas
+            CreatePaymentLinkRequest,
+            CreatePaymentLinkResponse,
+            PaymentLinkInfo,
             // Health schemas
             health::HealthResponse,
             health::HealthChecks,
@@ -373,6 +400,8 @@ fn build_cors_layer() -> CorsLayer {
         (name = "Wallets", description = "Wallet lifecycle management"),
         (name = "Transactions", description = "Transaction signing and sending"),
         (name = "Bookmarks", description = "Bookmark management"),
+        (name = "resolve", description = "Email resolution"),
+        (name = "payment_links", description = "Payment link generation and resolution"),
         (name = "Invites", description = "Invite validation and redemption"),
         (name = "Recurring", description = "Recurring payment scheduling"),
         (name = "Fiat", description = "Fiat on-ramp/off-ramp provider integrations"),

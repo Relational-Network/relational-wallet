@@ -5,43 +5,79 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { buildPaymentRequestParams } from "@/lib/paymentRequest";
 
 interface PaymentRequestBuilderProps {
-  recipientAddress: string;
+  walletId: string;
   compact?: boolean;
 }
 
 /**
- * Builds a shareable link that pre-fills the send form for pull-style requests.
+ * Builds a shareable opaque payment link via the backend API.
+ *
+ * Instead of encoding the wallet address directly in the URL, we create
+ * an opaque token server-side and generate a `/pay?ref=<token>` link.
  */
-export function PaymentRequestBuilder({ recipientAddress, compact = false }: PaymentRequestBuilderProps) {
+export function PaymentRequestBuilder({ walletId, compact = false }: PaymentRequestBuilderProps) {
   const QR_SIZE = 220;
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"native" | "reur">("native");
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
   const [showQrPopup, setShowQrPopup] = useState(false);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
   const hasAmount = amount.trim().length > 0;
 
   const requestLink = useMemo(() => {
-    const params = buildPaymentRequestParams(
-      {
-        to: recipientAddress,
-        amount: amount.trim() || undefined,
-        token,
-        note: note.trim() || undefined,
-      },
-      { includeDefaultToken: true }
-    );
-
-    const path = `/pay?${params.toString()}`;
+    if (!linkToken) return "";
+    const path = `/pay?ref=${encodeURIComponent(linkToken)}`;
     if (typeof window === "undefined") return path;
     return `${window.location.origin}${path}`;
-  }, [amount, note, recipientAddress, token]);
+  }, [linkToken]);
+
+  const generateLink = async () => {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const response = await fetch(`/api/proxy/v1/wallets/${encodeURIComponent(walletId)}/payment-link`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: amount.trim() || undefined,
+          token: token === "native" ? undefined : token,
+          note: note.trim() || undefined,
+          expires_hours: 24,
+          single_use: false,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setLinkToken(data.token);
+      } else {
+        const text = await response.text();
+        setGenError(text || "Failed to create payment link");
+      }
+    } catch {
+      setGenError("Failed to create payment link");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Reset the token when parameters change
+  useEffect(() => {
+    setLinkToken(null);
+  }, [amount, token, note]);
 
   const copyLink = async () => {
     if (compact && !hasAmount) return;
+    // If no opaque token yet, generate one first
+    if (!linkToken) {
+      await generateLink();
+      return;
+    }
     try {
       await navigator.clipboard.writeText(requestLink);
       setCopied(true);
@@ -49,6 +85,24 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
     } catch {
       setCopied(false);
     }
+  };
+
+  // After generating, auto-copy
+  useEffect(() => {
+    if (linkToken && !copied) {
+      navigator.clipboard.writeText(requestLink).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1400);
+      }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkToken]);
+
+  const openQr = async () => {
+    if (!linkToken) {
+      await generateLink();
+    }
+    setShowQrPopup(true);
   };
 
   useEffect(() => {
@@ -138,19 +192,21 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
             type="button"
             onClick={copyLink}
             className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}
-            disabled={!hasAmount}
+            disabled={!hasAmount || generating}
           >
-            {copied ? "Copied \u2713" : "Copy payment link"}
+            {generating ? "Generating…" : copied ? "Copied \u2713" : "Copy payment link"}
           </button>
           <button
             type="button"
-            onClick={() => setShowQrPopup(true)}
+            onClick={openQr}
             className="btn btn-secondary"
-            disabled={!hasAmount}
+            disabled={!hasAmount || generating}
           >
-            QR code
+            {generating ? "Generating…" : "QR code"}
           </button>
         </div>
+
+        {genError && <p className="text-error" style={{ margin: 0, textAlign: "center", fontSize: "0.875rem" }}>{genError}</p>}
 
         {qrPopup}
       </div>
@@ -203,13 +259,15 @@ export function PaymentRequestBuilder({ recipientAddress, compact = false }: Pay
       </div>
 
       <div className="row" style={{ marginTop: "0.75rem", gap: "0.5rem" }}>
-        <button type="button" onClick={copyLink} className={`btn ${copied ? "btn-ghost" : "btn-primary"}`}>
-          {copied ? "Copied \u2713" : "Copy link"}
+        <button type="button" onClick={copyLink} className={`btn ${copied ? "btn-ghost" : "btn-primary"}`} disabled={generating}>
+          {generating ? "Generating…" : copied ? "Copied \u2713" : "Copy link"}
         </button>
-        <button type="button" onClick={() => setShowQrPopup(true)} className="btn btn-secondary">
-          Generate QR
+        <button type="button" onClick={openQr} className="btn btn-secondary" disabled={generating}>
+          {generating ? "Generating…" : "Generate QR"}
         </button>
       </div>
+
+      {genError && <p className="text-error" style={{ margin: "0.5rem 0 0", fontSize: "0.875rem" }}>{genError}</p>}
 
       {qrPopup}
     </section>

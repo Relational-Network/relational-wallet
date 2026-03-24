@@ -4,7 +4,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WalletResponse } from "@/lib/api";
 import type { ParsedPaymentRequest } from "@/lib/paymentRequest";
 import { SendForm } from "@/app/wallets/[wallet_id]/send/SendForm";
@@ -15,13 +15,51 @@ interface PayEntryProps {
   warnings: string[];
 }
 
-export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
+export function PayEntry({ wallets, prefill: initialPrefill, warnings: initialWarnings }: PayEntryProps) {
   const [selectedWalletId, setSelectedWalletId] = useState<string>(wallets[0]?.wallet_id || "");
-  const [to, setTo] = useState(prefill.to ?? "");
-  const [amount, setAmount] = useState(prefill.amount ?? "");
-  const [token, setToken] = useState<"native" | "reur">(prefill.token);
-  const [note, setNote] = useState(prefill.note ?? "");
+  const [prefill, setPrefill] = useState(initialPrefill);
+  const [warnings, setWarnings] = useState(initialWarnings);
+  const [to, setTo] = useState(initialPrefill.to ?? "");
+  const [amount, setAmount] = useState(initialPrefill.amount ?? "");
+  const [token, setToken] = useState<"native" | "reur">(initialPrefill.token);
+  const [note, setNote] = useState(initialPrefill.note ?? "");
   const [showSendForm, setShowSendForm] = useState(false);
+  const [resolving, setResolving] = useState(false);
+
+  // Resolve opaque payment-link ref token on mount
+  useEffect(() => {
+    if (!initialPrefill.ref) return;
+    let cancelled = false;
+    setResolving(true);
+    fetch(`/api/proxy/v1/payment-link/${encodeURIComponent(initialPrefill.ref)}`, {
+      method: "GET",
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          const resolvedTo = data.public_address ?? "";
+          const resolvedAmount = data.amount ?? "";
+          const resolvedToken = data.token_type === "reur" ? "reur" as const : "native" as const;
+          const resolvedNote = data.note ?? "";
+          setTo(resolvedTo);
+          setAmount(resolvedAmount);
+          setToken(resolvedToken);
+          setNote(resolvedNote);
+          setPrefill({ to: resolvedTo, amount: resolvedAmount, token: resolvedToken, note: resolvedNote });
+        } else {
+          setWarnings((w) => [...w, "Payment link not found or expired."]);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setWarnings((w) => [...w, "Failed to resolve payment link."]);
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false);
+      });
+    return () => { cancelled = true; };
+  }, [initialPrefill.ref]);
 
   const canContinue = useMemo(
     () => Boolean(selectedWalletId && to.trim()),
@@ -83,6 +121,12 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
         <div style={{ textAlign: "center", marginBottom: "0.25rem" }}>
           <span className="badge badge-brand">Payment Request</span>
         </div>
+
+        {resolving ? (
+          <div className="card card-pad" style={{ textAlign: "center" }}>
+            <p className="text-muted">Resolving payment link…</p>
+          </div>
+        ) : null}
 
         {warnings.length > 0 ? (
           <div className="alert alert-warning">
@@ -177,7 +221,7 @@ export function PayEntry({ wallets, prefill, warnings }: PayEntryProps) {
                 type="button"
                 className="btn btn-primary"
                 onClick={openSendFlow}
-                disabled={!canContinue}
+                disabled={!canContinue || resolving}
                 style={{ marginTop: "0.5rem" }}
               >
                 Continue to send

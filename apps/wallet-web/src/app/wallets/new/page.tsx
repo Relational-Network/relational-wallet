@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
@@ -13,6 +13,7 @@ import { SimpleWalletShell } from "@/components/SimpleWalletShell";
 /**
  * Fast wallet creation route.
  * Optimized for clean-state onboarding after Clerk signup.
+ * Redirects immediately if the user already has a wallet.
  */
 export default function NewWalletPage() {
   const router = useRouter();
@@ -21,6 +22,25 @@ export default function NewWalletPage() {
   const [label, setLabel] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  // Redirect immediately if user already has a wallet
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await apiClient.listWallets(token || "");
+        if (cancelled) return;
+        if (res.success && res.data.wallets.length > 0) {
+          router.replace(`/wallets/${res.data.wallets[0].wallet_id}`);
+          return;
+        }
+      } catch { /* proceed to show form */ }
+      if (!cancelled) setChecking(false);
+    })();
+    return () => { cancelled = true; };
+  }, [getToken, router]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -47,6 +67,13 @@ export default function NewWalletPage() {
         return;
       }
 
+      if (response.error.status === 409) {
+        setError("You already have a wallet. Only one wallet per account is allowed.");
+        // Redirect to wallet list after a brief delay
+        setTimeout(() => router.push("/wallets"), 2000);
+        return;
+      }
+
       if (response.error.status === 403) {
         setError("Access denied. You do not have permission to create wallets.");
       } else {
@@ -70,6 +97,11 @@ export default function NewWalletPage() {
         </>
       }
     >
+      {checking ? (
+        <div className="card card-pad" style={{ maxWidth: "38rem", textAlign: "center" }}>
+          <p className="text-muted">Loading…</p>
+        </div>
+      ) : (
       <div className="card card-pad" style={{ maxWidth: "38rem" }}>
         <form onSubmit={handleSubmit} className="stack">
           <div className="field">
@@ -100,6 +132,7 @@ export default function NewWalletPage() {
           </p>
         </form>
       </div>
+      )}
     </SimpleWalletShell>
   );
 }

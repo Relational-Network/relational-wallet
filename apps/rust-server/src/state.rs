@@ -36,6 +36,7 @@
 use std::sync::Arc;
 
 use crate::auth::JwksManager;
+use crate::providers::clerk::ClerkClient;
 use crate::storage::tx_cache::TxCache;
 use crate::storage::tx_database::TxDatabase;
 use crate::storage::EncryptedStorage;
@@ -119,6 +120,18 @@ pub struct AppState {
 
     /// In-process LRU cache for hot wallet transaction lookups.
     pub tx_cache: Option<Arc<TxCache>>,
+
+    /// Clerk Backend API client for fetching user emails.
+    ///
+    /// `None` when `CLERK_SECRET_KEY` is not set (dev mode: email
+    /// features disabled).
+    pub clerk_client: Option<ClerkClient>,
+
+    /// Node-local HMAC key for email lookup key derivation.
+    ///
+    /// Sealed by Gramine encrypted FS — never leaves the enclave.
+    /// Loaded from `/data/system/email_hmac_key.bin` on startup.
+    pub email_hmac_key: [u8; 32],
 }
 
 impl AppState {
@@ -141,6 +154,8 @@ impl AppState {
             auth_config: AuthConfig::default(),
             tx_db: None,
             tx_cache: None,
+            clerk_client: None,
+            email_hmac_key: [0u8; 32],
         }
     }
 
@@ -168,6 +183,18 @@ impl AppState {
     /// Configure the transaction cache.
     pub fn with_tx_cache(mut self, tx_cache: Arc<TxCache>) -> Self {
         self.tx_cache = Some(tx_cache);
+        self
+    }
+
+    /// Configure the Clerk Backend API client.
+    pub fn with_clerk_client(mut self, clerk_client: ClerkClient) -> Self {
+        self.clerk_client = Some(clerk_client);
+        self
+    }
+
+    /// Configure the email HMAC key.
+    pub fn with_email_hmac_key(mut self, key: [u8; 32]) -> Self {
+        self.email_hmac_key = key;
         self
     }
 

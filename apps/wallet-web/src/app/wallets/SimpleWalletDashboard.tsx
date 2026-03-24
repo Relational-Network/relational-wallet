@@ -805,6 +805,12 @@ export function SimpleWalletDashboard({
       body: JSON.stringify({ label }),
     });
 
+    if (response.status === 409) {
+      // One-wallet-per-user limit reached — refresh to show existing wallet
+      await fetchWallets();
+      throw new Error("You already have a wallet. Only one wallet per account is allowed.");
+    }
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `Create wallet failed (${response.status})`);
@@ -1090,7 +1096,7 @@ export function SimpleWalletDashboard({
             walletId={selectedWallet.wallet_id}
             publicAddress={selectedWallet.public_address}
             walletLabel={selectedWallet.label ?? null}
-            shortcuts={bookmarks.map((b) => ({ id: b.id, name: b.name, address: b.address }))}
+            shortcuts={bookmarks.filter((b) => !!b.address).map((b) => ({ id: b.id, name: b.name, address: b.address! }))}
             mode="dialog"
             onRequestClose={() => setActiveDialog(null)}
             onComplete={() => {
@@ -1115,7 +1121,7 @@ export function SimpleWalletDashboard({
             <AddressQRCode address={selectedWallet.public_address} size={180} />
             <CopyAddress address={selectedWallet.public_address} />
             <hr className="divider" style={{ width: "100%" }} />
-            <PaymentRequestBuilder recipientAddress={selectedWallet.public_address} compact />
+            <PaymentRequestBuilder walletId={selectedWallet.wallet_id} compact />
           </div>
         </ActionDialog>
       ) : null}
@@ -1155,7 +1161,7 @@ export function SimpleWalletDashboard({
       </ActionDialog>
 
       <CreateWalletDialog
-        open={activeDialog === "create_wallet"}
+        open={activeDialog === "create_wallet" && wallets.length === 0}
         onClose={() => setActiveDialog(null)}
         onCreateWallet={createWallet}
       />

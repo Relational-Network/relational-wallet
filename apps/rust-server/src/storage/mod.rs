@@ -58,6 +58,7 @@ pub use repository::{
     FiatServiceWalletMetadata, FiatServiceWalletRepository, InviteRepository, RecurringRepository,
     StoredBookmark, StoredFiatRequest, StoredTransaction, TokenType, TxStatus, WalletMetadata,
     WalletRepository, WalletResponse, WalletStatus,
+    EmailIndexRepository, PaymentLinkData, PaymentLinkRepository, RecipientType,
 };
 pub use tx_cache::TxCache;
 pub use tx_database::TxDatabase;

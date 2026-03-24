@@ -18,10 +18,11 @@ use crate::{
         avax_fuji, REUR_TOKEN,
     },
     error::ApiError,
+    providers::email,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, StoredTransaction, TokenType, TxStatus,
-        WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, EmailIndexRepository, StoredTransaction,
+        TokenType, TxStatus, WalletRepository, WalletStatus,
     },
 };
 
@@ -32,8 +33,12 @@ use crate::{
 /// Request to estimate gas for a transaction.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct EstimateGasRequest {
-    /// Recipient address (0x + 40 hex chars)
-    pub to: String,
+    /// Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    /// SHA-256 hash of recipient's email (alternative to `to`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_email_hash: Option<String>,
     /// Amount to send in human-readable format (e.g., "1.5")
     pub amount: String,
     /// Token type: "native" for AVAX or contract address for ERC-20
@@ -70,8 +75,12 @@ pub struct EstimateGasResponse {
 /// Request to send a transaction.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct SendTransactionRequest {
-    /// Recipient address (0x + 40 hex chars)
-    pub to: String,
+    /// Recipient address (0x + 40 hex chars). Required unless `to_email_hash` is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    /// SHA-256 hash of recipient's email (alternative to `to`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_email_hash: Option<String>,
     /// Amount to send in human-readable format (e.g., "1.5")
     pub amount: String,
     /// Token type: "native" for AVAX or contract address for ERC-20
@@ -235,6 +244,59 @@ fn to_summary_with_direction(tx: &StoredTransaction, direction: &str) -> Transac
 // Handlers
 // =============================================================================
 
+/// Resolve the recipient from either `to` address or `to_email_hash`.
+///
+/// Returns the resolved on-chain address. If `to_email_hash` is provided,
+/// computes the HMAC lookup key, looks up the email→wallet mapping, then
+/// fetches the wallet's public address.
+fn resolve_recipient(
+    to: &Option<String>,
+    to_email_hash: &Option<String>,
+    state: &AppState,
+) -> Result<String, ApiError> {
+    match (to.as_deref(), to_email_hash.as_deref()) {
+        // Direct address provided
+        (Some(addr), _) => {
+            validate_address(addr)?;
+            Ok(addr.to_string())
+        }
+        // Email hash provided — resolve to address
+        (None, Some(hash)) => {
+            if !email::validate_email_hash(hash) {
+                return Err(ApiError::bad_request(
+                    "to_email_hash must be 64 lowercase hex characters",
+                ));
+            }
+            let tx_db = state.tx_db.as_ref().ok_or_else(|| {
+                ApiError::internal("Transaction database not available")
+            })?;
+            let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, hash);
+            let email_repo = EmailIndexRepository::new(tx_db.clone());
+            let entry = email_repo
+                .lookup(&lookup_key)
+                .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?
+                .ok_or_else(|| {
+                    ApiError::not_found("No wallet found for this email address")
+                })?;
+            let storage = state.storage();
+            let wallet_repo = WalletRepository::new(&storage);
+            let meta = wallet_repo.get(&entry.wallet_id).map_err(|_| {
+                ApiError::not_found("Wallet for email recipient not found")
+            })?;
+            if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
+                return Err(ApiError::not_found(
+                    "Recipient wallet is not active",
+                ));
+            }
+            Ok(meta.public_address)
+        }
+        // Neither provided
+        (None, None) => Err(ApiError::bad_request(
+            "Either 'to' or 'to_email_hash' must be provided",
+        )),
+    }
+}
+
 /// Estimate gas for a transaction.
 ///
 /// Returns estimated gas limit and cost before sending.
@@ -262,8 +324,8 @@ pub async fn estimate_gas(
     Path(wallet_id): Path<String>,
     Json(request): Json<EstimateGasRequest>,
 ) -> Result<Json<EstimateGasResponse>, ApiError> {
-    // Validate recipient address
-    validate_address(&request.to)?;
+    // Resolve recipient: either direct address or email hash → address
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
 
     // Get wallet from storage
     let storage = state.storage();
@@ -312,13 +374,13 @@ pub async fn estimate_gas(
     // Estimate gas
     let estimate = if request.token == "native" {
         tx_builder
-            .estimate_native_transfer(&wallet.public_address, &request.to, amount_wei)
+            .estimate_native_transfer(&wallet.public_address, &to_address, amount_wei)
             .await
     } else {
         tx_builder
             .estimate_token_transfer(
                 &wallet.public_address,
-                &request.to,
+                &to_address,
                 &request.token,
                 amount_wei,
             )
@@ -363,8 +425,8 @@ pub async fn send_transaction(
     Path(wallet_id): Path<String>,
     Json(request): Json<SendTransactionRequest>,
 ) -> Result<Json<SendTransactionResponse>, ApiError> {
-    // Validate recipient address
-    validate_address(&request.to)?;
+    // Resolve recipient: either direct address or email hash → address
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
 
     // Get wallet from storage
     let storage = state.storage();
@@ -428,12 +490,12 @@ pub async fn send_transaction(
     // Send transaction
     let result = if request.token == "native" {
         tx_builder
-            .send_native(&request.to, amount_wei, gas_limit, max_priority_fee)
+            .send_native(&to_address, amount_wei, gas_limit, max_priority_fee)
             .await
     } else {
         tx_builder
             .send_token(
-                &request.to,
+                &to_address,
                 &request.token,
                 amount_wei,
                 gas_limit,
@@ -457,44 +519,38 @@ pub async fn send_transaction(
         TokenType::Erc20(request.token.clone())
     };
 
-    // If recipient belongs to an internal wallet, mirror a transaction record
-    // to that wallet so history lookups stay wallet-local and scalable.
-    let recipient_wallet_id = wallet_repo.list_all_wallets().ok().and_then(|wallets| {
-        wallets
-            .into_iter()
-            .find(|w| {
-                w.status != WalletStatus::Deleted
-                    && w.public_address.eq_ignore_ascii_case(&request.to)
-            })
-            .map(|w| w.wallet_id)
-    });
+    // O(1) lookup: check if recipient belongs to an internal wallet via address_wallet_map.
+    let tx_db = state
+        .tx_db
+        .as_ref()
+        .expect("transaction database must be configured");
+    let recipient_wallet_id = tx_db
+        .get_wallet_id_for_address(&to_address)
+        .ok()
+        .flatten();
 
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),
         wallet_id.clone(),
         recipient_wallet_id.clone().filter(|id| id != &wallet_id),
         wallet.public_address.clone(),
-        request.to.clone(),
+        to_address.clone(),
         request.amount.clone(),
         token_type.clone(),
         request.network.clone(),
         result.explorer_url.clone(),
     );
 
-    let tx_db = state
-        .tx_db
-        .as_ref()
-        .expect("transaction database must be configured");
     let mut directions = vec![(wallet.public_address.clone(), "sent")];
     if let Some(ref _rcpt_id) = recipient_wallet_id {
-        directions.push((request.to.clone(), "received"));
+        directions.push((to_address.clone(), "received"));
     }
     if let Err(e) = tx_db.upsert_transaction(&stored_tx, &directions) {
         tracing::warn!(error = %e, "Failed to store transaction in tx database");
     }
     if let Some(tx_cache) = &state.tx_cache {
         tx_cache.invalidate(&wallet.public_address);
-        tx_cache.invalidate(&request.to);
+        tx_cache.invalidate(&to_address);
     }
 
     // Mirror recipient-side transaction record for internal transfers.
@@ -505,18 +561,18 @@ pub async fn send_transaction(
                 recipient_id.clone(),
                 Some(wallet_id.clone()),
                 wallet.public_address.clone(),
-                request.to.clone(),
+                to_address.clone(),
                 request.amount.clone(),
                 token_type,
                 request.network.clone(),
                 result.explorer_url.clone(),
             );
-            let directions = vec![(request.to.clone(), "received")];
+            let directions = vec![(to_address.clone(), "received")];
             if let Err(e) = tx_db.upsert_transaction(&mirrored_tx, &directions) {
                 tracing::warn!(error = %e, "Failed to store mirrored tx in tx database");
             }
             if let Some(tx_cache) = &state.tx_cache {
-                tx_cache.invalidate(&request.to);
+                tx_cache.invalidate(&to_address);
             }
         }
     }
@@ -528,7 +584,7 @@ pub async fn send_transaction(
         .with_resource(&wallet_id, "wallet")
         .with_details(serde_json::json!({
             "tx_hash": result.tx_hash,
-            "to": request.to,
+            "to": to_address,
             "amount": request.amount,
             "token": request.token,
             "network": request.network,
@@ -868,6 +924,7 @@ mod tests {
             created_at: Utc::now(),
             status: WalletStatus::Active,
             label: None,
+            email_lookup_key: None,
         }
     }
 

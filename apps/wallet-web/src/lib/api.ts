@@ -37,7 +37,8 @@ export type WalletStatus = components["schemas"]["WalletStatus"];
 
 // Transaction types (manually defined until OpenAPI is regenerated)
 export interface EstimateGasRequest {
-  to: string;
+  to?: string;
+  to_email_hash?: string;
   amount: string;
   token: string; // "native" or token contract address
   network?: string; // "fuji" only
@@ -70,7 +71,8 @@ export interface BalanceResponse {
 }
 
 export interface SendTransactionRequest {
-  to: string;
+  to?: string;
+  to_email_hash?: string;
   amount: string;
   token: string; // "native" or token contract address
   network?: string; // "fuji" only
@@ -171,6 +173,38 @@ export interface FiatProviderSummary {
 export interface FiatProviderListResponse {
   default_provider: string;
   providers: FiatProviderSummary[];
+}
+
+// =============================================================================
+// Email Resolution Types
+// =============================================================================
+
+export interface ResolveEmailResponse {
+  found: boolean;
+}
+
+// =============================================================================
+// Payment Link Types
+// =============================================================================
+
+export interface CreatePaymentLinkRequest {
+  amount?: string;
+  token?: string;
+  note?: string;
+  expires_hours?: number;
+  single_use?: boolean;
+}
+
+export interface CreatePaymentLinkResponse {
+  token: string;
+  expires_at: string;
+}
+
+export interface PaymentLinkInfo {
+  public_address: string;
+  amount?: string;
+  token_type?: string;
+  note?: string;
 }
 
 // =============================================================================
@@ -676,6 +710,60 @@ export class WalletApiClient {
       method: "GET",
       token,
     });
+  }
+
+  // ===========================================================================
+  // Email Resolution Endpoints
+  // ===========================================================================
+
+  /**
+   * Check if a wallet exists for a given email hash.
+   */
+  async resolveEmail(
+    token: string,
+    emailHash: string
+  ): Promise<ApiResponse<ResolveEmailResponse>> {
+    return this.request<ResolveEmailResponse>("/v1/resolve/email", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ email_hash: emailHash }),
+    });
+  }
+
+  // ===========================================================================
+  // Payment Link Endpoints
+  // ===========================================================================
+
+  /**
+   * Create a payment link for a wallet.
+   */
+  async createPaymentLink(
+    token: string,
+    walletId: string,
+    data: CreatePaymentLinkRequest
+  ): Promise<ApiResponse<CreatePaymentLinkResponse>> {
+    return this.request<CreatePaymentLinkResponse>(
+      `/v1/wallets/${encodeURIComponent(walletId)}/payment-link`,
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Resolve a payment link token (no auth required).
+   */
+  async resolvePaymentLink(
+    linkToken: string
+  ): Promise<ApiResponse<PaymentLinkInfo>> {
+    return this.request<PaymentLinkInfo>(
+      `/v1/payment-link/${encodeURIComponent(linkToken)}`,
+      {
+        method: "GET",
+      }
+    );
   }
 }
 

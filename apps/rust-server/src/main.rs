@@ -165,18 +165,32 @@ async fn main() {
     info!(path = %tx_db_path.display(), "Transaction database opened");
 
     // ========== Register wallet addresses in tx_db ==========
-    // Ensures the address→wallet_id map is always consistent, even after
-    // redb recreation.  This is idempotent and very cheap.
+    // Ensures the address→wallet_id, user→wallet, and email_lookup maps
+    // are always consistent, even after redb recreation.
+    // This is idempotent and very cheap.
     {
         use storage::repository::WalletRepository;
         let repo = WalletRepository::new(&encrypted_storage);
         let mut registered = 0u32;
         if let Ok(wallets) = repo.list_all_wallets() {
             for w in &wallets {
+                // address → wallet_id
                 if let Err(e) = tx_db.register_address(&w.public_address, &w.wallet_id) {
                     warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register wallet address");
                 } else {
                     registered += 1;
+                }
+                // user_id → wallet_id (only for non-deleted wallets)
+                if w.status != storage::WalletStatus::Deleted {
+                    if let Err(e) = tx_db.register_user_wallet(&w.owner_user_id, &w.wallet_id) {
+                        warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register user→wallet mapping");
+                    }
+                    // email_lookup_key → { wallet_id, public_address }
+                    if let Some(ref lookup_key) = w.email_lookup_key {
+                        if let Err(e) = tx_db.register_email_lookup(lookup_key, &w.wallet_id, &w.public_address) {
+                            warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register email lookup");
+                        }
+                    }
                 }
             }
         }
@@ -195,9 +209,61 @@ async fn main() {
         info!(count = registered, "Wallet addresses registered in tx_db");
     }
 
-    let state = AppState::new(encrypted_storage)
+    // ========== Cleanup Expired Payment Links ==========
+    {
+        use storage::PaymentLinkRepository;
+        let repo = PaymentLinkRepository::new(tx_db.clone());
+        match repo.cleanup_expired() {
+            Ok(0) => {}
+            Ok(n) => info!(count = n, "Removed expired payment links"),
+            Err(e) => warn!(error = %e, "Failed to cleanup expired payment links"),
+        }
+    }
+
+    // ========== Load or Generate Email HMAC Key ==========
+    let email_hmac_key: [u8; 32] = {
+        let key_path = encrypted_storage.paths().root().join("system/email_hmac_key.bin");
+        if let Some(parent) = key_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        if key_path.exists() {
+            let bytes = std::fs::read(&key_path)
+                .expect("Failed to read email HMAC key");
+            let mut key = [0u8; 32];
+            if bytes.len() != 32 {
+                panic!("email_hmac_key.bin has wrong length (expected 32, got {})", bytes.len());
+            }
+            key.copy_from_slice(&bytes);
+            info!("Loaded email HMAC key from {}", key_path.display());
+            key
+        } else {
+            use k256::elliptic_curve::rand_core::{OsRng, RngCore};
+            let mut key = [0u8; 32];
+            OsRng.fill_bytes(&mut key);
+            std::fs::write(&key_path, &key)
+                .expect("Failed to write email HMAC key");
+            info!("Generated and stored new email HMAC key");
+            key
+        }
+    };
+
+    // ========== Initialize Clerk Backend API Client ==========
+    let clerk_client = env::var("CLERK_SECRET_KEY").ok().map(|secret_key| {
+        info!("Clerk Backend API client initialized");
+        providers::clerk::ClerkClient::new(secret_key)
+    });
+    if clerk_client.is_none() {
+        warn!("CLERK_SECRET_KEY not set — email features disabled");
+    }
+
+    let mut state = AppState::new(encrypted_storage)
         .with_auth_config(auth_config)
-        .with_tx_db(tx_db.clone());
+        .with_tx_db(tx_db.clone())
+        .with_email_hmac_key(email_hmac_key);
+
+    if let Some(clerk) = clerk_client {
+        state = state.with_clerk_client(clerk);
+    }
 
     // Create LRU cache
     let tx_cache = Arc::new(storage::TxCache::new(1000, Duration::from_secs(300)));
