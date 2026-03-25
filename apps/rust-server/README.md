@@ -168,7 +168,8 @@ Key targets:
 - `make` — Build SGX artifacts (`rust-server.manifest`, `.manifest.sgx`, `.sig`).
 - `make start-rust-server` — Launch inside SGX enclave (loads `.env`, validates no `<...>` placeholders).
 - `make docker-build` / `make docker-run` / `make docker-stop` — Docker SGX flow.
-- `make docker-sigstruct` — Extract and inspect Docker image SIGSTRUCT.
+- `make docker-data-dir` — Pre-create the host bind mount with UID/GID `10001`.
+- `make show-measurements` / `make docker-sigstruct` — Inspect local or Docker SIGSTRUCT measurements.
 - `make clean` / `make distclean` — Clean generated artifacts (`distclean` also removes `target/` and `Cargo.lock`).
 
 ## Docker (SGX with DCAP)
@@ -184,6 +185,29 @@ The container:
 - Serves HTTPS on `0.0.0.0:8080` (port 8080 published)
 - Uses your host SGX signing key from `$HOME/.config/gramine/enclave-key.pem`
 - Generates RA-TLS certificates with DCAP attestation at startup
+- Drops privileges to a fixed non-root runtime user (`relational`, UID/GID `10001`) after AESM bootstrap
+
+### Production measurement pinning
+
+`apps/rust-server/measurements.toml` is the audit file for the production SGX
+build. It keeps only:
+- pinned build inputs that affect the enclave artifact
+- core SIGSTRUCT fields extracted from the signed Docker image
+
+Refresh it with:
+
+```bash
+cd apps/rust-server
+make docker-build
+make docker-sigstruct
+```
+
+Then copy the core values into `apps/rust-server/measurements.toml`.
+`make docker-sigstruct` prints the `[enclave]` block in the same field order.
+
+CI in `.github/workflows/rust-server-ci.yml` builds the signed image with the
+`ENCLAVE_SIGNING_KEY` secret and compares the built `mr_enclave` against the
+pinned value in that file.
 
 See [docker/README.md](docker/README.md) for DCAP configuration details.
 

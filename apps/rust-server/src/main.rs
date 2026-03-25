@@ -24,9 +24,9 @@ mod storage;
 mod tls;
 
 #[cfg(not(test))]
-use std::{env, net::SocketAddr, sync::Arc, time::Duration};
-#[cfg(not(test))]
 use axum_server::Handle;
+#[cfg(not(test))]
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 #[cfg(not(test))]
 use api::router;
@@ -187,7 +187,9 @@ async fn main() {
                     }
                     // email_lookup_key → { wallet_id, public_address }
                     if let Some(ref lookup_key) = w.email_lookup_key {
-                        if let Err(e) = tx_db.register_email_lookup(lookup_key, &w.wallet_id, &w.public_address) {
+                        if let Err(e) =
+                            tx_db.register_email_lookup(lookup_key, &w.wallet_id, &w.public_address)
+                        {
                             warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register email lookup");
                         }
                     }
@@ -222,16 +224,21 @@ async fn main() {
 
     // ========== Load or Generate Email HMAC Key ==========
     let email_hmac_key: [u8; 32] = {
-        let key_path = encrypted_storage.paths().root().join("system/email_hmac_key.bin");
+        let key_path = encrypted_storage
+            .paths()
+            .root()
+            .join("system/email_hmac_key.bin");
         if let Some(parent) = key_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
         if key_path.exists() {
-            let bytes = std::fs::read(&key_path)
-                .expect("Failed to read email HMAC key");
+            let bytes = std::fs::read(&key_path).expect("Failed to read email HMAC key");
             let mut key = [0u8; 32];
             if bytes.len() != 32 {
-                panic!("email_hmac_key.bin has wrong length (expected 32, got {})", bytes.len());
+                panic!(
+                    "email_hmac_key.bin has wrong length (expected 32, got {})",
+                    bytes.len()
+                );
             }
             key.copy_from_slice(&bytes);
             info!("Loaded email HMAC key from {}", key_path.display());
@@ -240,8 +247,7 @@ async fn main() {
             use k256::elliptic_curve::rand_core::{OsRng, RngCore};
             let mut key = [0u8; 32];
             OsRng.fill_bytes(&mut key);
-            std::fs::write(&key_path, &key)
-                .expect("Failed to write email HMAC key");
+            std::fs::write(&key_path, &key).expect("Failed to write email HMAC key");
             info!("Generated and stored new email HMAC key");
             key
         }
@@ -292,11 +298,8 @@ async fn main() {
 
     // ========== Spawn Fiat Request Poller ==========
     {
-        let fiat_poller = fiat_poller::FiatPoller::new(
-            state.storage().clone(),
-            tx_db.clone(),
-            tx_cache.clone(),
-        );
+        let fiat_poller =
+            fiat_poller::FiatPoller::new(state.storage().clone(), tx_db.clone(), tx_cache.clone());
         let shutdown_clone = shutdown.clone();
         tokio::spawn(async move {
             fiat_poller.run(shutdown_clone).await;

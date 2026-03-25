@@ -76,6 +76,7 @@ ARG RUSTUP_SHA256=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa
 ENV CARGO_HOME=/opt/cargo
 ENV RUSTUP_HOME=/opt/rustup
 ENV PATH=/opt/cargo/bin:${PATH}
+ENV RUSTC_WRAPPER=
 ENV SOURCE_DATE_EPOCH=1704067200
 ENV TZ=UTC
 ENV LANG=C.UTF-8
@@ -252,12 +253,33 @@ RUN --mount=type=secret,id=sgx-key,required=true \
     gramine-sgx-sign \
         --manifest /app/rust-server.manifest \
         --output /app/rust-server.manifest.sgx \
-        --key /run/secrets/sgx-key
+        --key /run/secrets/sgx-key \
+        --date 0000-00-00
 
-RUN mkdir -p /var/run/aesmd/ /data
+# Fixed service identity: deterministic UID/GID across every build.
+ARG APP_USER=relational
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+# Keep the container bootstrap as root so we can start AESM, then drop
+# privileges in /start.sh before launching gramine-sgx.
+RUN groupadd --gid ${APP_GID} ${APP_USER} && \
+    useradd --uid ${APP_UID} --gid ${APP_GID} \
+        --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin ${APP_USER} && \
+    mkdir -p /var/run/aesmd/ /data && \
+    chown root:root /var/run/aesmd && \
+    chmod 0755 /var/run/aesmd && \
+    chown ${APP_UID}:${APP_GID} /data && \
+    chmod 0750 /data && \
+    command -v getent >/dev/null && \
+    command -v groupadd >/dev/null && \
+    command -v usermod >/dev/null && \
+    (command -v setpriv >/dev/null || command -v runuser >/dev/null || command -v su >/dev/null)
 
 COPY docker/restart_aesm.sh /restart_aesm.sh
 COPY docker/start.sh /start.sh
+RUN chmod 0755 /restart_aesm.sh /start.sh
 
 ENV HOST=0.0.0.0
 EXPOSE 8080

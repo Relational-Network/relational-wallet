@@ -77,15 +77,17 @@ pub async fn create_payment_link(
 
     let expires_at = Utc::now() + Duration::hours(expires_hours as i64);
 
-    let (recipient_type, public_address, to_email_hash, email_display) =
-        match request.recipient_type.as_str() {
-            "email" => {
-                let clerk = state.clerk_client.as_ref().ok_or_else(|| {
-                    ApiError::service_unavailable(
-                        "Email payment links require Clerk verification support",
-                    )
-                })?;
-                let normalized_email = clerk
+    let (recipient_type, public_address, to_email_hash, email_display) = match request
+        .recipient_type
+        .as_str()
+    {
+        "email" => {
+            let clerk = state.clerk_client.as_ref().ok_or_else(|| {
+                ApiError::service_unavailable(
+                    "Email payment links require Clerk verification support",
+                )
+            })?;
+            let normalized_email = clerk
                     .get_user_email(&user.user_id)
                     .await
                     .map_err(|e| match e {
@@ -101,50 +103,54 @@ pub async fn create_payment_link(
                         )),
                     })?;
 
-                let email_hash = request.to_email_hash.ok_or_else(|| {
-                    ApiError::bad_request("to_email_hash is required for email payment links")
-                })?;
-                if !email::validate_email_hash(&email_hash) {
-                    return Err(ApiError::bad_request(
-                        "to_email_hash must be 64 hex characters",
-                    ));
-                }
-
-                let email_display = request.email_display.ok_or_else(|| {
-                    ApiError::bad_request("email_display is required for email payment links")
-                })?;
-
-                let expected_lookup_key = wallet.email_lookup_key.as_ref().ok_or_else(|| {
-                    ApiError::unprocessable("Wallet is not linked to a verified email")
-                })?;
-                let expected_email_hash = email::sha256_email(&normalized_email);
-                if expected_email_hash != email_hash {
-                    return Err(ApiError::unprocessable(
-                        "Email payment links must use your current verified primary Clerk email",
-                    ));
-                }
-                let actual_lookup_key =
-                    email::hmac_lookup_key(&state.email_hmac_key, &email_hash);
-                if &actual_lookup_key != expected_lookup_key {
-                    return Err(ApiError::unprocessable(
-                        "Email payment links must use the wallet owner's verified email",
-                    ));
-                }
-
-                ("email".to_string(), None, Some(email_hash), Some(email_display))
-            }
-            "address" => (
-                "address".to_string(),
-                Some(wallet.public_address.clone()),
-                None,
-                None,
-            ),
-            _ => {
+            let email_hash = request.to_email_hash.ok_or_else(|| {
+                ApiError::bad_request("to_email_hash is required for email payment links")
+            })?;
+            if !email::validate_email_hash(&email_hash) {
                 return Err(ApiError::bad_request(
-                    "recipient_type must be 'address' or 'email'",
-                ))
+                    "to_email_hash must be 64 hex characters",
+                ));
             }
-        };
+
+            let email_display = request.email_display.ok_or_else(|| {
+                ApiError::bad_request("email_display is required for email payment links")
+            })?;
+
+            let expected_lookup_key = wallet.email_lookup_key.as_ref().ok_or_else(|| {
+                ApiError::unprocessable("Wallet is not linked to a verified email")
+            })?;
+            let expected_email_hash = email::sha256_email(&normalized_email);
+            if expected_email_hash != email_hash {
+                return Err(ApiError::unprocessable(
+                    "Email payment links must use your current verified primary Clerk email",
+                ));
+            }
+            let actual_lookup_key = email::hmac_lookup_key(&state.email_hmac_key, &email_hash);
+            if &actual_lookup_key != expected_lookup_key {
+                return Err(ApiError::unprocessable(
+                    "Email payment links must use the wallet owner's verified email",
+                ));
+            }
+
+            (
+                "email".to_string(),
+                None,
+                Some(email_hash),
+                Some(email_display),
+            )
+        }
+        "address" => (
+            "address".to_string(),
+            Some(wallet.public_address.clone()),
+            None,
+            None,
+        ),
+        _ => {
+            return Err(ApiError::bad_request(
+                "recipient_type must be 'address' or 'email'",
+            ))
+        }
+    };
 
     let link_data = PaymentLinkData {
         wallet_id: wallet_id.clone(),

@@ -14,8 +14,8 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     auth::Auth,
     blockchain::{
-        ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
-        avax_fuji, REUR_TOKEN,
+        avax_fuji, ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient,
+        TxBuilder, REUR_TOKEN,
     },
     error::ApiError,
     providers::email,
@@ -267,26 +267,23 @@ fn resolve_recipient(
                     "to_email_hash must be 64 lowercase hex characters",
                 ));
             }
-            let tx_db = state.tx_db.as_ref().ok_or_else(|| {
-                ApiError::internal("Transaction database not available")
-            })?;
+            let tx_db = state
+                .tx_db
+                .as_ref()
+                .ok_or_else(|| ApiError::internal("Transaction database not available"))?;
             let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, hash);
             let email_repo = EmailIndexRepository::new(tx_db.clone());
             let entry = email_repo
                 .lookup(&lookup_key)
                 .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?
-                .ok_or_else(|| {
-                    ApiError::not_found("No wallet found for this email address")
-                })?;
+                .ok_or_else(|| ApiError::not_found("No wallet found for this email address"))?;
             let storage = state.storage();
             let wallet_repo = WalletRepository::new(&storage);
-            let meta = wallet_repo.get(&entry.wallet_id).map_err(|_| {
-                ApiError::not_found("Wallet for email recipient not found")
-            })?;
+            let meta = wallet_repo
+                .get(&entry.wallet_id)
+                .map_err(|_| ApiError::not_found("Wallet for email recipient not found"))?;
             if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
-                return Err(ApiError::not_found(
-                    "Recipient wallet is not active",
-                ));
+                return Err(ApiError::not_found("Recipient wallet is not active"));
             }
             Ok(meta.public_address)
         }
@@ -524,10 +521,7 @@ pub async fn send_transaction(
         .tx_db
         .as_ref()
         .expect("transaction database must be configured");
-    let recipient_wallet_id = tx_db
-        .get_wallet_id_for_address(&to_address)
-        .ok()
-        .flatten();
+    let recipient_wallet_id = tx_db.get_wallet_id_for_address(&to_address).ok().flatten();
 
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),
@@ -953,8 +947,12 @@ mod tests {
                 b"test-key-b",
             )
             .unwrap();
-        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
-        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
+        tx_db
+            .register_address(sender_addr, sender_wallet_id)
+            .unwrap();
+        tx_db
+            .register_address(receiver_addr, receiver_wallet_id)
+            .unwrap();
 
         let sender_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -1023,8 +1021,12 @@ mod tests {
                 b"test-key-b2",
             )
             .unwrap();
-        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
-        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
+        tx_db
+            .register_address(sender_addr, sender_wallet_id)
+            .unwrap();
+        tx_db
+            .register_address(receiver_addr, receiver_wallet_id)
+            .unwrap();
 
         let mut receiver_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -1041,10 +1043,7 @@ mod tests {
         receiver_tx.block_number = None;
         receiver_tx.gas_used = None;
         tx_db
-            .upsert_transaction(
-                &receiver_tx,
-                &[(receiver_addr.to_string(), "received")],
-            )
+            .upsert_transaction(&receiver_tx, &[(receiver_addr.to_string(), "received")])
             .unwrap();
 
         let response = get_transaction_status(

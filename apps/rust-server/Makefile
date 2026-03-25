@@ -5,7 +5,9 @@
 # This build requires Intel SGX hardware and DCAP infrastructure.
 # No non-SGX builds are supported.
 
-ARCH_LIBDIR ?= /lib/$(shell $(CC) -dumpmachine)
+# Use fixed x86_64-linux-gnu path (clang may report x86_64-pc-linux-gnu,
+# which does not exist on Ubuntu/Gramine systems).
+ARCH_LIBDIR ?= /lib/x86_64-linux-gnu
 
 # Find gramine-ratls binary (required for RA-TLS)
 ENTRYPOINT ?= $(firstword $(wildcard /usr/bin/gramine-ratls /usr/local/bin/gramine-ratls /bin/gramine-ratls))
@@ -18,6 +20,9 @@ APP_DIR = $(abspath $(patsubst %/,%,$(dir $(SELF_EXE))))
 # Directory for encrypted persistent storage (on host)
 # This will be mounted as /data inside the enclave with Gramine encryption
 DATA_DIR ?= $(abspath data)
+DOCKER_APP_UID ?= 10001
+DOCKER_APP_GID ?= 10001
+SIGNING_KEY ?= $(HOME)/.config/gramine/enclave-key.pem
 
 # RA type is always DCAP - no EPID support
 RA_TYPE = dcap
@@ -51,8 +56,11 @@ help:
 	@echo "  make                   - build SGX artifacts (.manifest/.sgx/.sig)"
 	@echo "  make start-rust-server - run inside SGX enclave (loads .env if present)"
 	@echo "  make docker-build      - build SGX Docker image"
+	@echo "  make docker-data-dir   - create /data bind mount with non-root container ownership"
 	@echo "  make docker-run        - run SGX Docker image"
 	@echo "  make docker-stop       - stop running SGX Docker container"
+	@echo "  make show-measurements - inspect local SIGSTRUCT measurements"
+	@echo "  make verify-mrenclave  - build signed Docker image locally and compare against measurements.toml"
 	@echo "  make docker-sigstruct  - inspect SIGSTRUCT from Docker image"
 	@echo "  make clean             - remove generated manifest/signing artifacts"
 	@echo "  make distclean         - clean + remove target/ and Cargo.lock"
@@ -128,8 +136,12 @@ start-rust-server: all
 docker-build:
 	cd docker && sudo SGX_SIGNING_KEY="$${SGX_SIGNING_KEY:-$$HOME/.config/gramine/enclave-key.pem}" ./build.sh ubuntu20
 
+.PHONY: docker-data-dir
+docker-data-dir:
+	sudo install -d -m 0750 -o $(DOCKER_APP_UID) -g $(DOCKER_APP_GID) "$(DATA_DIR)"
+
 .PHONY: docker-run
-docker-run: | $(DATA_DIR)
+docker-run: docker-data-dir
 	# Exit 137 (SIGKILL) is expected — Gramine SGX does not propagate
 	# SIGTERM to the enclave, so the container is always force-killed
 	# after the stop-timeout.  This is harmless: Gramine's encrypted
@@ -152,18 +164,73 @@ docker-run: | $(DATA_DIR)
 		--env-file .env \
 		relationalnetwork/rust-server:focal
 
+.PHONY: show-measurements
+show-measurements: rust-server.sig
+	@gramine-sgx-sigstruct-view rust-server.sig | grep -E "mr_enclave|mr_signer|isv_prod_id|isv_svn"
+
+.PHONY: verify-mrenclave
+verify-mrenclave:
+	@if [ ! -f "$(SIGNING_KEY)" ]; then \
+		echo "ERROR: Signing key not found at $(SIGNING_KEY)"; \
+		echo "Set SIGNING_KEY=/path/to/enclave-key.pem"; \
+		exit 1; \
+	fi
+	@EXPECTED_MR=$$(sed -n 's/^mr_enclave = "\(.*\)"$$/\1/p' measurements.toml | head -1); \
+	if ! printf '%s\n' "$$EXPECTED_MR" | grep -Eq '^[0-9a-f]{64}$$'; then \
+		echo "ERROR: measurements.toml does not contain a pinned mr_enclave yet."; \
+		echo "Run 'make docker-build' and 'make docker-sigstruct', then record the value in measurements.toml."; \
+		exit 1; \
+	fi
+	@echo "=== Building locally (no cache) ==="
+	@cd docker && sudo DOCKER_BUILDKIT=1 SGX_SIGNING_KEY="$(SIGNING_KEY)" docker build \
+		--platform linux/amd64 \
+		--no-cache \
+		--build-arg UBUNTU_CODENAME=focal \
+		--secret id=sgx-key,src="$(SIGNING_KEY)" \
+		-t relationalnetwork/rust-server:verify-local \
+		-f Dockerfile \
+		.. >/dev/null
+	@BUILT_MR=$$(sudo docker run --rm \
+		--entrypoint gramine-sgx-sigstruct-view \
+		relationalnetwork/rust-server:verify-local \
+		/app/rust-server.sig 2>/dev/null | grep 'mr_enclave:' | awk '{print $$2}' | head -1); \
+	EXPECTED_MR=$$(sed -n 's/^mr_enclave = "\(.*\)"$$/\1/p' measurements.toml | head -1); \
+	echo "Built:    $$BUILT_MR"; \
+	echo "Expected: $$EXPECTED_MR  (measurements.toml)"; \
+	if [ "$$BUILT_MR" = "$$EXPECTED_MR" ]; then \
+		echo "MATCH - MRENCLAVE matches measurements.toml"; \
+	else \
+		echo "MISMATCH - MRENCLAVE differs from measurements.toml!"; \
+		echo "If intentional, update measurements.toml in the same PR."; \
+		exit 1; \
+	fi
+
 .PHONY: docker-stop
 docker-stop:
 	sudo docker stop -t 30 rust-server-sgx
 
 .PHONY: docker-sigstruct
 docker-sigstruct:
-	@echo "Extracting SIGSTRUCT from Docker image..."
+	@echo "Extracting enclave measurements from Docker image..."
 	@sudo docker create --name rust-server-sigstruct relationalnetwork/rust-server:focal >/dev/null 2>&1
 	@sudo docker cp rust-server-sigstruct:/app/rust-server.sig /tmp/rust-server-docker.sig >/dev/null 2>&1
 	@sudo docker rm rust-server-sigstruct >/dev/null 2>&1
-	@echo "---"
-	@gramine-sgx-sigstruct-view --verbose --output-format=toml /tmp/rust-server-docker.sig
+	@echo "[enclave]"
+	@gramine-sgx-sigstruct-view --verbose --output-format=toml /tmp/rust-server-docker.sig \
+		| awk ' \
+			/^mr_enclave = / { mr_enclave = $$0 } \
+			/^mr_signer = / { mr_signer = $$0 } \
+			/^isv_prod_id = / { isv_prod_id = $$0 } \
+			/^isv_svn = / { isv_svn = $$0 } \
+			/^debug_enclave = / { debug_enclave = $$0 } \
+			END { \
+				print mr_enclave; \
+				print mr_signer; \
+				print isv_prod_id; \
+				print isv_svn; \
+				print debug_enclave; \
+			} \
+		'
 	@sudo rm -f /tmp/rust-server-docker.sig
 
 .PHONY: clean

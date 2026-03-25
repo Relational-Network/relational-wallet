@@ -1,0 +1,19 @@
+[build]
+base_image = "ubuntu:20.04@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214"
+ubuntu_snapshot = "20260210T000000Z"
+gramine = "1.8"
+rust = "1.92.0"
+sigstruct_date = "0000-00-00"
+
+[enclave]
+mr_enclave = "3d170a1e101c91865a9fb110ce763981e4b4819266da76e21435a457f8ffdebf"
+mr_signer = "e3878281391c618d0fc7c56f70e7447f66da294e328044fedd21bb37eac8a539"
+isv_prod_id = 0
+isv_svn = 0
+debug_enclave = false
+
+# mr_enclave: is the primary enclave measurement and the main CI release gate.
+# mr_signer: is the signer measurement derived from the RSA key used to sign the enclave.
+# isv_prod_id: is the enclave product identifier carried in the SIGSTRUCT.
+# isv_svn: is the enclave security version number carried in the SIGSTRUCT.
+# debug_enclave: shows whether the enclave was signed in debug mode or production mode.

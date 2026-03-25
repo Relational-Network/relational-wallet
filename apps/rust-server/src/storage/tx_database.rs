@@ -313,7 +313,10 @@ impl TxDatabase {
                     tx.updated_at = chrono::Utc::now();
                 }
                 TxStatus::Confirmed => {
-                    tx.mark_confirmed(block_number.unwrap_or_default(), gas_used.unwrap_or_default());
+                    tx.mark_confirmed(
+                        block_number.unwrap_or_default(),
+                        gas_used.unwrap_or_default(),
+                    );
                 }
                 TxStatus::Failed => {
                     tx.mark_failed();
@@ -429,19 +432,13 @@ impl TxDatabase {
     }
 
     /// Look up a wallet by email lookup key.
-    pub fn lookup_email(
-        &self,
-        lookup_key: &str,
-    ) -> TxDbResult<Option<(String, String)>> {
+    pub fn lookup_email(&self, lookup_key: &str) -> TxDbResult<Option<(String, String)>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(EMAIL_LOOKUP)?;
         match table.get(lookup_key)? {
             Some(v) => {
                 let parsed: serde_json::Value = serde_json::from_str(v.value())?;
-                let wallet_id = parsed["wallet_id"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
+                let wallet_id = parsed["wallet_id"].as_str().unwrap_or_default().to_string();
                 let public_address = parsed["public_address"]
                     .as_str()
                     .unwrap_or_default()
@@ -560,14 +557,10 @@ impl TxDatabase {
         let mut results = Vec::new();
         for entry in table.iter()? {
             let entry = entry?;
-            results.push((
-                entry.0.value().to_string(),
-                entry.1.value().to_string(),
-            ));
+            results.push((entry.0.value().to_string(), entry.1.value().to_string()));
         }
         Ok(results)
     }
-
 }
 
 // =============================================================================

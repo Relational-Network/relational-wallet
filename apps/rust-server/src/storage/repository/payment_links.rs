@@ -178,10 +178,7 @@ mod tests {
         assert_eq!(resolved.recipient_type, "email");
         assert!(resolved.public_address.is_none());
         assert_eq!(resolved.to_email_hash.as_deref(), Some(email_hash.as_str()));
-        assert_eq!(
-            resolved.email_display.as_deref(),
-            Some("a***e@example.com")
-        );
+        assert_eq!(resolved.email_display.as_deref(), Some("a***e@example.com"));
     }
 
     #[test]
@@ -248,7 +245,7 @@ mod tests {
     fn token_format() {
         let token = generate_token();
         assert_eq!(token.len(), 22); // 16 bytes → 22 base64url chars without padding
-        // All chars should be base64url safe
+                                     // All chars should be base64url safe
         assert!(token
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));

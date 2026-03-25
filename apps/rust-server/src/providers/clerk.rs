@@ -167,10 +167,7 @@ mod tests {
         });
 
         let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
-        assert!(matches!(
-            err,
-            ClerkError::InvalidEmailConfiguration { .. }
-        ));
+        assert!(matches!(err, ClerkError::InvalidEmailConfiguration { .. }));
     }
 
     #[test]
@@ -185,9 +182,6 @@ mod tests {
         });
 
         let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
-        assert!(matches!(
-            err,
-            ClerkError::InvalidEmailConfiguration { .. }
-        ));
+        assert!(matches!(err, ClerkError::InvalidEmailConfiguration { .. }));
     }
 }

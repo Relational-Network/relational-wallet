@@ -19,9 +19,8 @@ use crate::{
     models::{
         Bookmark, CreateBookmarkRequest, CreatePaymentLinkRequest, CreatePaymentLinkResponse,
         CreateRecurringPaymentRequest, Invite, PaymentLinkInfo, RecurringPayment,
-        RedeemInviteRequest, ResolveEmailRequest, ResolveEmailResponse,
-        UpdateLastPaidDateRequest, UpdateRecurringPaymentRequest,
-        WalletAddress,
+        RedeemInviteRequest, ResolveEmailRequest, ResolveEmailResponse, UpdateLastPaidDateRequest,
+        UpdateRecurringPaymentRequest, WalletAddress,
     },
     state::AppState,
     storage::{

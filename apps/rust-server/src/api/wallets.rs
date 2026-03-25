@@ -102,12 +102,12 @@ pub async fn create_wallet(
             .get_user_email(&user.user_id)
             .await
             .map_err(|e| match e {
-                ClerkError::InvalidEmailConfiguration { message, .. } => ApiError::unprocessable(
-                    format!(
+                ClerkError::InvalidEmailConfiguration { message, .. } => {
+                    ApiError::unprocessable(format!(
                         "Email-linked wallets require exactly one verified primary Clerk email: {}",
                         message
-                    ),
-                ),
+                    ))
+                }
                 other => ApiError::internal(format!("Failed to fetch email: {}", other)),
             })?;
 
@@ -116,7 +116,10 @@ pub async fn create_wallet(
 
         // O(1) email uniqueness check
         let email_repo = EmailIndexRepository::new(tx_db.clone());
-        if email_repo.exists(&lookup_key).map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))? {
+        if email_repo
+            .exists(&lookup_key)
+            .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?
+        {
             return Err(ApiError::conflict("A wallet already exists for this email"));
         }
 

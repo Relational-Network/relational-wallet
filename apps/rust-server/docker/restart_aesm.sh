@@ -4,6 +4,8 @@
 
 set -e
 
+mkdir -p /var/run/aesmd
+
 killall -q aesm_service || true
 
 AESM_PATH=/opt/intel/sgx-aesm-service/aesm \

@@ -39,5 +39,3 @@ apps/contracts/broadcast/
 *.tex
 report.md
 SPRINT*
-
-/tl-test

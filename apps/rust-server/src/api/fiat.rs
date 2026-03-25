@@ -30,7 +30,7 @@ use crate::{
     audit_log,
     auth::{AdminOnly, Auth},
     blockchain::{
-        ensure_fuji_network, parse_amount, wallet_from_pem, avax_fuji, AvaxClient, TxBuilder,
+        avax_fuji, ensure_fuji_network, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
     },
     error::ApiError,
     providers::truelayer::{

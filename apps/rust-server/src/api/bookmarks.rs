@@ -130,9 +130,7 @@ pub async fn create_bookmark(
             let hash = request
                 .email_hash
                 .as_deref()
-                .ok_or_else(|| {
-                    ApiError::bad_request("email_hash is required for email bookmarks")
-                })?
+                .ok_or_else(|| ApiError::bad_request("email_hash is required for email bookmarks"))?
                 .to_string();
             if !email::validate_email_hash(&hash) {
                 return Err(ApiError::bad_request(
@@ -146,7 +144,12 @@ pub async fn create_bookmark(
                     ApiError::bad_request("email_display is required for email bookmarks")
                 })?
                 .to_string();
-            (RecipientType::Email, String::new(), Some(hash), Some(display))
+            (
+                RecipientType::Email,
+                String::new(),
+                Some(hash),
+                Some(display),
+            )
         }
         "address" | _ => {
             // Validate the bookmarked address is a valid Ethereum address
@@ -319,7 +322,9 @@ mod tests {
             wallet_id: WalletAddress::from(wallet_id.as_str()),
             name: "test_name".into(),
             recipient_type: "address".to_string(),
-            address: Some(WalletAddress::from("0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12")),
+            address: Some(WalletAddress::from(
+                "0x742d35Cc6634C0532925a3b844Bc9e7595f4aB12",
+            )),
             email_hash: None,
             email_display: None,
         };

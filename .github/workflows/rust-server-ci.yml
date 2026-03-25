@@ -1,0 +1,248 @@
+name: rust-server-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/rust-server/**'
+      - '.github/workflows/rust-server-ci.yml'
+  pull_request:
+    paths:
+      - 'apps/rust-server/**'
+      - '.github/workflows/rust-server-ci.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'apps/rust-server/src/**'
+              - 'apps/rust-server/Cargo.toml'
+              - 'apps/rust-server/Cargo.lock'
+              - 'apps/rust-server/rust-toolchain.toml'
+              - 'apps/rust-server/.cargo/**'
+              - 'apps/rust-server/Makefile'
+            docker:
+              - 'apps/rust-server/docker/**'
+              - 'apps/rust-server/Cargo.toml'
+              - 'apps/rust-server/Cargo.lock'
+              - 'apps/rust-server/src/**'
+              - 'apps/rust-server/*.manifest.template'
+              - 'apps/rust-server/measurements.toml'
+              - 'apps/rust-server/Makefile'
+
+  check:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/rust-server -> target
+
+      - name: Check formatting
+        working-directory: apps/rust-server
+        env:
+          RUSTC_WRAPPER: ""
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: apps/rust-server
+        env:
+          RUSTC_WRAPPER: ""
+        run: cargo clippy --all-targets --features dev --locked -- -D warnings
+
+      - name: Run tests
+        working-directory: apps/rust-server
+        env:
+          RUSTC_WRAPPER: ""
+        run: cargo test --features dev --locked --verbose
+
+  validate-docker:
+    name: Validate Docker Files
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: apps/rust-server/docker/Dockerfile
+          failure-threshold: warning
+
+      - name: Validate shell scripts
+        run: |
+          sh -n apps/rust-server/docker/start.sh
+          sh -n apps/rust-server/docker/restart_aesm.sh
+
+  build-docker:
+    name: Build and Verify Signed Docker Image
+    runs-on: ubuntu-latest
+    needs: [changes, check, validate-docker]
+    if: |
+      always() &&
+      (needs.check.result == 'success' || needs.check.result == 'skipped') &&
+      (needs.validate-docker.result == 'success' || needs.validate-docker.result == 'skipped') &&
+      (needs.changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+    env:
+      ENCLAVE_SIGNING_KEY: ${{ secrets.ENCLAVE_SIGNING_KEY }}
+      IMAGE_TAG: relationalnetwork/rust-server:ci-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Note missing signing key
+        if: env.ENCLAVE_SIGNING_KEY == ''
+        run: |
+          echo "ENCLAVE_SIGNING_KEY is not configured; skipping signed Docker build." >> "$GITHUB_STEP_SUMMARY"
+          echo "Add the release RSA key as a repository or organization secret to enable MRENCLAVE verification." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Docker Buildx
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare signing key
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        run: |
+          umask 077
+          printenv ENCLAVE_SIGNING_KEY > "$RUNNER_TEMP/enclave-key.pem"
+
+      - name: Validate signing key
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        run: |
+          KEY="$RUNNER_TEMP/enclave-key.pem"
+
+          if ! openssl rsa -in "$KEY" -check -noout 2>/dev/null; then
+            echo "::error::Signing key is not a valid RSA private key"
+            exit 1
+          fi
+
+          KEY_INFO=$(openssl rsa -in "$KEY" -noout -text 2>/dev/null)
+          BIT_LEN=$(echo "$KEY_INFO" | head -1 | sed 's/[^0-9]*//' | cut -d' ' -f1)
+          EXPONENT=$(echo "$KEY_INFO" | grep publicExponent | sed 's/.*: \([0-9]*\).*/\1/')
+
+          if [ "$BIT_LEN" != "3072" ]; then
+            echo "::error::Signing key must be 3072-bit RSA, got: ${BIT_LEN}-bit"
+            exit 1
+          fi
+
+          if [ "$EXPONENT" != "3" ]; then
+            echo "::error::Signing key must have exponent 3, got: $EXPONENT"
+            exit 1
+          fi
+
+      - name: Build signed image
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/rust-server
+          file: apps/rust-server/docker/Dockerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_TAG }}
+          secret-files: |
+            sgx-key=${{ runner.temp }}/enclave-key.pem
+
+      - name: Print measurements to job summary
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        run: |
+          docker run --rm \
+            --entrypoint gramine-sgx-sigstruct-view \
+            "${IMAGE_TAG}" \
+            /app/rust-server.sig | tee "$RUNNER_TEMP/rust-server.sigstruct.txt"
+
+          {
+            echo "## Rust Server Enclave Measurements"
+            echo '```text'
+            cat "$RUNNER_TEMP/rust-server.sigstruct.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify signed enclave settings
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        run: |
+          SIGSTRUCT="$RUNNER_TEMP/rust-server.sigstruct.txt"
+          DEBUG_ENCLAVE=$(awk '/debug_enclave:/ {print $2; exit}' "$SIGSTRUCT")
+          ISV_PROD_ID=$(awk '/isv_prod_id:/ {print $2; exit}' "$SIGSTRUCT")
+          ISV_SVN=$(awk '/isv_svn:/ {print $2; exit}' "$SIGSTRUCT")
+
+          if [ "$DEBUG_ENCLAVE" != "False" ]; then
+            echo "::error::Production Docker build must produce a non-debug enclave"
+            exit 1
+          fi
+
+          if [ "$ISV_PROD_ID" != "0" ]; then
+            echo "::error::Expected isv_prod_id=0, got $ISV_PROD_ID"
+            exit 1
+          fi
+
+          if [ "$ISV_SVN" != "0" ]; then
+            echo "::error::Expected isv_svn=0, got $ISV_SVN"
+            exit 1
+          fi
+
+      - name: Verify MRENCLAVE matches measurements.toml
+        if: env.ENCLAVE_SIGNING_KEY != ''
+        run: |
+          BUILT_MR=$(docker run --rm \
+            --entrypoint gramine-sgx-sigstruct-view \
+            "${IMAGE_TAG}" \
+            /app/rust-server.sig 2>/dev/null | awk '/mr_enclave:/ {print $2; exit}')
+
+          EXPECTED_MR=$(sed -n 's/^mr_enclave = "\(.*\)"$/\1/p' apps/rust-server/measurements.toml | head -1)
+
+          echo "Built:    $BUILT_MR"
+          echo "Expected: $EXPECTED_MR  (apps/rust-server/measurements.toml)"
+
+          if ! printf '%s\n' "$EXPECTED_MR" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "::warning::apps/rust-server/measurements.toml does not yet contain a pinned mr_enclave. Update it before the first release."
+            exit 0
+          fi
+
+          if [ "$BUILT_MR" != "$EXPECTED_MR" ]; then
+            echo "::error::MRENCLAVE changed!"
+            echo "::error::Built:    $BUILT_MR"
+            echo "::error::Expected: $EXPECTED_MR"
+            echo "::error::If intentional, update apps/rust-server/measurements.toml in the same PR."
+            exit 1
+          fi
+
+      - name: Shred signing key
+        if: always() && env.ENCLAVE_SIGNING_KEY != ''
+        run: shred -u "$RUNNER_TEMP/enclave-key.pem" 2>/dev/null || rm -f "$RUNNER_TEMP/enclave-key.pem"
