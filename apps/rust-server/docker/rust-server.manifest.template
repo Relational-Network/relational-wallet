@@ -77,7 +77,6 @@ fs.mounts = [
     { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted", key_name = "_sgx_mrsigner" },
 ]
 
-# SGX configuration — production hardened
 sgx.debug = false
 sgx.remote_attestation = "{{ ra_type }}"
 sgx.isvprodid = {{ isvprodid }}

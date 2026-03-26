@@ -169,6 +169,7 @@ Key targets:
 - `make start-rust-server` — Launch inside SGX enclave (loads `.env`, validates no `<...>` placeholders).
 - `make docker-build` / `make docker-run` / `make docker-stop` — Docker SGX flow.
 - `make docker-data-dir` — Pre-create the host bind mount with UID/GID `10001`.
+  Override with `DATA_DIR=/path` when you want a non-default host location.
 - `make show-measurements` / `make docker-sigstruct` — Inspect local or Docker SIGSTRUCT measurements.
 - `make clean` / `make distclean` — Clean generated artifacts (`distclean` also removes `target/` and `Cargo.lock`).
 
@@ -179,6 +180,13 @@ Build and run the SGX-enabled container (Ubuntu 20.04):
 make docker-build
 make docker-run
 make docker-stop
+```
+
+`DATA_DIR` override example:
+
+```bash
+make DATA_DIR=/opt/local-docker/data/ docker-data-dir
+make DATA_DIR=/opt/local-docker/data/ docker-run
 ```
 
 The container:

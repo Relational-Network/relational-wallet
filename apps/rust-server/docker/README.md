@@ -8,6 +8,7 @@ This folder contains a Gramine SGX image that builds and runs the Rust server on
 - **RA-TLS**: TLS certificates are generated at runtime by `gramine-ratls` with attestation evidence embedded
 - **HTTPS Only**: The server only accepts HTTPS connections (no HTTP fallback)
 - **Deterministic Build**: Enclave is signed at build time — MRENCLAVE and MRSIGNER are fixed per image
+- **Slimmer Runtime Image**: Build/sign-only tooling stays in an intermediate Docker stage and is not shipped in the final runtime image
 
 ## Build
 
@@ -146,6 +147,7 @@ The certificate contains SGX attestation evidence that clients can verify using 
 - The container entrypoint starts as root, wires SGX device groups when needed, then runs `gramine-sgx rust-server` as the non-root `relational` user.
 - The entrypoint does not auto-migrate `/data` ownership; bind-mounted data must already be writable by UID/GID `10001`.
 - This image installs Gramine and Intel SGX AESM/DCAP packages from their official apt repos.
+- The final runtime image excludes build/sign-only tools such as `curl`, `gnupg2`, and `binutils`.
 - The enclave is signed at **build time** — no signing key is needed at runtime.
 - The server binds to `0.0.0.0:8080` over **HTTPS** (set in the Gramine manifest).
 - `sgx.debug = false` is enforced in Docker builds — no action needed.

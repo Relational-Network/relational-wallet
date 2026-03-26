@@ -19,6 +19,8 @@ APP_DIR = $(abspath $(patsubst %/,%,$(dir $(SELF_EXE))))
 
 # Directory for encrypted persistent storage (on host)
 # This will be mounted as /data inside the enclave with Gramine encryption
+# Override per command if desired, for example:
+#   make DATA_DIR=/opt/local-docker/data/rust-server docker-run
 DATA_DIR ?= $(abspath data)
 DOCKER_APP_UID ?= 10001
 DOCKER_APP_GID ?= 10001
@@ -56,8 +58,8 @@ help:
 	@echo "  make                   - build SGX artifacts (.manifest/.sgx/.sig)"
 	@echo "  make start-rust-server - run inside SGX enclave (loads .env if present)"
 	@echo "  make docker-build      - build SGX Docker image"
-	@echo "  make docker-data-dir   - create /data bind mount with non-root container ownership"
-	@echo "  make docker-run        - run SGX Docker image"
+	@echo "  make docker-data-dir   - create host data dir (override with DATA_DIR=/path)"
+	@echo "  make docker-run        - run SGX Docker image (override with DATA_DIR=/path)"
 	@echo "  make docker-stop       - stop running SGX Docker container"
 	@echo "  make show-measurements - inspect local SIGSTRUCT measurements"
 	@echo "  make verify-mrenclave  - build signed Docker image locally and compare against measurements.toml"
@@ -137,24 +139,29 @@ docker-build:
 	cd docker && sudo SGX_SIGNING_KEY="$${SGX_SIGNING_KEY:-$$HOME/.config/gramine/enclave-key.pem}" ./build.sh ubuntu20
 
 .PHONY: docker-data-dir
+# Example custom path:
+#   make DATA_DIR=/opt/local-docker/data/rust-server docker-data-dir
 docker-data-dir:
 	sudo install -d -m 0750 -o $(DOCKER_APP_UID) -g $(DOCKER_APP_GID) "$(DATA_DIR)"
 
 .PHONY: docker-run
+# Override DATA_DIR for a deployment-like local bind mount, for example:
+#   make DATA_DIR=/opt/local-docker/data/rust-server docker-run
+# Exit 137 (SIGKILL) is expected because Gramine SGX does not propagate
+# SIGTERM to the enclave, so Docker force-stops the container after the
+# configured stop-timeout. This is harmless: Gramine's encrypted filesystem
+# flushes writes synchronously.
+#
+# Auth & CORS env vars are loaded from .env via --env-file.
+# This avoids the problem of `sudo` stripping the user's environment.
+# Create .env from .env.example if you haven't already.
 docker-run: docker-data-dir
-	# Exit 137 (SIGKILL) is expected — Gramine SGX does not propagate
-	# SIGTERM to the enclave, so the container is always force-killed
-	# after the stop-timeout.  This is harmless: Gramine's encrypted
-	# filesystem flushes writes synchronously.
-	#
-	# Auth & CORS env vars are loaded from .env via --env-file.
-	# This avoids the problem of `sudo` stripping the user's environment.
-	# Create .env from .env.example if you haven't already.
 	@if [ ! -f .env ]; then \
 		echo "error: .env file not found. Copy .env.example to .env and fill in the values."; \
 		exit 1; \
 	fi
-	-sudo docker run --rm -it \
+	@status=0; \
+	sudo docker run --rm -it \
 		--name rust-server-sgx \
 		--device /dev/sgx/enclave \
 		--device /dev/sgx/provision \
@@ -162,7 +169,11 @@ docker-run: docker-data-dir
 		-p 8080:8080 \
 		-v "$(DATA_DIR):/data" \
 		--env-file .env \
-		relationalnetwork/rust-server:focal
+		relationalnetwork/rust-server:focal || status=$$?; \
+	case "$$status" in \
+		0|130|137) exit 0 ;; \
+		*) exit "$$status" ;; \
+	esac
 
 .PHONY: show-measurements
 show-measurements: rust-server.sig

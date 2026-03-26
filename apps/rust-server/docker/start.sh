@@ -45,12 +45,19 @@ user_in_group() {
     id -nG "${_user}" | tr ' ' '\n' | grep -Fx "${_group}" >/dev/null 2>&1
 }
 
+device_accessible_as_app() {
+    _device=$1
+    run_as_app test -r "${_device}" && run_as_app test -w "${_device}"
+}
+
 ensure_runtime_group() {
     _gid=$1
-    _label=$2
+    _device=$2
 
     if [ "${_gid}" = "0" ]; then
-        warn "${_label} is owned by GID 0; refusing to add ${APP_USER} to the root group. Non-root SGX access may require host-side device permission changes."
+        if ! device_accessible_as_app "${_device}"; then
+            warn "${_device} is owned by GID 0 and is not accessible to ${APP_USER}. Non-root SGX access may require host-side device permission changes."
+        fi
         return 0
     fi
 
@@ -82,6 +89,18 @@ configure_sgx_access() {
         _seen_gids="${_seen_gids}${_gid} "
 
         ensure_runtime_group "${_gid}" "${_device}"
+    done
+}
+
+validate_sgx_access() {
+    for _device in /dev/sgx/enclave /dev/sgx/provision; do
+        if [ ! -e "${_device}" ]; then
+            continue
+        fi
+
+        if ! device_accessible_as_app "${_device}"; then
+            fatal "${_device} is not accessible to ${APP_USER}. Fix the host device permissions or container group mapping before starting the server."
+        fi
     done
 }
 
@@ -151,6 +170,7 @@ if [ ! -f /app/rust-server.manifest.sgx ]; then
 fi
 
 configure_sgx_access
+validate_sgx_access
 prepare_data_dir
 
 log "Starting Rust server with DCAP RA-TLS attestation as ${APP_USER}..."

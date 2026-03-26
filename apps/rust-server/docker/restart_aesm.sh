@@ -10,6 +10,6 @@ killall -q aesm_service || true
 
 AESM_PATH=/opt/intel/sgx-aesm-service/aesm \
 LD_LIBRARY_PATH=/opt/intel/sgx-aesm-service/aesm \
-/opt/intel/sgx-aesm-service/aesm/aesm_service --no-syslog &
+/opt/intel/sgx-aesm-service/aesm/aesm_service --no-syslog >/dev/null 2>&1 &
 
 echo $! > /var/run/aesmd/aesm.pid
