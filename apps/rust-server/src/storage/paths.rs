@@ -69,30 +69,6 @@ impl StoragePaths {
         self.bookmarks_dir().join(format!("{bookmark_id}.json"))
     }
 
-    // ========== Invite Paths ==========
-
-    /// Directory containing all invites.
-    pub fn invites_dir(&self) -> PathBuf {
-        self.root.join("invites")
-    }
-
-    /// Path to a specific invite file.
-    pub fn invite(&self, invite_id: &str) -> PathBuf {
-        self.invites_dir().join(format!("{invite_id}.json"))
-    }
-
-    // ========== Recurring Payment Paths ==========
-
-    /// Directory containing all recurring payments.
-    pub fn recurring_dir(&self) -> PathBuf {
-        self.root.join("recurring")
-    }
-
-    /// Path to a specific recurring payment file.
-    pub fn recurring_payment(&self, payment_id: &str) -> PathBuf {
-        self.recurring_dir().join(format!("{payment_id}.json"))
-    }
-
     // ========== Fiat Request Paths ==========
 
     /// Directory containing all fiat requests.
@@ -195,26 +171,6 @@ mod tests {
         assert_eq!(
             paths.bookmark("bm-123"),
             PathBuf::from("/data/bookmarks/bm-123.json")
-        );
-    }
-
-    #[test]
-    fn invite_paths_are_correct() {
-        let paths = StoragePaths::default();
-        assert_eq!(paths.invites_dir(), PathBuf::from("/data/invites"));
-        assert_eq!(
-            paths.invite("inv-456"),
-            PathBuf::from("/data/invites/inv-456.json")
-        );
-    }
-
-    #[test]
-    fn recurring_paths_are_correct() {
-        let paths = StoragePaths::default();
-        assert_eq!(paths.recurring_dir(), PathBuf::from("/data/recurring"));
-        assert_eq!(
-            paths.recurring_payment("rp-789"),
-            PathBuf::from("/data/recurring/rp-789.json")
         );
     }
 

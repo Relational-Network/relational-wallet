@@ -104,40 +104,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/fiat/reserve/topup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mint rEUR into reserve wallet. */
-        post: operations["topup_fiat_reserve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/fiat/reserve/transfer": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Transfer rEUR from reserve wallet to destination. */
-        post: operations["transfer_fiat_reserve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/fiat/service-wallet": {
         parameters: {
             query?: never;
@@ -149,23 +115,6 @@ export interface paths {
         get: operations["get_fiat_service_wallet"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/fiat/service-wallet/bootstrap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Idempotently bootstrap fiat reserve service wallet. */
-        post: operations["bootstrap_fiat_service_wallet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -202,8 +151,8 @@ export interface paths {
         };
         /**
          * Get system statistics.
-         * @description Returns aggregate statistics about the system including wallet counts,
-         *     invite usage, and storage metrics. Admin only.
+         * @description Returns aggregate statistics about the system including wallet counts
+         *     and storage metrics. Admin only.
          */
         get: operations["get_system_stats"];
         put?: never;
@@ -223,7 +172,7 @@ export interface paths {
         };
         /**
          * List all unique users with their resource counts.
-         * @description Returns a summary of all users who have wallets, bookmarks, or recurring payments.
+         * @description Returns a summary of all users who have wallets or bookmarks.
          */
         get: operations["list_all_users"];
         put?: never;
@@ -445,38 +394,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/invite": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_invite"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/invite/redeem": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["redeem_invite"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/payment-link/{token}": {
         parameters: {
             query?: never;
@@ -489,86 +406,6 @@ export interface paths {
          * @description Returns the tagged recipient info and optional amount/note for the payment link.
          */
         get: operations["resolve_payment_link"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/recurring/payment": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["create_recurring_payment"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/recurring/payment/{recurring_payment_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["update_recurring_payment"];
-        post?: never;
-        delete: operations["delete_recurring_payment"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/recurring/payment/{recurring_payment_id}/last-paid-date": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["update_last_paid_date"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/recurring/payments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_recurring_payments"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/recurring/payments/today": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["recurring_payments_today"];
         put?: never;
         post?: never;
         delete?: never;
@@ -681,23 +518,6 @@ export interface paths {
          * @description Returns native AVAX balance and any configured ERC-20 token balances.
          */
         get: operations["get_wallet_balance"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/wallets/{wallet_id}/balance/native": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get only the native AVAX balance of a wallet (faster). */
-        get: operations["get_native_balance"];
         put?: never;
         post?: never;
         delete?: never;
@@ -820,8 +640,6 @@ export interface components {
         AdminUserSummary: {
             /** @description Number of bookmarks. */
             bookmark_count: number;
-            /** @description Number of recurring payments. */
-            recurring_payment_count: number;
             /** @description User ID from Clerk. */
             user_id: string;
             /** @description Number of wallets owned. */
@@ -877,7 +695,7 @@ export interface components {
          * @description Types of auditable events.
          * @enum {string}
          */
-        AuditEventType: "wallet_created" | "wallet_deleted" | "wallet_accessed" | "transaction_signed" | "transaction_broadcast" | "bookmark_created" | "bookmark_deleted" | "invite_created" | "invite_redeemed" | "recurring_created" | "recurring_updated" | "recurring_deleted" | "recurring_executed" | "auth_success" | "auth_failure" | "permission_denied" | "admin_access" | "config_changed" | "fiat_on_ramp_requested" | "fiat_off_ramp_requested";
+        AuditEventType: "wallet_created" | "wallet_deleted" | "wallet_accessed" | "transaction_signed" | "transaction_broadcast" | "bookmark_created" | "bookmark_deleted" | "auth_success" | "auth_failure" | "permission_denied" | "admin_access" | "config_changed" | "fiat_on_ramp_requested" | "fiat_off_ramp_requested";
         /** @description Response for audit log queries. */
         AuditLogResponse: {
             /** @description Audit events matching the query. */
@@ -971,37 +789,6 @@ export interface components {
             expires_at: string;
             /** @description Opaque token for the payment link. */
             token: string;
-        };
-        /** @description Request to create a recurring payment schedule. */
-        CreateRecurringPaymentRequest: {
-            /**
-             * Format: double
-             * @description Payment amount.
-             */
-            amount: number;
-            /** @description Currency code (e.g., "AVAX", "rEUR"). */
-            currency_code: string;
-            /**
-             * Format: int32
-             * @description Frequency in days between payments.
-             */
-            frequency: number;
-            /**
-             * Format: int32
-             * @description End date (Unix timestamp in days, 0 = no end).
-             */
-            payment_end_date: number;
-            /**
-             * Format: int32
-             * @description Start date (Unix timestamp in days).
-             */
-            payment_start_date: number;
-            /** @description Recipient address for payments. */
-            recipient: components["schemas"]["WalletAddress"];
-            /** @description The source wallet (must be owned by the user). */
-            wallet_id: components["schemas"]["WalletAddress"];
-            /** @description Public key for the wallet. */
-            wallet_public_key: string;
         };
         /** @description Request to create a new wallet. */
         CreateWalletRequest: {
@@ -1181,33 +968,6 @@ export interface components {
         HealthResponse: {
             status: string;
         };
-        /**
-         * @description An invitation code for new users.
-         *
-         *     Invites can be used to control access to the wallet service. Each invite
-         *     code can only be redeemed once.
-         */
-        Invite: {
-            /** @description The invite code (shared with the invitee). */
-            code: string;
-            /** @description Unique identifier for this invite. */
-            id: string;
-            /** @description Whether this invite has been used. */
-            redeemed: boolean;
-        };
-        /** @description Native token balance response (simpler version). */
-        NativeBalanceResponse: {
-            /** @description Public address */
-            address: string;
-            /** @description AVAX balance formatted */
-            balance: string;
-            /** @description AVAX balance in wei */
-            balance_wei: string;
-            /** @description Network name */
-            network: string;
-            /** @description Wallet ID */
-            wallet_id: string;
-        };
         /** @description Public info returned when resolving a payment link (no auth required). */
         PaymentLinkInfo: {
             /** @description Pre-filled amount (if set). */
@@ -1231,77 +991,6 @@ export interface components {
             checks: components["schemas"]["HealthChecks"];
             /** @description Overall health status ("ok" or "degraded"). */
             status: string;
-        };
-        /**
-         * @description A scheduled recurring payment configuration.
-         *
-         *     Recurring payments allow automatic transfers on a schedule. The actual
-         *     execution logic is handled by a separate service.
-         */
-        RecurringPayment: {
-            /**
-             * Format: double
-             * @description Payment amount.
-             */
-            amount: number;
-            /** @description Currency code (e.g., "AVAX", "rEUR"). */
-            currency_code: string;
-            /**
-             * Format: int32
-             * @description Frequency in days between payments.
-             */
-            frequency: number;
-            /** @description Unique identifier for this payment schedule. */
-            id: string;
-            /**
-             * Format: int32
-             * @description Last payment date (Unix timestamp in days).
-             */
-            last_paid_date: number;
-            /**
-             * Format: int32
-             * @description End date (Unix timestamp in days, 0 = no end).
-             */
-            payment_end_date: number;
-            /**
-             * Format: int32
-             * @description Start date (Unix timestamp in days).
-             */
-            payment_start_date: number;
-            /** @description The recipient address for payments. */
-            recipient: components["schemas"]["WalletAddress"];
-            /** @description The source wallet for payments. */
-            wallet_id: components["schemas"]["WalletAddress"];
-            /** @description Public key of the wallet (for verification). */
-            wallet_public_key: string;
-        };
-        /** @description Request to redeem an invite code. */
-        RedeemInviteRequest: {
-            /** @description The invite ID to redeem. */
-            invite_id: string;
-        };
-        /** @description Reserve top-up request. */
-        ReserveTopUpRequest: {
-            /** @description Optional amount in EUR decimal format. */
-            amount_eur?: string | null;
-        };
-        /** @description Reserve transaction response. */
-        ReserveTransactionResponse: {
-            /** @description Amount used for operation. */
-            amount_eur: string;
-            /** @description Amount in token minor units. */
-            amount_minor: string;
-            /** @description Explorer URL for tx. */
-            explorer_url: string;
-            /** @description Submitted transaction hash. */
-            tx_hash: string;
-        };
-        /** @description Reserve transfer request. */
-        ReserveTransferRequest: {
-            /** @description Amount in EUR decimal format. */
-            amount_eur: string;
-            /** @description Destination EVM address. */
-            to: string;
         };
         /** @description Request to resolve an email hash to check if a wallet exists. */
         ResolveEmailRequest: {
@@ -1480,18 +1169,12 @@ export interface components {
             active_wallets: number;
             /** @description Number of deleted wallets. */
             deleted_wallets: number;
-            /** @description Number of redeemed invites. */
-            redeemed_invites: number;
             /** @description Number of suspended wallets. */
             suspended_wallets: number;
             /** @description Current timestamp. */
             timestamp: string;
             /** @description Total number of bookmarks. */
             total_bookmarks: number;
-            /** @description Total number of invites. */
-            total_invites: number;
-            /** @description Total number of recurring payments. */
-            total_recurring_payments: number;
             /** @description Total number of wallets across all users. */
             total_wallets: number;
             /**
@@ -1605,49 +1288,6 @@ export interface components {
          * @enum {string}
          */
         TxStatus: "pending" | "confirmed" | "failed";
-        /** @description Request to update the last paid date for a recurring payment. */
-        UpdateLastPaidDateRequest: {
-            /**
-             * Format: int32
-             * @description New last paid date (Unix timestamp in days).
-             */
-            last_paid_date: number;
-            /** @description ID of the recurring payment. */
-            recurring_payment_id: string;
-        };
-        /** @description Request to update an existing recurring payment. */
-        UpdateRecurringPaymentRequest: {
-            /**
-             * Format: double
-             * @description Updated payment amount.
-             */
-            amount: number;
-            /** @description Updated currency code. */
-            currency_code: string;
-            /**
-             * Format: int32
-             * @description Updated frequency.
-             */
-            frequency: number;
-            /**
-             * Format: int32
-             * @description Updated end date.
-             */
-            payment_end_date: number;
-            /**
-             * Format: int32
-             * @description Updated start date.
-             */
-            payment_start_date: number;
-            /** @description Updated recipient address. */
-            recipient: components["schemas"]["WalletAddress"];
-            /** @description ID of the recurring payment to update. */
-            recurring_payment_id: string;
-            /** @description Updated source wallet. */
-            wallet_id: components["schemas"]["WalletAddress"];
-            /** @description Updated public key. */
-            wallet_public_key: string;
-        };
         /** @description Response for GET /v1/users/me */
         UserMeResponse: {
             /** @description User's role */
@@ -1903,96 +1543,6 @@ export interface operations {
             };
         };
     };
-    topup_fiat_reserve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReserveTopUpRequest"];
-            };
-        };
-        responses: {
-            /** @description Reserve top-up submitted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReserveTransactionResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Service unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    transfer_fiat_reserve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReserveTransferRequest"];
-            };
-        };
-        responses: {
-            /** @description Reserve transfer submitted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ReserveTransactionResponse"];
-                };
-            };
-            /** @description Bad request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     get_fiat_service_wallet: {
         parameters: {
             query?: never;
@@ -2003,40 +1553,6 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Fiat reserve wallet status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FiatServiceWalletStatusResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    bootstrap_fiat_service_wallet: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Fiat reserve wallet bootstrapped */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2659,48 +2175,6 @@ export interface operations {
             };
         };
     };
-    get_invite: {
-        parameters: {
-            query: {
-                invite_code: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Invite"];
-                };
-            };
-        };
-    };
-    redeem_invite: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RedeemInviteRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     resolve_payment_link: {
         parameters: {
             query?: never;
@@ -2727,135 +2201,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    create_recurring_payment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRecurringPaymentRequest"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_recurring_payment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Identifier of the recurring payment to update */
-                recurring_payment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateRecurringPaymentRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    delete_recurring_payment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Identifier of the recurring payment to delete */
-                recurring_payment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    update_last_paid_date: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Identifier of the recurring payment to update */
-                recurring_payment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateLastPaidDateRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    list_recurring_payments: {
-        parameters: {
-            query: {
-                wallet_id: components["schemas"]["WalletAddress"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringPayment"][];
-                };
-            };
-        };
-    };
-    recurring_payments_today: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringPayment"][];
-                };
             };
         };
     };
@@ -3100,62 +2445,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BalanceResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden - not wallet owner */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Wallet not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Blockchain network unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_native_balance: {
-        parameters: {
-            query?: {
-                /** @description Network to query. Only "fuji" is supported. */
-                network?: string | null;
-                /** @description Additional token contract addresses to query (comma-separated) */
-                tokens?: string | null;
-            };
-            header?: never;
-            path: {
-                /** @description Wallet ID */
-                wallet_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Native balance retrieved successfully */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NativeBalanceResponse"];
                 };
             };
             /** @description Unauthorized */

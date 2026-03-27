@@ -26,10 +26,6 @@
 //!     key.pem         # Private key (NEVER exposed via API)
 //!   bookmarks/
 //!     {bookmark_id}.json
-//!   invites/
-//!     {invite_id}.json
-//!   recurring/
-//!     {payment_id}.json
 //!   audit/
 //!     {date}/events.jsonl  # Daily audit logs
 //! ```
@@ -55,8 +51,8 @@ pub use ownership::{OwnedResource, OwnershipEnforcer};
 pub use paths::StoragePaths;
 pub use repository::{
     BookmarkRepository, EmailIndexRepository, FiatDirection, FiatRequestRepository,
-    FiatRequestStatus, FiatServiceWalletMetadata, FiatServiceWalletRepository, InviteRepository,
-    PaymentLinkData, PaymentLinkRepository, RecipientType, RecurringRepository, StoredBookmark,
+    FiatRequestStatus, FiatServiceWalletMetadata, FiatServiceWalletRepository,
+    PaymentLinkData, PaymentLinkRepository, RecipientType, StoredBookmark,
     StoredFiatRequest, StoredTransaction, TokenType, TxStatus, WalletMetadata, WalletRepository,
     WalletResponse, WalletStatus,
 };

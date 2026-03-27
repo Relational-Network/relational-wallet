@@ -170,11 +170,6 @@ impl AvaxClient {
         }))
     }
 
-    /// Get the network configuration.
-    pub fn network(&self) -> &NetworkConfig {
-        &self.network
-    }
-
     /// Create a signer from a private key (hex string without 0x prefix).
     ///
     /// # Arguments

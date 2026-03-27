@@ -6,7 +6,7 @@ use axum::{
     extract::Path,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::sync::Arc;
@@ -18,9 +18,7 @@ use crate::{
     blockchain::{TokenBalance, WalletBalanceResponse},
     models::{
         Bookmark, CreateBookmarkRequest, CreatePaymentLinkRequest, CreatePaymentLinkResponse,
-        CreateRecurringPaymentRequest, Invite, PaymentLinkInfo, RecurringPayment,
-        RedeemInviteRequest, ResolveEmailRequest, ResolveEmailResponse, UpdateLastPaidDateRequest,
-        UpdateRecurringPaymentRequest, WalletAddress,
+        PaymentLinkInfo, ResolveEmailRequest, ResolveEmailResponse, WalletAddress,
     },
     state::AppState,
     storage::{
@@ -33,9 +31,7 @@ pub mod balance;
 pub mod bookmarks;
 pub mod fiat;
 pub mod health;
-pub mod invites;
 pub mod payment_links;
-pub mod recurring;
 pub mod resolve;
 pub mod transactions;
 pub mod users;
@@ -58,10 +54,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/wallets/{wallet_id}/balance",
             get(balance::get_wallet_balance),
-        )
-        .route(
-            "/wallets/{wallet_id}/balance/native",
-            get(balance::get_native_balance),
         )
         // Transaction endpoints
         .route(
@@ -99,26 +91,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/payment-link/{token}",
             get(payment_links::resolve_payment_link),
-        )
-        // Invite endpoints
-        .route("/invite", get(invites::get_invite))
-        .route("/invite/redeem", post(invites::redeem_invite))
-        // Recurring payment endpoints
-        .route(
-            "/recurring/payments",
-            get(recurring::list_recurring_payments).post(recurring::create_recurring_payment),
-        )
-        .route(
-            "/recurring/payment/{recurring_payment_id}",
-            delete(recurring::delete_recurring_payment).put(recurring::update_recurring_payment),
-        )
-        .route(
-            "/recurring/payment/{recurring_payment_id}/last-paid-date",
-            put(recurring::update_last_paid_date),
-        )
-        .route(
-            "/recurring/payments/today",
-            get(recurring::recurring_payments_today),
         )
         // Fiat request stubs
         .route("/fiat/providers", get(fiat::list_fiat_providers))
@@ -259,7 +231,6 @@ fn build_cors_layer() -> CorsLayer {
         wallets::delete_wallet,
         // Wallet balance endpoints
         balance::get_wallet_balance,
-        balance::get_native_balance,
         // Transaction endpoints
         transactions::estimate_gas,
         transactions::send_transaction,
@@ -274,16 +245,6 @@ fn build_cors_layer() -> CorsLayer {
         // Payment link endpoints
         payment_links::create_payment_link,
         payment_links::resolve_payment_link,
-        // Invite endpoints
-        invites::get_invite,
-        invites::redeem_invite,
-        // Recurring payment endpoints
-        recurring::list_recurring_payments,
-        recurring::create_recurring_payment,
-        recurring::update_recurring_payment,
-        recurring::delete_recurring_payment,
-        recurring::recurring_payments_today,
-        recurring::update_last_paid_date,
         // Fiat endpoints
         fiat::list_fiat_providers,
         fiat::truelayer_webhook,
@@ -320,7 +281,6 @@ fn build_cors_layer() -> CorsLayer {
             crate::storage::WalletStatus,
             // Wallet balance schemas
             balance::BalanceResponse,
-            balance::NativeBalanceResponse,
             TokenBalance,
             WalletBalanceResponse,
             // Transaction schemas
@@ -358,14 +318,8 @@ fn build_cors_layer() -> CorsLayer {
             crate::storage::AuditEventType,
             // Data schemas
             Bookmark,
-            Invite,
-            RecurringPayment,
             WalletAddress,
             CreateBookmarkRequest,
-            RedeemInviteRequest,
-            CreateRecurringPaymentRequest,
-            UpdateRecurringPaymentRequest,
-            UpdateLastPaidDateRequest,
             // Email resolution schemas
             ResolveEmailRequest,
             ResolveEmailResponse,
@@ -386,8 +340,6 @@ fn build_cors_layer() -> CorsLayer {
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "resolve", description = "Email resolution"),
         (name = "payment_links", description = "Payment link generation and resolution"),
-        (name = "Invites", description = "Invite validation and redemption"),
-        (name = "Recurring", description = "Recurring payment scheduling"),
         (name = "Fiat", description = "Fiat on-ramp/off-ramp provider integrations"),
         (name = "Admin", description = "Admin-only system management"),
         (name = "Health", description = "Liveness and readiness checks")

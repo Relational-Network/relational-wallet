@@ -27,7 +27,6 @@ import { PrimaryActions } from "@/components/PrimaryActions";
 import { PrimaryBalanceCard } from "@/components/PrimaryBalanceCard";
 import { RecentActivityPreview, type DashboardActivityItem } from "@/components/RecentActivityPreview";
 import { SimpleWalletShell } from "@/components/SimpleWalletShell";
-import { ServiceWalletModal } from "@/components/ServiceWalletModal";
 import { bookmarkToRecipientShortcut, type RecipientShortcut } from "@/lib/recipients";
 
 interface TokenBalance {
@@ -48,7 +47,6 @@ type ActiveDialog =
   | "activity"
   | "manage"
   | "create_wallet"
-  | "service_wallet"
   | null;
 
 const DEFAULT_PROVIDER = "truelayer_sandbox";
@@ -1039,15 +1037,14 @@ export function SimpleWalletDashboard({
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {isAdmin ? (
-              <button
-                type="button"
+              <a
+                href="/admin"
                 className="btn btn-ghost"
-                style={{ fontSize: "0.6875rem", padding: "0.2rem 0.5rem" }}
-                onClick={() => setActiveDialog("service_wallet")}
-                title="View service wallet details"
+                style={{ fontSize: "0.6875rem", padding: "0.2rem 0.5rem", textDecoration: "none" }}
+                title="Admin panel"
               >
-                Service Wallet
-              </button>
+                Admin
+              </a>
             ) : null}
             {isAdmin && selectedWalletId ? (
               <a
@@ -1178,13 +1175,6 @@ export function SimpleWalletDashboard({
           }}
         />
       </ActionDialog>
-
-      {isAdmin ? (
-        <ServiceWalletModal
-          open={activeDialog === "service_wallet"}
-          onClose={() => setActiveDialog(null)}
-        />
-      ) : null}
 
       <CreateWalletDialog
         open={activeDialog === "create_wallet" && wallets.length === 0}

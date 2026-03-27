@@ -154,8 +154,6 @@ impl EncryptedStorage {
         let dirs = [
             self.paths.wallets_dir(),
             self.paths.bookmarks_dir(),
-            self.paths.invites_dir(),
-            self.paths.recurring_dir(),
             self.paths.fiat_dir(),
             self.paths.audit_dir(),
             self.paths.system_dir(),
@@ -403,8 +401,6 @@ mod tests {
 
         assert!(storage.paths().wallets_dir().exists());
         assert!(storage.paths().bookmarks_dir().exists());
-        assert!(storage.paths().invites_dir().exists());
-        assert!(storage.paths().recurring_dir().exists());
         assert!(storage.paths().audit_dir().exists());
 
         cleanup_storage(&storage);

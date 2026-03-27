@@ -112,33 +112,6 @@ async fn main() {
         }
     }
 
-    // Seed invite if configured
-    if let Ok(code) = env::var("SEED_INVITE_CODE") {
-        use chrono::Utc;
-        use storage::repository::invites::StoredInvite;
-        use storage::repository::InviteRepository;
-
-        let repo = InviteRepository::new(&encrypted_storage);
-        // Only create if it doesn't exist
-        if repo.get_by_code(&code).is_err() {
-            let invite = StoredInvite {
-                id: uuid::Uuid::new_v4().to_string(),
-                code,
-                redeemed: false,
-                created_by_user_id: Some("system".to_string()),
-                redeemed_by_user_id: None,
-                created_at: Utc::now(),
-                redeemed_at: None,
-                expires_at: None,
-            };
-            if let Err(e) = repo.create(&invite) {
-                warn!(error = %e, "Failed to seed invite code");
-            } else {
-                info!("Seeded invite code from SEED_INVITE_CODE");
-            }
-        }
-    }
-
     // ========== Initialize Transaction Database (redb) ==========
     info!("Opening transaction database...");
     let tx_db_path = encrypted_storage.paths().root().join("tx.redb");

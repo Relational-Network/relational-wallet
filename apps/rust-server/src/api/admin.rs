@@ -25,8 +25,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository, InviteRepository,
-        RecurringRepository, WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository,
+        WalletRepository, WalletStatus,
     },
 };
 
@@ -47,12 +47,6 @@ pub struct SystemStatsResponse {
     pub deleted_wallets: usize,
     /// Total number of bookmarks.
     pub total_bookmarks: usize,
-    /// Total number of invites.
-    pub total_invites: usize,
-    /// Number of redeemed invites.
-    pub redeemed_invites: usize,
-    /// Total number of recurring payments.
-    pub total_recurring_payments: usize,
     /// Server uptime information.
     pub uptime_seconds: u64,
     /// Current timestamp.
@@ -124,8 +118,6 @@ pub struct AdminUserSummary {
     pub wallet_count: usize,
     /// Number of bookmarks.
     pub bookmark_count: usize,
-    /// Number of recurring payments.
-    pub recurring_payment_count: usize,
 }
 
 /// Response for admin user list.
@@ -203,8 +195,8 @@ pub fn init_server_start_time() {
 
 /// Get system statistics.
 ///
-/// Returns aggregate statistics about the system including wallet counts,
-/// invite usage, and storage metrics. Admin only.
+/// Returns aggregate statistics about the system including wallet counts
+/// and storage metrics. Admin only.
 #[utoipa::path(
     get,
     path = "/v1/admin/stats",
@@ -242,15 +234,6 @@ pub async fn get_system_stats(
     let bookmark_repo = BookmarkRepository::new(&storage);
     let total_bookmarks = bookmark_repo.list_all().unwrap_or_default().len();
 
-    // Count invites
-    let invite_repo = InviteRepository::new(&storage);
-    let all_invites = invite_repo.list_all().unwrap_or_default();
-    let redeemed_invites = all_invites.iter().filter(|i| i.redeemed).count();
-
-    // Count recurring payments
-    let recurring_repo = RecurringRepository::new(&storage);
-    let total_recurring = recurring_repo.list_all().unwrap_or_default().len();
-
     // Audit log
     audit_log!(&storage, AuditEventType::AdminAccess, &user);
 
@@ -260,9 +243,6 @@ pub async fn get_system_stats(
         suspended_wallets,
         deleted_wallets,
         total_bookmarks,
-        total_invites: all_invites.len(),
-        redeemed_invites,
-        total_recurring_payments: total_recurring,
         uptime_seconds: get_server_start().elapsed().as_secs(),
         timestamp: Utc::now().to_rfc3339(),
     }))
@@ -314,7 +294,7 @@ pub async fn list_all_wallets(
 
 /// List all unique users with their resource counts.
 ///
-/// Returns a summary of all users who have wallets, bookmarks, or recurring payments.
+/// Returns a summary of all users who have wallets or bookmarks.
 #[utoipa::path(
     get,
     path = "/v1/admin/users",
@@ -335,11 +315,9 @@ pub async fn list_all_users(
     // Collect all user IDs from various sources
     let wallet_repo = WalletRepository::new(&storage);
     let bookmark_repo = BookmarkRepository::new(&storage);
-    let recurring_repo = RecurringRepository::new(&storage);
 
     let wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let bookmarks = bookmark_repo.list_all().unwrap_or_default();
-    let recurring = recurring_repo.list_all().unwrap_or_default();
 
     // Build user map
     let mut user_map: std::collections::HashMap<String, AdminUserSummary> =
@@ -352,7 +330,6 @@ pub async fn list_all_users(
                 user_id: wallet.owner_user_id.clone(),
                 wallet_count: 0,
                 bookmark_count: 0,
-                recurring_payment_count: 0,
             });
         entry.wallet_count += 1;
     }
@@ -364,21 +341,8 @@ pub async fn list_all_users(
                 user_id: bookmark.owner_user_id.clone(),
                 wallet_count: 0,
                 bookmark_count: 0,
-                recurring_payment_count: 0,
             });
         entry.bookmark_count += 1;
-    }
-
-    for payment in &recurring {
-        let entry = user_map
-            .entry(payment.owner_user_id.clone())
-            .or_insert_with(|| AdminUserSummary {
-                user_id: payment.owner_user_id.clone(),
-                wallet_count: 0,
-                bookmark_count: 0,
-                recurring_payment_count: 0,
-            });
-        entry.recurring_payment_count += 1;
     }
 
     let users: Vec<AdminUserSummary> = user_map.into_values().collect();
@@ -653,9 +617,6 @@ mod tests {
             suspended_wallets: 1,
             deleted_wallets: 1,
             total_bookmarks: 25,
-            total_invites: 5,
-            redeemed_invites: 3,
-            total_recurring_payments: 7,
             uptime_seconds: 3600,
             timestamp: "2026-01-28T12:00:00Z".to_string(),
         };
