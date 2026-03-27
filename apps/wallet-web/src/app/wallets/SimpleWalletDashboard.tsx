@@ -1033,7 +1033,7 @@ export function SimpleWalletDashboard({
             className="btn btn-manage"
             onClick={() => setActiveDialog("manage")}
           >
-            Manage Wallet(s)
+            Manage Wallet
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {isAdmin ? (
@@ -1046,15 +1046,7 @@ export function SimpleWalletDashboard({
                 Admin
               </a>
             ) : null}
-            {isAdmin && selectedWalletId ? (
-              <a
-                href={`/wallets/${selectedWalletId}`}
-                style={{ fontSize: "0.6875rem", color: "var(--ink-muted)", textDecoration: "none", opacity: 0.6 }}
-                title="View wallet detail page"
-              >
-                details →
-              </a>
-            ) : null}
+
             <div className="clerk-avatar-slot">
               <UserButton />
             </div>
@@ -1158,7 +1150,7 @@ export function SimpleWalletDashboard({
       <ActionDialog
         open={activeDialog === "manage"}
         onClose={() => setActiveDialog(null)}
-        title="Manage wallets"
+        title="Manage wallet"
       >
         <ManageWalletsSheet
           wallets={wallets}

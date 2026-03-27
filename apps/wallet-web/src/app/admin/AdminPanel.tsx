@@ -3,11 +3,10 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
-  BarChart3,
   Wallet,
   Shield,
   RefreshCw,
@@ -18,8 +17,6 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Search,
-  X,
   CheckCircle2,
   XCircle,
   Clock,
@@ -494,7 +491,9 @@ function WalletsTab() {
     const action = wallet.status === "active" ? "suspend" : "activate";
     const confirmMsg = action === "suspend"
       ? `Suspend wallet ${truncateAddr(wallet.public_address)}? The owner will not be able to transact.`
-      : `Activate wallet ${truncateAddr(wallet.public_address)}?`;
+      : wallet.status === "deleted"
+        ? `Restore deleted wallet ${truncateAddr(wallet.public_address)}?`
+        : `Activate wallet ${truncateAddr(wallet.public_address)}?`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -560,19 +559,37 @@ function WalletsTab() {
                   {new Date(w.created_at).toLocaleDateString()}
                 </td>
                 <td style={{ padding: "0.75rem 1rem", textAlign: "right" }}>
-                  {(w.status === "active" || w.status === "suspended") && (
+                  {w.status === "active" && (
                     <button
                       type="button"
-                      className={w.status === "active" ? "btn btn-danger" : "btn btn-secondary"}
+                      className="btn btn-danger"
                       style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
                       disabled={actionLoading === w.wallet_id}
                       onClick={() => toggleStatus(w)}
                     >
-                      {actionLoading === w.wallet_id
-                        ? "…"
-                        : w.status === "active"
-                          ? "Suspend"
-                          : "Activate"}
+                      {actionLoading === w.wallet_id ? "…" : "Suspend"}
+                    </button>
+                  )}
+                  {w.status === "suspended" && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                      disabled={actionLoading === w.wallet_id}
+                      onClick={() => toggleStatus(w)}
+                    >
+                      {actionLoading === w.wallet_id ? "…" : "Activate"}
+                    </button>
+                  )}
+                  {w.status === "deleted" && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: "0.75rem", padding: "0.3rem 0.75rem" }}
+                      disabled={actionLoading === w.wallet_id}
+                      onClick={() => toggleStatus(w)}
+                    >
+                      {actionLoading === w.wallet_id ? "…" : "Restore"}
                     </button>
                   )}
                 </td>
@@ -594,7 +611,31 @@ function WalletsTab() {
 
 // ─── Audit tab ───────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 25;
+
+/** Event categories that matter for admin / compliance review */
+const IMPORTANT_EVENTS: Record<string, string> = {
+  wallet_created: "Wallet Created",
+  wallet_deleted: "Wallet Deleted",
+  transaction_signed: "Tx Signed",
+  transaction_broadcast: "Tx Broadcast",
+  fiat_on_ramp_requested: "Fiat On-Ramp",
+  fiat_off_ramp_requested: "Fiat Off-Ramp",
+  auth_failure: "Auth Failure",
+  permission_denied: "Permission Denied",
+};
+
+/** Noisy events hidden by default */
+const NOISE_EVENTS = new Set([
+  "wallet_accessed",
+  "bookmark_created",
+  "bookmark_deleted",
+  "auth_success",
+  "admin_access",
+  "config_changed",
+]);
+
+type AuditView = "important" | "all" | "failures";
 
 function AuditTab() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
@@ -604,20 +645,18 @@ function AuditTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
-  const [filterType, setFilterType] = useState("");
-  const [filterStatus, setFilterStatus] = useState<"" | "success" | "fail">("");
-  const [filterSearch, setFilterSearch] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
+  // View mode instead of freeform filters
+  const [view, setView] = useState<AuditView>("important");
+  const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
 
-  const load = useCallback(async (pageNum: number) => {
+  const load = useCallback(async (pageNum: number, eventType?: string | null) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String(pageNum * PAGE_SIZE));
-      if (filterType) params.set("event_type", filterType);
+      if (eventType) params.set("event_type", eventType);
       const data = await adminFetch<AuditLogResponse>(`/v1/admin/audit/events?${params}`);
       setEvents(data.events);
       setTotal(data.total);
@@ -627,96 +666,81 @@ function AuditTab() {
     } finally {
       setLoading(false);
     }
-  }, [filterType]);
+  }, []);
 
+  // Reload when view or type filter changes
   useEffect(() => {
     setPage(0);
-    load(0);
-  }, [load]);
+    if (activeTypeFilter) {
+      load(0, activeTypeFilter);
+    } else {
+      load(0);
+    }
+  }, [load, activeTypeFilter]);
 
   const goPage = useCallback((p: number) => {
     setPage(p);
-    load(p);
-  }, [load]);
+    load(p, activeTypeFilter);
+  }, [load, activeTypeFilter]);
 
-  // Client-side filtering for status & search (server does event_type + pagination)
+  // Client-side filtering for view mode (server handles event_type + pagination)
   const filtered = useMemo(() => {
     let list = events;
-    if (filterStatus === "success") list = list.filter((e) => e.success);
-    if (filterStatus === "fail") list = list.filter((e) => !e.success);
-    if (filterSearch.trim()) {
-      const q = filterSearch.toLowerCase();
-      list = list.filter(
-        (e) =>
-          humanEventType(e.event_type).toLowerCase().includes(q) ||
-          (e.resource_id ?? "").toLowerCase().includes(q) ||
-          (e.user_id ?? "").toLowerCase().includes(q)
-      );
+    if (view === "important") {
+      list = list.filter((e) => !NOISE_EVENTS.has(e.event_type));
+    } else if (view === "failures") {
+      list = list.filter((e) => !e.success);
     }
     return list;
-  }, [events, filterStatus, filterSearch]);
-
-  // Collect unique event types for filter dropdown
-  const eventTypes = useMemo(() => {
-    const set = new Set(events.map((e) => e.event_type));
-    return Array.from(set).sort();
-  }, [events]);
+  }, [events, view]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  const handleTypeClick = (eventType: string) => {
+    if (activeTypeFilter === eventType) {
+      setActiveTypeFilter(null); // toggle off
+    } else {
+      setActiveTypeFilter(eventType);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* Filters bar */}
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-        {/* Search */}
-        <div style={{ position: "relative", flex: "1 1 200px", minWidth: 180 }}>
-          <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ink-muted)" }} />
-          <input
-            ref={searchRef}
-            type="text"
-            placeholder="Search events…"
-            value={filterSearch}
-            onChange={(e) => setFilterSearch(e.target.value)}
-            className="input"
-            style={{ paddingLeft: 32, fontSize: "0.8125rem", height: 36 }}
-          />
-          {filterSearch && (
-            <button
-              type="button"
-              onClick={() => setFilterSearch("")}
-              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--ink-muted)", padding: 2 }}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+      {/* View mode tabs */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        {(["important", "all", "failures"] as AuditView[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={view === v && !activeTypeFilter ? "btn btn-primary" : "btn btn-ghost"}
+            style={{ fontSize: "0.8125rem", padding: "0.3rem 0.75rem" }}
+            onClick={() => { setView(v); setActiveTypeFilter(null); }}
+          >
+            {v === "important" ? "Key Events" : v === "all" ? "All Events" : "Failures Only"}
+          </button>
+        ))}
 
-        {/* Event type filter */}
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="input"
-          style={{ fontSize: "0.8125rem", height: 36, width: "auto", minWidth: 160 }}
+        <span style={{ width: 1, height: 20, background: "var(--border-strong)", margin: "0 4px" }} />
+
+        {/* Quick-filter pills for important event types */}
+        {Object.entries(IMPORTANT_EVENTS).map(([type, label]) => (
+          <button
+            key={type}
+            type="button"
+            className={activeTypeFilter === type ? "btn btn-primary" : "btn btn-ghost"}
+            style={{ fontSize: "0.75rem", padding: "0.25rem 0.625rem" }}
+            onClick={() => handleTypeClick(type)}
+          >
+            {label}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => goPage(page)}
+          style={{ padding: "0.25rem 0.5rem", marginLeft: "auto" }}
         >
-          <option value="">All event types</option>
-          {eventTypes.map((t) => (
-            <option key={t} value={t}>{humanEventType(t)}</option>
-          ))}
-        </select>
-
-        {/* Status filter */}
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value as "" | "success" | "fail")}
-          className="input"
-          style={{ fontSize: "0.8125rem", height: 36, width: "auto", minWidth: 120 }}
-        >
-          <option value="">All statuses</option>
-          <option value="success">Success</option>
-          <option value="fail">Failed</option>
-        </select>
-
-        <button type="button" className="btn btn-ghost" onClick={() => goPage(page)} style={{ padding: "0.25rem 0.5rem" }}>
           <RefreshCw size={14} />
         </button>
       </div>
@@ -761,7 +785,7 @@ function AuditTab() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={4} style={{ padding: "2rem 1rem", color: "var(--ink-muted)", textAlign: "center" }}>
-                      {events.length === 0 ? "No audit events" : "No matching events"}
+                      {events.length === 0 ? "No audit events" : "No matching events — try \"All Events\""}
                     </td>
                   </tr>
                 )}
