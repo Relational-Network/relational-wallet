@@ -278,6 +278,7 @@ impl TxBuilder {
     }
 
     /// Send a generic contract call transaction.
+    #[allow(dead_code)]
     pub async fn send_contract_call(
         &self,
         contract_address: &str,

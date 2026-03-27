@@ -146,10 +146,14 @@ prepare_data_dir() {
 
     mkdir -p "${DATA_DIR}"
 
-    chmod 0750 "${DATA_DIR}" 2>/dev/null || true
+    # Auto-fix ownership so the non-root service user can write.
+    # This runs as root before privilege drop, so it works whether the
+    # host bind-mount was pre-created or auto-created by Docker (root:root).
+    chown "$(app_uid):$(app_gid)" "${DATA_DIR}"
+    chmod 0750 "${DATA_DIR}"
 
     if ! run_as_app test -w "${DATA_DIR}"; then
-        fatal "${DATA_DIR} is not writable by ${APP_USER}. Pre-create the mount with UID $(app_uid) and GID $(app_gid)."
+        fatal "${DATA_DIR} is not writable by ${APP_USER} after chown. Check that the bind mount allows ownership changes."
     fi
 }
 

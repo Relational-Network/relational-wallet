@@ -149,15 +149,6 @@ pub fn router(state: AppState) -> Router {
             get(fiat::get_fiat_service_wallet),
         )
         .route(
-            "/admin/fiat/service-wallet/bootstrap",
-            post(fiat::bootstrap_fiat_service_wallet),
-        )
-        .route("/admin/fiat/reserve/topup", post(fiat::topup_fiat_reserve))
-        .route(
-            "/admin/fiat/reserve/transfer",
-            post(fiat::transfer_fiat_reserve),
-        )
-        .route(
             "/admin/fiat/requests/{request_id}/sync",
             post(fiat::sync_fiat_request_admin),
         )
@@ -301,9 +292,6 @@ fn build_cors_layer() -> CorsLayer {
         fiat::list_fiat_requests,
         fiat::get_fiat_request,
         fiat::get_fiat_service_wallet,
-        fiat::bootstrap_fiat_service_wallet,
-        fiat::topup_fiat_reserve,
-        fiat::transfer_fiat_reserve,
         fiat::sync_fiat_request_admin,
         // Admin endpoints
         admin::get_system_stats,
@@ -353,9 +341,6 @@ fn build_cors_layer() -> CorsLayer {
             fiat::FiatRequestResponse,
             fiat::FiatRequestListResponse,
             fiat::FiatServiceWalletStatusResponse,
-            fiat::ReserveTopUpRequest,
-            fiat::ReserveTransferRequest,
-            fiat::ReserveTransactionResponse,
             fiat::FiatSyncResponse,
             FiatDirection,
             FiatRequestStatus,

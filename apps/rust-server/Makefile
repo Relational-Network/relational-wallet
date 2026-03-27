@@ -58,7 +58,6 @@ help:
 	@echo "  make                   - build SGX artifacts (.manifest/.sgx/.sig)"
 	@echo "  make start-rust-server - run inside SGX enclave (loads .env if present)"
 	@echo "  make docker-build      - build SGX Docker image"
-	@echo "  make docker-data-dir   - create host data dir (override with DATA_DIR=/path)"
 	@echo "  make docker-run        - run SGX Docker image (override with DATA_DIR=/path)"
 	@echo "  make docker-stop       - stop running SGX Docker container"
 	@echo "  make show-measurements - inspect local SIGSTRUCT measurements"
@@ -138,15 +137,9 @@ start-rust-server: all
 docker-build:
 	cd docker && sudo SGX_SIGNING_KEY="$${SGX_SIGNING_KEY:-$$HOME/.config/gramine/enclave-key.pem}" ./build.sh ubuntu20
 
-.PHONY: docker-data-dir
-# Example custom path:
-#   make DATA_DIR=/opt/local-docker/data/rust-server docker-data-dir
-docker-data-dir:
-	sudo install -d -m 0750 -o $(DOCKER_APP_UID) -g $(DOCKER_APP_GID) "$(DATA_DIR)"
-
 .PHONY: docker-run
 # Override DATA_DIR for a deployment-like local bind mount, for example:
-#   make DATA_DIR=/opt/local-docker/data/rust-server docker-run
+#   make DATA_DIR=/opt/local-docker/data/ docker-run
 # Exit 137 (SIGKILL) is expected because Gramine SGX does not propagate
 # SIGTERM to the enclave, so Docker force-stops the container after the
 # configured stop-timeout. This is harmless: Gramine's encrypted filesystem
@@ -155,7 +148,7 @@ docker-data-dir:
 # Auth & CORS env vars are loaded from .env via --env-file.
 # This avoids the problem of `sudo` stripping the user's environment.
 # Create .env from .env.example if you haven't already.
-docker-run: docker-data-dir
+docker-run:
 	@if [ ! -f .env ]; then \
 		echo "error: .env file not found. Copy .env.example to .env and fill in the values."; \
 		exit 1; \

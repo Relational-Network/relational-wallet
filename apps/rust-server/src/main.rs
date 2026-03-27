@@ -95,17 +95,8 @@ async fn main() {
         .expect("Encrypted storage health check failed");
     info!("Encrypted storage initialized and verified");
 
-    // Bootstrap enclave-managed fiat reserve wallet (idempotent) unless disabled.
-    let fiat_bootstrap_enabled = env::var("FIAT_RESERVE_BOOTSTRAP_ENABLED")
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(true);
-    if fiat_bootstrap_enabled {
+    // Bootstrap enclave-managed fiat reserve service wallet (idempotent).
+    {
         let repo = storage::FiatServiceWalletRepository::new(&encrypted_storage);
         match repo.bootstrap() {
             Ok(metadata) => {
@@ -119,8 +110,6 @@ async fn main() {
                 warn!(error = %error, "Failed to bootstrap fiat reserve service wallet");
             }
         }
-    } else {
-        info!("FIAT_RESERVE_BOOTSTRAP_ENABLED=false, skipping reserve wallet bootstrap");
     }
 
     // Seed invite if configured

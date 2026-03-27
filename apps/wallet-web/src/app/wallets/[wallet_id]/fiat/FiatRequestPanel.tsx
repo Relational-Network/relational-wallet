@@ -43,6 +43,22 @@ function shortenAddress(address: string): string {
   return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
 
+/** Translate raw backend failure_reason into a user-friendly message. */
+function humanizeFailureReason(reason: string): string {
+  const lower = reason.toLowerCase();
+  if (lower.includes("insufficient funds") || lower.includes("avax for gas")) {
+    return "Settlement delayed — waiting for gas funding. Will retry automatically.";
+  }
+  if (lower.includes("insufficient balance") || lower.includes("not enough funds")) {
+    return "Settlement delayed — waiting for gas funding. Will retry automatically.";
+  }
+  const attemptMatch = reason.match(/Attempt (\d+)\/(\d+)/);
+  if (attemptMatch) {
+    return `Settlement retry ${attemptMatch[1]}/${attemptMatch[2]} — will retry shortly.`;
+  }
+  return reason;
+}
+
 interface BalanceResponse {
   token_balances: Array<{ symbol: string; balance_formatted: string }>;
 }
@@ -481,9 +497,17 @@ export function FiatRequestPanel({ walletId }: FiatRequestPanelProps) {
                 {request.failure_reason ? (
                   <p
                     className="helper-text"
-                    style={{ marginBottom: 0, marginTop: "0.2rem", color: "var(--bad-600)" }}
+                    style={{
+                      marginBottom: 0,
+                      marginTop: "0.2rem",
+                      color: request.status === "settlement_pending"
+                        ? "var(--warning-600, #b45309)"
+                        : "var(--bad-600)",
+                    }}
                   >
-                    Failure: {request.failure_reason}
+                    {request.status === "settlement_pending"
+                      ? humanizeFailureReason(request.failure_reason)
+                      : `Failure: ${request.failure_reason}`}
                   </p>
                 ) : null}
                 {request.note ? (

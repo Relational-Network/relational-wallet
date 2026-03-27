@@ -43,7 +43,6 @@ loader.env.TRUELAYER_CLIENT_ID = { passthrough = true }
 loader.env.TRUELAYER_CLIENT_SECRET = { passthrough = true }
 loader.env.TRUELAYER_SIGNING_KEY_ID = { passthrough = true }
 loader.env.TRUELAYER_SIGNING_PRIVATE_KEY_PEM = { passthrough = true }
-loader.env.TRUELAYER_SIGNING_PRIVATE_KEY_PATH = { passthrough = true }
 loader.env.TRUELAYER_MERCHANT_ACCOUNT_ID = { passthrough = true }
 
 # Optional provider endpoint/currency overrides.
@@ -57,8 +56,6 @@ loader.env.FUJI_RPC_URL = { passthrough = true }
 
 # ========== FIAT RESERVE SETTLEMENT (FUJI) ==========
 loader.env.REUR_CONTRACT_ADDRESS_FUJI = { passthrough = true }
-loader.env.FIAT_RESERVE_BOOTSTRAP_ENABLED = { passthrough = true }
-loader.env.FIAT_RESERVE_INITIAL_TOPUP_EUR = { passthrough = true }
 loader.env.FIAT_MIN_CONFIRMATIONS = { passthrough = true }
 
 fs.mounts = [

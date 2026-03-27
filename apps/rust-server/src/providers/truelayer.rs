@@ -6,7 +6,6 @@
 
 use std::{
     collections::HashMap,
-    fs,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -131,8 +130,7 @@ impl TrueLayerClient {
         required_env_present("TRUELAYER_CLIENT_ID")
             && required_env_present("TRUELAYER_CLIENT_SECRET")
             && required_env_present("TRUELAYER_SIGNING_KEY_ID")
-            && (required_env_present("TRUELAYER_SIGNING_PRIVATE_KEY_PEM")
-                || required_env_present("TRUELAYER_SIGNING_PRIVATE_KEY_PATH"))
+            && required_env_present("TRUELAYER_SIGNING_PRIVATE_KEY_PEM")
             && required_env_present("TRUELAYER_MERCHANT_ACCOUNT_ID")
     }
 
@@ -759,24 +757,8 @@ fn env_or_default(name: &str, default: &str) -> String {
 }
 
 fn load_signing_key_pem() -> Result<String, TrueLayerError> {
-    if let Some(pem) = std::env::var("TRUELAYER_SIGNING_PRIVATE_KEY_PEM")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-    {
-        return Ok(pem.replace("\\n", "\n"));
-    }
-
-    let path = env_required("TRUELAYER_SIGNING_PRIVATE_KEY_PATH")?;
-    let pem = fs::read_to_string(&path)
-        .map_err(|e| TrueLayerError::MissingConfig(format!("failed to read {path}: {e}")))?;
-    let trimmed = pem.trim().to_string();
-    if trimmed.is_empty() {
-        return Err(TrueLayerError::MissingConfig(format!(
-            "TRUELAYER_SIGNING_PRIVATE_KEY_PATH points to an empty file: {path}"
-        )));
-    }
-    Ok(trimmed)
+    let pem = env_required("TRUELAYER_SIGNING_PRIVATE_KEY_PEM")?;
+    Ok(pem.replace("\\n", "\n"))
 }
 
 fn normalize_user_id_as_uuid(raw_user_id: &str) -> String {
