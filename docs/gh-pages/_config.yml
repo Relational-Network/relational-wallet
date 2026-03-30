@@ -1,5 +1,7 @@
-title: Relational Wallet Documentation
-description: Developer, operator, and legal documents for the Relational Wallet.
+title: Relational Wallet
+description: >-
+  Non-custodial Avalanche wallet secured by Intel SGX enclaves.
+  Private keys never leave the hardware boundary.
 theme: just-the-docs
 repository: Relational-Network/relational-wallet
 
@@ -14,14 +16,39 @@ sass:
   silence_deprecations: ['import']
 
 aux_links:
-  "Relational Wallet on GitHub": "https://github.com/Relational-Network/relational-wallet"
+  GitHub: "https://github.com/Relational-Network/relational-wallet"
+aux_links_new_tab: true
+
+nav_external_links:
+  - title: Swagger UI
+    url: "https://localhost:8080/docs"
+    hide_icon: false
+
+heading_anchors: true
+enable_copy_code_button: true
+
+back_to_top: true
+back_to_top_text: "Back to top"
+
+callouts:
+  warning:
+    title: Warning
+    color: red
+  note:
+    title: Note
+    color: blue
+  tip:
+    title: Tip
+    color: green
+  important:
+    title: Important
+    color: yellow
 
 plugins:
   - jekyll-seo-tag
   - jekyll-include-cache
 
 exclude:
-  # from https://github.com/jekyll/jekyll/blob/master/lib/site_template/_config.yml:
   - .sass-cache/
   - .jekyll-cache/
   - gemfiles/
@@ -32,35 +59,21 @@ exclude:
   - vendor/cache/
   - vendor/gems/
   - vendor/ruby/
+  - _site/
 
-# From just-the-docs template documentation:
 search_enabled: true
 search:
-  # Split pages into sections that can be searched individually
-  # Supports 1 - 6, default: 2
   heading_level: 2
-  # Maximum amount of previews per search result
-  # Default: 3
-  previews: 2
-  # Maximum amount of words to display before a matched word in the preview
-  # Default: 5
-  preview_words_before: 3
-  # Maximum amount of words to display after a matched word in the preview
-  # Default: 10
-  preview_words_after: 3
-  # Set the search token separator
-  # Default: /[\s\-/]+/
-  # Example: enable support for hyphenated search words
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
   tokenizer_separator: /[\s/]+/
-  # Display the relative url in search results
-  # Supports true (default) or false
   rel_url: true
-  # Enable or disable the search button that appears in the bottom right corner of every page
-  # Supports true or false (default)
-  button: false
-  # Focus the search input by pressing `ctrl + focus_shortcut_key` (or `cmd + focus_shortcut_key` on macOS)
+  button: true
   focus_shortcut_key: "k"
 
-  enable_copy_code_button: true
+footer_content: 'Copyright &copy; 2025-2026 Relational Network. Licensed under <a href="https://github.com/Relational-Network/relational-wallet/blob/main/LICENSE">AGPL-3.0</a>.'
 
-footer_content: 'Copyright &copy; 2025 Relational.</a> Distributed by an <a href="https://github.com/Relational-Network/relational-wallet/blob/main/LICENSE">AGPL-3.0 license.</a>'
+# Custom stylesheet
+custom_css:
+  - /assets/css/custom.scss

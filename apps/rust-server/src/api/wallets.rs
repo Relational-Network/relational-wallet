@@ -65,7 +65,7 @@ pub struct DeleteWalletResponse {
 
 /// Create a new wallet for the authenticated user.
 ///
-/// Generates a new p256 keypair inside the SGX enclave and stores it
+/// Generates a new secp256k1 keypair inside the SGX enclave and stores it
 /// encrypted on disk. Returns the wallet metadata (never the private key).
 #[utoipa::path(
     post,
