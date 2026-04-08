@@ -83,6 +83,7 @@ pub struct ClerkClient {
 
 impl ClerkClient {
     /// Create a new Clerk client with the given secret key.
+    #[allow(dead_code)]
     pub fn new(secret_key: String) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))

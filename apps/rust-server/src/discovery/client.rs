@@ -36,12 +36,8 @@ pub struct DiscoveryClient {
 
 impl DiscoveryClient {
     /// Create a new discovery client.
-    pub fn new(
-        peer_registry: Arc<PeerRegistry>,
-    ) -> Self {
-        Self {
-            peer_registry,
-        }
+    pub fn new(peer_registry: Arc<PeerRegistry>) -> Self {
+        Self { peer_registry }
     }
 
     /// Query all peers for an email hash and return the resolved address, if any.
@@ -70,10 +66,7 @@ impl DiscoveryClient {
                 .peer_registry
                 .client_for(&peer.node_id)
                 .ok_or_else(|| {
-                    DiscoveryError::PeerError(format!(
-                        "No client for peer {}",
-                        peer.node_id
-                    ))
+                    DiscoveryError::PeerError(format!("No client for peer {}", peer.node_id))
                 })?;
 
             let peer_url = peer.url.clone();
@@ -161,14 +154,9 @@ async fn evaluate_peer(
         blinded_element: blind_result.blinded_element_base64,
     };
 
-    let response = client
-        .post(&url)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| {
-            DiscoveryError::PeerError(format!("Phase A request to {peer_node_id} failed: {e}"))
-        })?;
+    let response = client.post(&url).json(&request).send().await.map_err(|e| {
+        DiscoveryError::PeerError(format!("Phase A request to {peer_node_id} failed: {e}"))
+    })?;
 
     if !response.status().is_success() {
         return Err(DiscoveryError::PeerError(format!(

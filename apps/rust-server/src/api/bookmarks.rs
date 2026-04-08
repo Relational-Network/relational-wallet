@@ -54,20 +54,20 @@ pub async fn list_bookmarks(
     let wallet_id = params.wallet_id.to_string();
 
     // Verify wallet ownership
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.verify_ownership(&user).map_err(|_| {
         ApiError::forbidden("You don't have permission to access this wallet's bookmarks")
     })?;
 
     // List bookmarks from encrypted storage
-    let repo = BookmarkRepository::new(&storage);
+    let repo = BookmarkRepository::new(storage);
     let bookmarks = repo
         .list_by_wallet(&wallet_id, &user.user_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to list bookmarks: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to list bookmarks: {}", e)))?;
 
     // Convert to API response format
     let response: Vec<Bookmark> = bookmarks
@@ -151,7 +151,7 @@ pub async fn create_bookmark(
                 Some(display),
             )
         }
-        "address" | _ => {
+        _ => {
             // Validate the bookmarked address is a valid Ethereum address
             let addr = request.address.as_ref().ok_or_else(|| {
                 ApiError::bad_request("address is required for address bookmarks")
@@ -163,10 +163,10 @@ pub async fn create_bookmark(
     };
 
     // Verify wallet ownership
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.verify_ownership(&user).map_err(|_| {
         ApiError::forbidden("You don't have permission to add bookmarks to this wallet")
@@ -186,9 +186,9 @@ pub async fn create_bookmark(
         created_at: Utc::now(),
     };
 
-    let repo = BookmarkRepository::new(&storage);
+    let repo = BookmarkRepository::new(storage);
     repo.create(&stored)
-        .map_err(|e| ApiError::internal(&format!("Failed to create bookmark: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create bookmark: {}", e)))?;
 
     // Audit log
     audit_log!(
@@ -243,12 +243,12 @@ pub async fn delete_bookmark(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let storage = state.storage();
-    let repo = BookmarkRepository::new(&storage);
+    let repo = BookmarkRepository::new(storage);
 
     // Get bookmark and verify ownership
     let bookmark = repo
         .get(&bookmark_id)
-        .map_err(|_| ApiError::not_found(&format!("Bookmark {} not found", bookmark_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Bookmark {} not found", bookmark_id)))?;
 
     bookmark
         .verify_ownership(&user)
@@ -256,7 +256,7 @@ pub async fn delete_bookmark(
 
     // Delete bookmark
     repo.delete(&bookmark_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to delete bookmark: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete bookmark: {}", e)))?;
 
     // Audit log
     audit_log!(
@@ -316,7 +316,7 @@ mod tests {
     async fn create_bookmark_success() {
         let (_temp, state, user) = setup();
         let storage = state.storage();
-        let wallet_id = create_test_wallet(&storage, &user.user_id);
+        let wallet_id = create_test_wallet(storage, &user.user_id);
 
         let request = CreateBookmarkRequest {
             wallet_id: WalletAddress::from(wallet_id.as_str()),
@@ -343,10 +343,10 @@ mod tests {
     async fn delete_bookmark_success() {
         let (_temp, state, user) = setup();
         let storage = state.storage();
-        let wallet_id = create_test_wallet(&storage, &user.user_id);
+        let wallet_id = create_test_wallet(storage, &user.user_id);
 
         // Create a bookmark first
-        let repo = BookmarkRepository::new(&storage);
+        let repo = BookmarkRepository::new(storage);
         let bookmark = StoredBookmark {
             id: "bookmark_1".to_string(),
             wallet_id: wallet_id.clone(),
@@ -371,10 +371,10 @@ mod tests {
     async fn get_bookmarks_success() {
         let (_temp, state, user) = setup();
         let storage = state.storage();
-        let wallet_id = create_test_wallet(&storage, &user.user_id);
+        let wallet_id = create_test_wallet(storage, &user.user_id);
 
         // Create a bookmark
-        let repo = BookmarkRepository::new(&storage);
+        let repo = BookmarkRepository::new(storage);
         let bookmark = StoredBookmark {
             id: "bookmark_2".to_string(),
             wallet_id: wallet_id.clone(),

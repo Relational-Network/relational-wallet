@@ -17,7 +17,10 @@ use ring::aead;
 use ring::hkdf;
 
 use crate::error::ApiError;
-use crate::models::{DiscoveryEvaluateRequest, DiscoveryEvaluateResponse, DiscoveryLookupRequest, DiscoveryLookupResponse};
+use crate::models::{
+    DiscoveryEvaluateRequest, DiscoveryEvaluateResponse, DiscoveryLookupRequest,
+    DiscoveryLookupResponse,
+};
 use crate::state::AppState;
 
 use super::voprf_ops::Cipher;
@@ -47,9 +50,8 @@ pub async fn evaluate(
     let blinded_bytes = Base64::decode_vec(&body.blinded_element)
         .map_err(|_| ApiError::bad_request("Invalid base64 in blinded_element"))?;
 
-    let blinded_elem =
-        voprf::BlindedElement::<Cipher>::deserialize(&blinded_bytes)
-            .map_err(|_| ApiError::bad_request("Invalid VOPRF blinded element"))?;
+    let blinded_elem = voprf::BlindedElement::<Cipher>::deserialize(&blinded_bytes)
+        .map_err(|_| ApiError::bad_request("Invalid VOPRF blinded element"))?;
 
     // Server evaluates the blinded element (infallible for single element)
     let eval_result = voprf_server.evaluate(&blinded_elem);
@@ -126,8 +128,8 @@ fn encrypt_envelope(token: &[u8], public_address: &str) -> Result<Vec<u8>, ApiEr
 
     // Build plaintext: JSON padded to fill the envelope
     let json = serde_json::json!({ "public_address": public_address });
-    let json_bytes = serde_json::to_vec(&json)
-        .map_err(|_| ApiError::internal("JSON serialization failed"))?;
+    let json_bytes =
+        serde_json::to_vec(&json).map_err(|_| ApiError::internal("JSON serialization failed"))?;
 
     // Pad plaintext to fixed size (ENVELOPE_SIZE - 12 nonce - 16 tag = 228 bytes)
     let plaintext_size = ENVELOPE_SIZE - 12 - 16; // 228 bytes
@@ -181,9 +183,7 @@ pub fn decrypt_envelope(token: &[u8], envelope: &[u8]) -> Option<String> {
     // Derive the same AES-256-GCM key from the token
     let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, b"discovery-envelope-key");
     let prk = salt.extract(token);
-    let okm = prk
-        .expand(&[b"aes-256-gcm"], &aead::AES_256_GCM)
-        .ok()?;
+    let okm = prk.expand(&[b"aes-256-gcm"], &aead::AES_256_GCM).ok()?;
 
     let key = aead::UnboundKey::from(okm);
     let opening_key = aead::LessSafeKey::new(key);
@@ -258,7 +258,8 @@ mod tests {
     #[test]
     fn envelope_is_exactly_256_bytes() {
         let token = b"test-token-for-size-verification";
-        let envelope = encrypt_envelope(token, "0x1234567890abcdef1234567890abcdef12345678").unwrap();
+        let envelope =
+            encrypt_envelope(token, "0x1234567890abcdef1234567890abcdef12345678").unwrap();
         assert_eq!(envelope.len(), 256);
 
         let random = random_envelope();

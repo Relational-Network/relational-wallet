@@ -19,7 +19,9 @@ ARG CA_CERTS_VERSION=20240203~20.04.1
 # ---------------------------------------------------------------------------
 # Stage 1 — Rust build (pinned toolchain for reproducibility)
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${UBUNTU_IMAGE} AS builder
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG UBUNTU_SNAPSHOT
 ARG CA_CERTS_VERSION
@@ -103,8 +105,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
 COPY src ./src
-RUN cargo fetch --locked
-RUN CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
+RUN cargo fetch --locked && \
+    CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
 
 # ---------------------------------------------------------------------------
 # Stage 2 — Signer image
@@ -115,7 +117,9 @@ RUN CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
 # ---------------------------------------------------------------------------
 ARG UBUNTU_CODENAME=focal
 
+# hadolint ignore=DL3006
 FROM ${UBUNTU_IMAGE} AS signer
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # ARGs are reset after each FROM
 ARG UBUNTU_CODENAME=focal
@@ -217,9 +221,9 @@ RUN mkdir -p /app/dns && \
 
 # Generate the Gramine manifest and rewrite sgx.trusted_files as an explicit
 # sorted list to avoid nondeterminism from recursive directory traversal order.
-RUN ENTRYPOINT=$(which gramine-ratls) && \
+RUN ENTRYPOINT=$(command -v gramine-ratls) && \
     gramine-manifest \
-    -Dentrypoint=${ENTRYPOINT} \
+    -Dentrypoint="${ENTRYPOINT}" \
     -Dlog_level=error \
     -Darch_libdir=/lib/x86_64-linux-gnu \
     -Dapp_dir=/app \
@@ -277,7 +281,9 @@ RUN --mount=type=secret,id=sgx-key,required=true \
 # the signed enclave. Keyrings and repo definitions are copied from the signer
 # stage so curl/gnupg2/binutils are not present in the shipped image.
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${UBUNTU_IMAGE}
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # ARGs are reset after each FROM
 ARG UBUNTU_CODENAME=focal

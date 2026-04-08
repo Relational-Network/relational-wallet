@@ -25,8 +25,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository,
-        WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository, WalletRepository,
+        WalletStatus,
     },
 };
 
@@ -215,7 +215,7 @@ pub async fn get_system_stats(
     let storage = state.storage();
 
     // Count wallets by status
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let all_wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let active_wallets = all_wallets
         .iter()
@@ -231,7 +231,7 @@ pub async fn get_system_stats(
         .count();
 
     // Count bookmarks
-    let bookmark_repo = BookmarkRepository::new(&storage);
+    let bookmark_repo = BookmarkRepository::new(storage);
     let total_bookmarks = bookmark_repo.list_all().unwrap_or_default().len();
 
     // Audit log
@@ -267,7 +267,7 @@ pub async fn list_all_wallets(
     State(state): State<AppState>,
 ) -> Result<Json<AdminWalletListResponse>, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let items: Vec<AdminWalletItem> = wallets
@@ -313,8 +313,8 @@ pub async fn list_all_users(
     let storage = state.storage();
 
     // Collect all user IDs from various sources
-    let wallet_repo = WalletRepository::new(&storage);
-    let bookmark_repo = BookmarkRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
+    let bookmark_repo = BookmarkRepository::new(storage);
 
     let wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let bookmarks = bookmark_repo.list_all().unwrap_or_default();
@@ -377,7 +377,7 @@ pub async fn query_audit_logs(
     State(state): State<AppState>,
 ) -> Result<Json<AuditLogResponse>, ApiError> {
     let storage = state.storage();
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
 
     // Default date range: today only
     let today = Utc::now().format("%Y-%m-%d").to_string();
@@ -512,19 +512,19 @@ pub async fn suspend_wallet(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let mut wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.status = WalletStatus::Suspended;
     wallet_repo
         .update(&wallet)
-        .map_err(|e| ApiError::internal(&format!("Failed to suspend wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to suspend wallet: {}", e)))?;
 
     // Audit log
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let event = AuditEvent::new(AuditEventType::AdminAccess)
         .with_user(&user.user_id)
         .with_resource("wallet", &wallet_id)
@@ -555,19 +555,19 @@ pub async fn activate_wallet(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let mut wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.status = WalletStatus::Active;
     wallet_repo
         .update(&wallet)
-        .map_err(|e| ApiError::internal(&format!("Failed to activate wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to activate wallet: {}", e)))?;
 
     // Audit log
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let event = AuditEvent::new(AuditEventType::AdminAccess)
         .with_user(&user.user_id)
         .with_resource("wallet", &wallet_id)
@@ -743,10 +743,7 @@ pub async fn list_peers(
             url: p.url,
             voprf_public_key: p.voprf_public_key,
             mrenclave: alloy::hex::encode(p.attestation_policy.mrenclave),
-            mrsigner: p
-                .attestation_policy
-                .mrsigner
-                .map(|m| alloy::hex::encode(m)),
+            mrsigner: p.attestation_policy.mrsigner.map(alloy::hex::encode),
             min_isv_svn: p.attestation_policy.min_isv_svn,
             isv_prod_id: p.attestation_policy.isv_prod_id,
         })
@@ -773,9 +770,10 @@ pub async fn add_peer(
         attestation_policy: policy,
     };
 
-    state.peer_registry.add_peer(config).map_err(|e| {
-        ApiError::bad_request(&format!("Failed to add peer: {e}"))
-    })?;
+    state
+        .peer_registry
+        .add_peer(config)
+        .map_err(|e| ApiError::bad_request(format!("Failed to add peer: {e}")))?;
 
     audit_log!(
         state.storage(),
@@ -802,9 +800,10 @@ pub async fn remove_peer(
     State(state): State<AppState>,
     Path(node_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    state.peer_registry.remove_peer(&node_id).map_err(|e| {
-        ApiError::not_found(&format!("Peer not found: {e}"))
-    })?;
+    state
+        .peer_registry
+        .remove_peer(&node_id)
+        .map_err(|e| ApiError::not_found(format!("Peer not found: {e}")))?;
 
     audit_log!(
         state.storage(),
@@ -844,9 +843,10 @@ pub async fn update_peer(
         attestation_policy: policy,
     };
 
-    state.peer_registry.update_peer(config).map_err(|e| {
-        ApiError::bad_request(&format!("Failed to update peer: {e}"))
-    })?;
+    state
+        .peer_registry
+        .update_peer(config)
+        .map_err(|e| ApiError::bad_request(format!("Failed to update peer: {e}")))?;
 
     audit_log!(
         state.storage(),

@@ -70,7 +70,7 @@ pub async fn resolve_email(
     let email_repo = EmailIndexRepository::new(tx_db.clone());
     let found = email_repo
         .exists(&lookup_key)
-        .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Email lookup failed: {}", e)))?;
 
     if found {
         return Ok(Json(ResolveEmailResponse { found: true }));

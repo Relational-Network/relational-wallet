@@ -195,7 +195,7 @@ async fn verify_jwt_production(
         .as_ref()
         .and_then(|m| m.role.as_deref())
         .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
-        .or_else(|| claims.role.as_deref())
+        .or(claims.role.as_deref())
         .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 
@@ -237,7 +237,7 @@ fn verify_jwt_development(token: &str) -> Result<AuthenticatedUser, AuthError> {
         .as_ref()
         .and_then(|m| m.role.as_deref())
         .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
-        .or_else(|| claims.role.as_deref())
+        .or(claims.role.as_deref())
         .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 

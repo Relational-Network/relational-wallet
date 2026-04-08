@@ -228,6 +228,7 @@ impl TxDatabase {
     ///
     /// Returns `(transactions_with_direction, next_cursor)`.
     /// Each item is `(StoredTransaction, direction_string)`.
+    #[allow(clippy::type_complexity)]
     pub fn list_by_wallet(
         &self,
         wallet_address: &str,
@@ -591,11 +592,7 @@ impl TxDatabase {
     // =========================================================================
 
     /// Register a VOPRF token → public_address mapping.
-    pub fn register_voprf_token(
-        &self,
-        token_hex: &str,
-        public_address: &str,
-    ) -> TxDbResult<()> {
+    pub fn register_voprf_token(&self, token_hex: &str, public_address: &str) -> TxDbResult<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(VOPRF_TOKENS)?;

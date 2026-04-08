@@ -128,14 +128,8 @@ pub fn router(state: AppState) -> Router {
             post(fiat::sync_fiat_request_admin),
         )
         // Admin discovery peer management
-        .route(
-            "/admin/peers/self",
-            get(admin::get_self_node_info),
-        )
-        .route(
-            "/admin/peers",
-            get(admin::list_peers).post(admin::add_peer),
-        )
+        .route("/admin/peers/self", get(admin::get_self_node_info))
+        .route("/admin/peers", get(admin::list_peers).post(admin::add_peer))
         .route(
             "/admin/peers/{node_id}",
             axum::routing::put(admin::update_peer).delete(admin::remove_peer),

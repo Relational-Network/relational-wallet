@@ -210,7 +210,7 @@ async fn main() {
             use k256::elliptic_curve::rand_core::{OsRng, RngCore};
             let mut key = [0u8; 32];
             OsRng.fill_bytes(&mut key);
-            std::fs::write(&key_path, &key).expect("Failed to write email HMAC key");
+            std::fs::write(&key_path, key).expect("Failed to write email HMAC key");
             info!("Generated and stored new email HMAC key");
             key
         }
@@ -262,9 +262,7 @@ async fn main() {
     );
 
     // Create discovery client
-    let discovery_client = Arc::new(
-        discovery::DiscoveryClient::new(peer_registry.clone()),
-    );
+    let discovery_client = Arc::new(discovery::DiscoveryClient::new(peer_registry.clone()));
 
     // ========== Build Application State ==========
     // Initialize shared Avalanche C-Chain client (connection pool reuse)
@@ -327,7 +325,10 @@ async fn main() {
                 }
             }
         }
-        info!(count = registered, "VOPRF tokens registered for existing wallets");
+        info!(
+            count = registered,
+            "VOPRF tokens registered for existing wallets"
+        );
     }
 
     info!("VOPRF cross-instance discovery ENABLED");

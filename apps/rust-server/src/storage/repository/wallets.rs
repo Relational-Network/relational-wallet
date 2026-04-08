@@ -29,19 +29,15 @@ use super::super::{EncryptedStorage, StorageError, StorageResult};
 /// Wallet status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum WalletStatus {
     /// Wallet is active and can be used
+    #[default]
     Active,
     /// Wallet is suspended (e.g., pending admin review)
     Suspended,
     /// Wallet is deleted (soft delete, files may be retained)
     Deleted,
-}
-
-impl Default for WalletStatus {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 /// Wallet metadata stored in meta.json.

@@ -168,18 +168,17 @@ pub fn finalize(
     proof_base64: &str,
     peer_public_key_base64: &str,
 ) -> Result<Vec<u8>, VoprfError> {
-    let evaluated_bytes = Base64::decode_vec(evaluated_base64)
-        .map_err(|_| VoprfError::Input)?;
-    let proof_bytes = Base64::decode_vec(proof_base64)
-        .map_err(|_| VoprfError::Input)?;
-    let pk_bytes = Base64::decode_vec(peer_public_key_base64)
-        .map_err(|_| VoprfError::Input)?;
+    let evaluated_bytes = Base64::decode_vec(evaluated_base64).map_err(|_| VoprfError::Input)?;
+    let proof_bytes = Base64::decode_vec(proof_base64).map_err(|_| VoprfError::Input)?;
+    let pk_bytes = Base64::decode_vec(peer_public_key_base64).map_err(|_| VoprfError::Input)?;
 
     let evaluated = EvaluationElement::<Cipher>::deserialize(&evaluated_bytes)?;
     let proof = Proof::<Cipher>::deserialize(&proof_bytes)?;
     let public_key = <Cipher as CipherSuite>::Group::deserialize_elem(&pk_bytes)?;
 
-    let output = blind_result.state.finalize(input, &evaluated, &proof, public_key)?;
+    let output = blind_result
+        .state
+        .finalize(input, &evaluated, &proof, public_key)?;
 
     Ok(output.to_vec())
 }
@@ -227,7 +226,10 @@ mod tests {
         assert!(!token1.is_empty());
         assert!(!token2.is_empty());
         // VOPRF output is deterministic: F(key, input) always produces the same result
-        assert_eq!(token1, token2, "VOPRF output should be deterministic for same key+input");
+        assert_eq!(
+            token1, token2,
+            "VOPRF output should be deterministic for same key+input"
+        );
     }
 
     #[test]

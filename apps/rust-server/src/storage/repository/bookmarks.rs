@@ -16,15 +16,11 @@ use super::super::{EncryptedStorage, StorageError, StorageResult};
 /// Bookmark recipient type.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum RecipientType {
+    #[default]
     Address,
     Email,
-}
-
-impl Default for RecipientType {
-    fn default() -> Self {
-        Self::Address
-    }
 }
 
 /// Bookmark stored on encrypted filesystem.

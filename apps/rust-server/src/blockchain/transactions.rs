@@ -44,6 +44,7 @@ pub struct SendResult {
 }
 
 /// Transaction builder for Avalanche C-Chain.
+#[allow(clippy::type_complexity)]
 pub struct TxBuilder {
     network: NetworkConfig,
     provider: alloy::providers::fillers::FillProvider<
@@ -314,7 +315,6 @@ impl TxBuilder {
             explorer_url,
         })
     }
-
 }
 
 /// Parse a human-readable amount to wei (or token units).

@@ -259,8 +259,7 @@ pub enum RaTlsError {
 /// must be a valid DER-encoded X.509. Thread-safe: uses thread-local
 /// storage for the policy.
 pub fn verify_ratls_cert(der: &[u8], policy: &AttestationPolicy) -> Result<(), RaTlsError> {
-    let lib = get_ratls_lib()
-        .map_err(|msg| RaTlsError::LibraryNotAvailable(msg.to_string()))?;
+    let lib = get_ratls_lib().map_err(|msg| RaTlsError::LibraryNotAvailable(msg.to_string()))?;
 
     // Set thread-local policy for the callback
     CURRENT_POLICY.with(|p| {

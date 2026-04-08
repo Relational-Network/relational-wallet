@@ -67,10 +67,10 @@ pub async fn get_wallet_balance(
 ) -> Result<Json<BalanceResponse>, ApiError> {
     // Get wallet from storage
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
         crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+        _ => ApiError::internal(format!("Failed to access storage: {}", e)),
     })?;
 
     // Verify ownership
@@ -95,7 +95,7 @@ pub async fn get_wallet_balance(
         shared.as_ref()
     } else {
         owned_client = AvaxClient::fuji().await.map_err(|e| {
-            ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
+            ApiError::service_unavailable(format!("Failed to connect to blockchain: {}", e))
         })?;
         &owned_client
     };
@@ -120,7 +120,7 @@ pub async fn get_wallet_balance(
     let balance = client
         .get_wallet_balances(&wallet.public_address, &token_addresses)
         .await
-        .map_err(|e| ApiError::service_unavailable(&format!("Failed to query balance: {}", e)))?;
+        .map_err(|e| ApiError::service_unavailable(format!("Failed to query balance: {}", e)))?;
 
     // Query custom tokens separately
     let mut final_balance = balance;

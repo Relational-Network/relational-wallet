@@ -694,8 +694,8 @@ fn should_skip_settlement_retry(record: &StoredFiatRequest) -> bool {
         return false; // First attempt — try immediately.
     }
     let exponent = record.settlement_attempts.min(5) - 1;
-    let delay_secs = (SETTLEMENT_RETRY_BASE_SECS * (1_i64 << exponent))
-        .min(SETTLEMENT_RETRY_MAX_SECS);
+    let delay_secs =
+        (SETTLEMENT_RETRY_BASE_SECS * (1_i64 << exponent)).min(SETTLEMENT_RETRY_MAX_SECS);
     let Some(cooldown) = TimeDelta::try_seconds(delay_secs) else {
         return false;
     };
@@ -727,9 +727,8 @@ async fn send_reserve_transfer(
         .send_token(to, &contract, amount_minor, None, None)
         .await
         .map_err(|e| ApiError::service_unavailable(format!("Reserve transfer failed: {e}")))
-        .map(|result| {
+        .inspect(|_result| {
             let _ = service_wallet;
-            result
         })
 }
 
@@ -905,131 +904,129 @@ async fn sync_onramp_request(
         }
     }
 
-    if record.status == FiatRequestStatus::SettlementPending {
-        if record.reserve_transfer_tx_hash.is_none() {
-            // Exponential backoff: skip this cycle if not enough time
-            // has passed since the last attempt.
-            if should_skip_settlement_retry(record) {
+    if record.status == FiatRequestStatus::SettlementPending
+        && record.reserve_transfer_tx_hash.is_none()
+    {
+        // Exponential backoff: skip this cycle if not enough time
+        // has passed since the last attempt.
+        if should_skip_settlement_retry(record) {
+            return;
+        }
+
+        let wallet_repo = WalletRepository::new(storage);
+        let destination_wallet = match wallet_repo.get(&record.wallet_id) {
+            Ok(wallet) => wallet,
+            Err(error) => {
+                record.status = FiatRequestStatus::Failed;
+                record.failure_reason = Some(format!(
+                    "Unable to load destination wallet for settlement: {error}"
+                ));
+                record.updated_at = Utc::now();
                 return;
             }
+        };
 
-            let wallet_repo = WalletRepository::new(storage);
-            let destination_wallet = match wallet_repo.get(&record.wallet_id) {
-                Ok(wallet) => wallet,
-                Err(error) => {
-                    record.status = FiatRequestStatus::Failed;
-                    record.failure_reason = Some(format!(
-                        "Unable to load destination wallet for settlement: {error}"
-                    ));
-                    record.updated_at = Utc::now();
-                    return;
-                }
-            };
+        record.settlement_attempts += 1;
+        info!(
+            request_id = %record.request_id,
+            attempt = record.settlement_attempts,
+            destination = %destination_wallet.public_address,
+            amount_eur = %record.amount_eur,
+            "Attempting on-ramp settlement transfer from service wallet"
+        );
 
-            record.settlement_attempts += 1;
-            info!(
-                request_id = %record.request_id,
-                attempt = record.settlement_attempts,
-                destination = %destination_wallet.public_address,
-                amount_eur = %record.amount_eur,
-                "Attempting on-ramp settlement transfer from service wallet"
-            );
+        match send_reserve_transfer(
+            storage,
+            &destination_wallet.public_address,
+            &record.amount_eur,
+        )
+        .await
+        {
+            Ok(result) => {
+                record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
+                record.last_chain_sync_at = Some(Utc::now());
+                record.status = FiatRequestStatus::Completed;
+                record.failure_reason = None;
+                record.updated_at = Utc::now();
 
-            match send_reserve_transfer(
-                storage,
-                &destination_wallet.public_address,
-                &record.amount_eur,
-            )
-            .await
-            {
-                Ok(result) => {
-                    record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
-                    record.last_chain_sync_at = Some(Utc::now());
-                    record.status = FiatRequestStatus::Completed;
-                    record.failure_reason = None;
-                    record.updated_at = Utc::now();
+                info!(
+                    request_id = %record.request_id,
+                    tx_hash = %result.tx_hash,
+                    "On-ramp settlement transfer succeeded"
+                );
 
-                    info!(
+                // Record the incoming rEUR transfer in the user's transaction history.
+                let reur_contract = resolve_reur_contract_address().unwrap_or_default();
+                let service_addr = record.service_wallet_address.clone().unwrap_or_default();
+                let tx_record = StoredTransaction::new_pending(
+                    result.tx_hash.clone(),
+                    record.wallet_id.clone(),
+                    None,
+                    service_addr,
+                    destination_wallet.public_address.clone(),
+                    record.amount_eur.clone(),
+                    TokenType::Erc20(reur_contract),
+                    record.chain_network.clone(),
+                    result.explorer_url.clone(),
+                );
+                // The transfer already succeeded on-chain — mark confirmed.
+                let mut tx_record = tx_record;
+                tx_record.status = TxStatus::Confirmed;
+                let directions = vec![(destination_wallet.public_address.clone(), "received")];
+                if let Err(e) = tx_db.upsert_transaction(&tx_record, &directions) {
+                    warn!(
                         request_id = %record.request_id,
                         tx_hash = %result.tx_hash,
-                        "On-ramp settlement transfer succeeded"
+                        "failed to store on-ramp settlement transaction record in tx db: {e}"
                     );
-
-                    // Record the incoming rEUR transfer in the user's transaction history.
-                    let reur_contract = resolve_reur_contract_address().unwrap_or_default();
-                    let service_addr = record.service_wallet_address.clone().unwrap_or_default();
-                    let tx_record = StoredTransaction::new_pending(
-                        result.tx_hash.clone(),
-                        record.wallet_id.clone(),
-                        None,
-                        service_addr,
-                        destination_wallet.public_address.clone(),
-                        record.amount_eur.clone(),
-                        TokenType::Erc20(reur_contract),
-                        record.chain_network.clone(),
-                        result.explorer_url.clone(),
-                    );
-                    // The transfer already succeeded on-chain — mark confirmed.
-                    let mut tx_record = tx_record;
-                    tx_record.status = TxStatus::Confirmed;
-                    let directions = vec![(destination_wallet.public_address.clone(), "received")];
-                    if let Err(e) = tx_db.upsert_transaction(&tx_record, &directions) {
-                        warn!(
-                            request_id = %record.request_id,
-                            tx_hash = %result.tx_hash,
-                            "failed to store on-ramp settlement transaction record in tx db: {e}"
-                        );
-                    } else if let Some(tx_cache) = tx_cache {
-                        tx_cache.invalidate(&destination_wallet.public_address);
-                    }
+                } else if let Some(tx_cache) = tx_cache {
+                    tx_cache.invalidate(&destination_wallet.public_address);
                 }
-                Err(error) => {
-                    let is_funding_issue = is_insufficient_funds_error(&error.message);
+            }
+            Err(error) => {
+                let is_funding_issue = is_insufficient_funds_error(&error.message);
 
-                    if is_funding_issue {
-                        // Funding errors are transient — don't count toward
-                        // max attempts. The operator needs to top up the
-                        // service wallet with AVAX for gas. We keep the
-                        // request in SettlementPending and use exponential
-                        // backoff so we don't spam the RPC.
-                        record.settlement_attempts =
-                            record.settlement_attempts.saturating_sub(1);
-                        warn!(
-                            request_id = %record.request_id,
-                            "Service wallet has insufficient AVAX for gas — \
-                             settlement deferred until funded"
-                        );
-                        record.failure_reason = Some(
-                            "Service wallet needs AVAX for gas fees. \
+                if is_funding_issue {
+                    // Funding errors are transient — don't count toward
+                    // max attempts. The operator needs to top up the
+                    // service wallet with AVAX for gas. We keep the
+                    // request in SettlementPending and use exponential
+                    // backoff so we don't spam the RPC.
+                    record.settlement_attempts = record.settlement_attempts.saturating_sub(1);
+                    warn!(
+                        request_id = %record.request_id,
+                        "Service wallet has insufficient AVAX for gas — \
+                         settlement deferred until funded"
+                    );
+                    record.failure_reason = Some(
+                        "Service wallet needs AVAX for gas fees. \
                              Settlement will retry automatically once funded."
-                                .to_string(),
-                        );
-                    } else {
-                        warn!(
-                            request_id = %record.request_id,
-                            attempt = record.settlement_attempts,
-                            max_attempts = MAX_SETTLEMENT_ATTEMPTS,
-                            error = %error.message,
-                            "On-ramp settlement transfer failed"
-                        );
+                            .to_string(),
+                    );
+                } else {
+                    warn!(
+                        request_id = %record.request_id,
+                        attempt = record.settlement_attempts,
+                        max_attempts = MAX_SETTLEMENT_ATTEMPTS,
+                        error = %error.message,
+                        "On-ramp settlement transfer failed"
+                    );
 
-                        if record.settlement_attempts >= MAX_SETTLEMENT_ATTEMPTS {
-                            record.status = FiatRequestStatus::Failed;
-                            record.failure_reason = Some(format!(
-                                "Settlement failed after {} attempts: {}",
-                                record.settlement_attempts, error.message
-                            ));
-                        } else {
-                            // Stay in SettlementPending — the poller will retry.
-                            record.failure_reason = Some(format!(
-                                "Attempt {}/{} failed: {}",
-                                record.settlement_attempts, MAX_SETTLEMENT_ATTEMPTS,
-                                error.message
-                            ));
-                        }
+                    if record.settlement_attempts >= MAX_SETTLEMENT_ATTEMPTS {
+                        record.status = FiatRequestStatus::Failed;
+                        record.failure_reason = Some(format!(
+                            "Settlement failed after {} attempts: {}",
+                            record.settlement_attempts, error.message
+                        ));
+                    } else {
+                        // Stay in SettlementPending — the poller will retry.
+                        record.failure_reason = Some(format!(
+                            "Attempt {}/{} failed: {}",
+                            record.settlement_attempts, MAX_SETTLEMENT_ATTEMPTS, error.message
+                        ));
                     }
-                    record.updated_at = Utc::now();
                 }
+                record.updated_at = Utc::now();
             }
         }
     }
@@ -1904,7 +1901,9 @@ mod tests {
 
     #[test]
     fn is_insufficient_funds_detects_balance_variant() {
-        assert!(is_insufficient_funds_error("insufficient balance for value"));
+        assert!(is_insufficient_funds_error(
+            "insufficient balance for value"
+        ));
         assert!(is_insufficient_funds_error("NOT ENOUGH FUNDS to pay gas"));
     }
 

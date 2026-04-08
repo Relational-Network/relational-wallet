@@ -53,7 +53,7 @@ pub async fn create_payment_link(
     Json(request): Json<CreatePaymentLinkRequest>,
 ) -> Result<Json<CreatePaymentLinkResponse>, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     // Get and verify wallet ownership
     let wallet = wallet_repo
@@ -169,7 +169,7 @@ pub async fn create_payment_link(
     let repo = PaymentLinkRepository::new(Arc::clone(tx_db));
     let token = repo
         .create(link_data)
-        .map_err(|e| ApiError::internal(&format!("Failed to create payment link: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create payment link: {}", e)))?;
 
     Ok(Json(CreatePaymentLinkResponse {
         token,
@@ -204,7 +204,7 @@ pub async fn resolve_payment_link(
     let repo = PaymentLinkRepository::new(Arc::clone(tx_db));
     let data = repo
         .resolve(&token)
-        .map_err(|e| ApiError::internal(&format!("Failed to resolve payment link: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to resolve payment link: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Payment link not found or expired"))?;
 
     Ok(Json(PaymentLinkInfo {

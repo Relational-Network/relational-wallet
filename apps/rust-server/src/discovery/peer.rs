@@ -72,13 +72,10 @@ impl PeerRegistry {
     ///
     /// Returns an empty registry if the file doesn't exist.
     /// Peers whose `voprf_public_key` matches `own_pk` are skipped.
-    pub fn load(
-        path: &Path,
-        own_voprf_public_key: String,
-    ) -> Result<Self, PeerRegistryError> {
+    pub fn load(path: &Path, own_voprf_public_key: String) -> Result<Self, PeerRegistryError> {
         let all_peers = if path.exists() {
-            let content = std::fs::read_to_string(path)
-                .map_err(|e| PeerRegistryError::Io(e.to_string()))?;
+            let content =
+                std::fs::read_to_string(path).map_err(|e| PeerRegistryError::Io(e.to_string()))?;
             let peers: Vec<PeerConfig> = serde_json::from_str(&content)
                 .map_err(|e| PeerRegistryError::Parse(e.to_string()))?;
             peers
@@ -112,10 +109,7 @@ impl PeerRegistry {
             }
         }
 
-        tracing::info!(
-            count = peers.len(),
-            "Loaded peer registry for discovery"
-        );
+        tracing::info!(count = peers.len(), "Loaded peer registry for discovery");
 
         Ok(Self {
             inner: RwLock::new(PeerRegistryInner { peers, clients }),
@@ -173,9 +167,7 @@ impl PeerRegistry {
 
         let mut inner = self.inner.write().expect("PeerRegistry lock poisoned");
         if inner.peers.iter().any(|p| p.node_id == config.node_id) {
-            return Err(PeerRegistryError::DuplicateNodeId(
-                config.node_id.clone(),
-            ));
+            return Err(PeerRegistryError::DuplicateNodeId(config.node_id.clone()));
         }
 
         inner.clients.insert(config.node_id.clone(), client);
@@ -245,11 +237,9 @@ impl PeerRegistry {
         drop(inner);
 
         if let Some(parent) = self.file_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| PeerRegistryError::Io(e.to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|e| PeerRegistryError::Io(e.to_string()))?;
         }
-        std::fs::write(&self.file_path, json)
-            .map_err(|e| PeerRegistryError::Io(e.to_string()))?;
+        std::fs::write(&self.file_path, json).map_err(|e| PeerRegistryError::Io(e.to_string()))?;
 
         tracing::debug!(path = %self.file_path.display(), "Persisted peer registry");
         Ok(())
@@ -271,14 +261,10 @@ fn build_peer_client(peer: &PeerConfig) -> Result<reqwest::Client, PeerRegistryE
     let verifier = RaTlsServerVerifier::new(peer.attestation_policy.clone());
 
     // Load our own RA-TLS cert for mutual attestation (peer verifies us too)
-    let own_certs =
-        crate::tls::load_ratls_certificate(crate::tls::RA_TLS_CERT_PATH).map_err(|e| {
-            PeerRegistryError::Tls(format!("Failed to load own RA-TLS cert: {e}"))
-        })?;
-    let own_key =
-        crate::tls::load_ratls_private_key(crate::tls::RA_TLS_KEY_PATH).map_err(|e| {
-            PeerRegistryError::Tls(format!("Failed to load own RA-TLS key: {e}"))
-        })?;
+    let own_certs = crate::tls::load_ratls_certificate(crate::tls::RA_TLS_CERT_PATH)
+        .map_err(|e| PeerRegistryError::Tls(format!("Failed to load own RA-TLS cert: {e}")))?;
+    let own_key = crate::tls::load_ratls_private_key(crate::tls::RA_TLS_KEY_PATH)
+        .map_err(|e| PeerRegistryError::Tls(format!("Failed to load own RA-TLS key: {e}")))?;
 
     let tls_config = rustls::ClientConfig::builder()
         .dangerous()
@@ -409,10 +395,7 @@ mod tests {
     #[test]
     fn self_skip_filters_own_key() {
         let own_pk = "my-own-pk-base64".to_string();
-        let tmp = std::env::temp_dir().join(format!(
-            "test-peers-{}.json",
-            uuid::Uuid::new_v4()
-        ));
+        let tmp = std::env::temp_dir().join(format!("test-peers-{}.json", uuid::Uuid::new_v4()));
         let peers = vec![
             PeerConfig {
                 node_id: "self-node".to_string(),

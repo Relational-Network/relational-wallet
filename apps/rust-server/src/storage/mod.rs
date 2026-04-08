@@ -51,10 +51,9 @@ pub use ownership::{OwnedResource, OwnershipEnforcer};
 pub use paths::StoragePaths;
 pub use repository::{
     BookmarkRepository, EmailIndexRepository, FiatDirection, FiatRequestRepository,
-    FiatRequestStatus, FiatServiceWalletMetadata, FiatServiceWalletRepository,
-    PaymentLinkData, PaymentLinkRepository, RecipientType, StoredBookmark,
-    StoredFiatRequest, StoredTransaction, TokenType, TxStatus, WalletMetadata, WalletRepository,
-    WalletResponse, WalletStatus,
+    FiatRequestStatus, FiatServiceWalletMetadata, FiatServiceWalletRepository, PaymentLinkData,
+    PaymentLinkRepository, RecipientType, StoredBookmark, StoredFiatRequest, StoredTransaction,
+    TokenType, TxStatus, WalletMetadata, WalletRepository, WalletResponse, WalletStatus,
 };
 pub use tx_cache::TxCache;
 pub use tx_database::TxDatabase;

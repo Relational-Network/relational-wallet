@@ -165,7 +165,7 @@ impl AvaxClient {
 
         Ok(receipt.map(|value| ReceiptStatus {
             block_number: value.block_number.unwrap_or(0),
-            gas_used: value.gas_used as u64,
+            gas_used: value.gas_used,
             success: value.status(),
         }))
     }
