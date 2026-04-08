@@ -150,33 +150,24 @@ pub async fn create_wallet(
         .map_err(|e| ApiError::internal(&format!("Failed to store wallet: {}", e)))?;
 
     // Register address → wallet_id in redb for the event indexer.
-    if let Err(e) = tx_db.register_address(&public_address, &wallet_id) {
-        tracing::warn!(
-            error = %e,
-            wallet_id = %wallet_id,
-            "Failed to register wallet address in tx database"
-        );
-    }
+    tx_db.register_address(&public_address, &wallet_id)
+        .map_err(|e| ApiError::internal(&format!(
+            "Failed to register wallet address in tx database: {}", e
+        )))?;
 
     // Register user → wallet mapping (O(1))
-    if let Err(e) = tx_db.register_user_wallet(&user.user_id, &wallet_id) {
-        tracing::warn!(
-            error = %e,
-            wallet_id = %wallet_id,
-            "Failed to register user→wallet mapping"
-        );
-    }
+    tx_db.register_user_wallet(&user.user_id, &wallet_id)
+        .map_err(|e| ApiError::internal(&format!(
+            "Failed to register user→wallet mapping: {}", e
+        )))?;
 
     // Register email lookup index (O(1))
     if let Some(ref lk) = email_lookup_key {
         let email_repo = EmailIndexRepository::new(tx_db.clone());
-        if let Err(e) = email_repo.register(lk, &wallet_id, &public_address) {
-            tracing::warn!(
-                error = %e,
-                wallet_id = %wallet_id,
-                "Failed to register email lookup"
-            );
-        }
+        email_repo.register(lk, &wallet_id, &public_address)
+            .map_err(|e| ApiError::internal(&format!(
+                "Failed to register email lookup: {}", e
+            )))?;
     }
 
     // Register VOPRF token for cross-instance discovery (Phase 2)

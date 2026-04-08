@@ -829,28 +829,22 @@ pub async fn get_transaction_status(
                 "Only `fuji` network is supported in this deployment.",
             ));
         }
-        // Create a read-only client to check status
-        let client = AvaxClient::fuji()
-            .await
-            .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+        // Use shared client from AppState, fall back to per-request
+        let owned_client;
+        let client: &AvaxClient = if let Some(ref shared) = state.avax_client {
+            shared.as_ref()
+        } else {
+            owned_client = AvaxClient::fuji()
+                .await
+                .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+            &owned_client
+        };
 
         // Get current block for confirmations
         let current_block = client.get_block_number().await.unwrap_or(0);
 
-        // Create a signing provider to check receipt (we need the wallet for this)
-        let private_key_pem = wallet_repo
-            .read_private_key(&wallet_id)
-            .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
-
-        let eth_wallet = wallet_from_pem(&private_key_pem)
-            .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
-
-        let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
-            .await
-            .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
-
-        // Check for receipt
-        if let Ok(Some(receipt)) = tx_builder.get_transaction_status(&tx_hash).await {
+        // Check for receipt using read-only client (no private key needed)
+        if let Ok(Some(receipt)) = client.get_transaction_receipt_status(&tx_hash).await {
             let new_status = if receipt.success {
                 TxStatus::Confirmed
             } else {
@@ -890,15 +884,16 @@ pub async fn get_transaction_status(
                 "Only `fuji` network is supported in this deployment.",
             ));
         }
-        // Try to get current block for confirmations
-        let client = AvaxClient::fuji().await;
-
-        if let (Ok(client), Some(block)) = (client, tx.block_number) {
-            client
-                .get_block_number()
-                .await
-                .ok()
-                .map(|current| current.saturating_sub(block))
+        // Try to get current block for confirmations (shared client preferred)
+        if let Some(block) = tx.block_number {
+            let result = if let Some(ref shared) = state.avax_client {
+                shared.get_block_number().await.ok()
+            } else if let Ok(client) = AvaxClient::fuji().await {
+                client.get_block_number().await.ok()
+            } else {
+                None
+            };
+            result.map(|current| current.saturating_sub(block))
         } else {
             None
         }

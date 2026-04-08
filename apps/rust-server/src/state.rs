@@ -36,6 +36,7 @@
 use std::sync::Arc;
 
 use crate::auth::JwksManager;
+use crate::blockchain::AvaxClient;
 use crate::providers::clerk::ClerkClient;
 use crate::storage::tx_cache::TxCache;
 use crate::storage::tx_database::TxDatabase;
@@ -135,6 +136,12 @@ pub struct AppState {
     /// Loaded from `/data/system/email_hmac_key.bin` on startup.
     pub email_hmac_key: [u8; 32],
 
+    /// Shared read-only Avalanche C-Chain client (Fuji testnet).
+    ///
+    /// Reuses a single HTTP connection pool across all requests instead
+    /// of creating a new `AvaxClient` per request.
+    pub avax_client: Option<Arc<AvaxClient>>,
+
     // ── Phase 2: VOPRF Discovery ──
 
     /// VOPRF server key for evaluating blinded queries from peers.
@@ -178,6 +185,7 @@ impl AppState {
             tx_cache: None,
             clerk_client: None,
             email_hmac_key: [0u8; 32],
+            avax_client: None,
             voprf_server,
             discovery_client,
             peer_registry,
@@ -229,6 +237,12 @@ impl AppState {
     /// Configure the email HMAC key.
     pub fn with_email_hmac_key(mut self, key: [u8; 32]) -> Self {
         self.email_hmac_key = key;
+        self
+    }
+
+    /// Configure the shared Avalanche C-Chain client.
+    pub fn with_avax_client(mut self, client: Arc<AvaxClient>) -> Self {
+        self.avax_client = Some(client);
         self
     }
 

@@ -40,6 +40,10 @@ A multi-layer system combining a hardware-isolated backend, authenticated fronte
 │  │  │  CRUD       │ │  Sign/Send │ │  On/Off    │ │  Stats/Audit │  │  │
 │  │  └────────────┘ └────────────┘ └────────────┘ └──────────────┘  │  │
 │  │                                                                   │  │
+│  │  ┌────────────────────────────────────────────────────────────┐  │  │
+│  │  │  Discovery (Phase 2): VOPRF email resolution across peers  │  │  │
+│  │  └────────────────────────────────────────────────────────────┘  │  │
+│  │                                                                   │  │
 │  │  ┌────────────────────┐  ┌─────────────────────────────────────┐ │  │
 │  │  │  Auth Middleware    │  │  Encrypted Storage (/data)          │ │  │
 │  │  │  • JWKS validation  │  │  • Wallet keys (PEM, sealed)       │ │  │
@@ -205,4 +209,5 @@ All persistent data is stored in Gramine's encrypted filesystem at `/data`:
 - [**System Overview**](/relational-wallet/architecture/system-overview) --- Detailed component breakdown and technology choices
 - [**Security Model**](/relational-wallet/architecture/security-model) --- Authentication, authorization, encryption, and the SGX trust boundary
 - [**TEE & Attestation**](/relational-wallet/architecture/tee-attestation) --- Deep-dive into Intel SGX, Gramine, DCAP RA-TLS, and enclave measurements
+- [**Cross-Instance Discovery**](/relational-wallet/architecture/discovery) --- VOPRF-based email resolution across federated enclaves with RA-TLS trust model
 - [**Diagram Workflow**](/relational-wallet/architecture/diagram-workflow) --- PlantUML authoring and rendering process

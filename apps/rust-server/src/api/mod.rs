@@ -96,10 +96,7 @@ pub fn router(state: AppState) -> Router {
         )
         // Fiat request stubs
         .route("/fiat/providers", get(fiat::list_fiat_providers))
-        // Internal discovery endpoints (Phase 2, RA-TLS mutual auth, no JWT)
-        // These are called by peer enclaves, not by end users.
-        // TODO: Rate limiting should be enforced at the proxy layer for
-        // production deployments to prevent brute-force discovery queries.
+        // TrueLayer webhook (no JWT — authenticates via TrueLayer JWKS signature)
         .route(
             "/fiat/providers/truelayer/webhook",
             post(fiat::truelayer_webhook),

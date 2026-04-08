@@ -478,10 +478,28 @@ impl TxDatabase {
     // =========================================================================
 
     /// Register user → wallet mapping. O(1).
+    ///
+    /// Uses compare-and-swap: if a mapping already exists for this user
+    /// and points to a *different* wallet, returns an error.  Re-registering
+    /// the same (user, wallet) pair is idempotent.
     pub fn register_user_wallet(&self, user_id: &str, wallet_id: &str) -> TxDbResult<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(USER_WALLET_MAP)?;
+
+            // Compare-and-swap: reject if mapping already exists for a different wallet
+            if let Some(existing) = table.get(user_id)? {
+                let existing_wallet = existing.value();
+                if existing_wallet != wallet_id {
+                    return Err(TxDbError::NotFound(format!(
+                        "User {} already mapped to wallet {}, cannot remap to {}",
+                        user_id, existing_wallet, wallet_id
+                    )));
+                }
+                // Same mapping — idempotent, nothing to do
+                return Ok(());
+            }
+
             table.insert(user_id, wallet_id)?;
         }
         write_txn.commit()?;
@@ -778,16 +796,27 @@ mod tests {
             Some("wallet-1".to_string())
         );
 
-        // Overwrite
+        // Idempotent re-registration of same mapping succeeds
+        db.register_user_wallet(user, "wallet-1").unwrap();
+        assert_eq!(
+            db.get_user_wallet(user).unwrap(),
+            Some("wallet-1".to_string())
+        );
+
+        // CAS: overwrite with different wallet is rejected
+        let err = db.register_user_wallet(user, "wallet-2");
+        assert!(err.is_err(), "Should reject remapping to different wallet");
+
+        // Remove
+        db.remove_user_wallet(user).unwrap();
+        assert_eq!(db.get_user_wallet(user).unwrap(), None);
+
+        // After removal, can register a new wallet
         db.register_user_wallet(user, "wallet-2").unwrap();
         assert_eq!(
             db.get_user_wallet(user).unwrap(),
             Some("wallet-2".to_string())
         );
-
-        // Remove
-        db.remove_user_wallet(user).unwrap();
-        assert_eq!(db.get_user_wallet(user).unwrap(), None);
     }
 
     #[test]

@@ -88,9 +88,17 @@ pub async fn get_wallet_balance(
     }
 
     ensure_fuji_network(query.network.as_deref()).map_err(ApiError::bad_request)?;
-    let client = AvaxClient::fuji().await.map_err(|e| {
-        ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
-    })?;
+
+    // Use shared client from AppState (connection pool reuse), fall back to per-request
+    let owned_client;
+    let client = if let Some(ref shared) = state.avax_client {
+        shared.as_ref()
+    } else {
+        owned_client = AvaxClient::fuji().await.map_err(|e| {
+            ApiError::service_unavailable(&format!("Failed to connect to blockchain: {}", e))
+        })?;
+        &owned_client
+    };
 
     // Build list of token addresses to query
     let mut token_addresses: Vec<&str> = Vec::new();

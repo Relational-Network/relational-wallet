@@ -59,6 +59,16 @@ src/
 │   ├── users.rs         # GET /v1/users/me
 │   └── resolve.rs       # Email hash → address resolution
 │
+├── discovery/           # Cross-instance VOPRF discovery (Phase 2)
+│   ├── mod.rs           # Module root + PeerRegistry (RwLock)
+│   ├── api.rs           # /internal/discovery/evaluate + /lookup handlers
+│   ├── client.rs        # RA-TLS client for querying peer enclaves
+│   ├── ffi.rs           # dlopen FFI for libra_tls_verify.so
+│   ├── attestation.rs   # DCAP attestation verification helpers
+│   ├── voprf_ops.rs     # VOPRF blind/evaluate/finalize operations
+│   ├── peer.rs          # PeerInfo struct + serialization
+│   └── store.rs         # Peer registry persistence (encrypted FS)
+│
 ├── auth/                # Authentication & authorization
 │   ├── claims.rs        # ClerkClaims struct + user extraction
 │   ├── extractor.rs     # Auth, AdminOnly, OptionalAuth extractors

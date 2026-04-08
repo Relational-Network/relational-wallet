@@ -267,6 +267,18 @@ async fn main() {
     );
 
     // ========== Build Application State ==========
+    // Initialize shared Avalanche C-Chain client (connection pool reuse)
+    let avax_client = match blockchain::AvaxClient::fuji().await {
+        Ok(client) => {
+            info!("Shared Avalanche C-Chain client initialized (Fuji)");
+            Some(Arc::new(client))
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to create shared Avalanche client — per-request fallback");
+            None
+        }
+    };
+
     let mut state = AppState::new(
         encrypted_storage,
         voprf_server.clone(),
@@ -277,6 +289,10 @@ async fn main() {
     .with_auth_config(auth_config)
     .with_tx_db(tx_db.clone())
     .with_email_hmac_key(email_hmac_key);
+
+    if let Some(client) = avax_client {
+        state = state.with_avax_client(client);
+    }
 
     if let Some(clerk) = clerk_client {
         state = state.with_clerk_client(clerk);

@@ -30,6 +30,7 @@ The SGX enclave defines the trust boundary. Everything outside the enclave --- t
 │  │  • Data encryption/decryption                                       │ │
 │  │  • Business logic (all API handlers)                                │ │
 │  │  • Audit log writing                                                │ │
+│  │  • Cross-instance VOPRF discovery (RA-TLS mutual auth)              │ │
 │  │                                                                     │ │
 │  │  Storage: Gramine encrypted FS (sealed to enclave identity)         │ │
 │  │  Network: RA-TLS (attestation evidence in TLS certificates)         │ │
