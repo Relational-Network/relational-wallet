@@ -239,6 +239,40 @@ pub struct PaymentLinkInfo {
     pub note: Option<String>,
 }
 
+// =============================================================================
+// Discovery Models (Phase 2)
+// =============================================================================
+
+/// Request to evaluate a blinded VOPRF element (Phase A).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DiscoveryEvaluateRequest {
+    /// Base64-encoded blinded element.
+    pub blinded_element: String,
+}
+
+/// Response with the VOPRF evaluation result (Phase A).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DiscoveryEvaluateResponse {
+    /// Base64-encoded evaluated element.
+    pub evaluated_element: String,
+    /// Base64-encoded VOPRF proof.
+    pub proof: String,
+}
+
+/// Request to look up a finalized VOPRF token (Phase B).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DiscoveryLookupRequest {
+    /// Base64-encoded finalized VOPRF token.
+    pub token: String,
+}
+
+/// Response with a fixed-size encrypted envelope (Phase B).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DiscoveryLookupResponse {
+    /// Base64-encoded 256-byte envelope (match: encrypted address, no-match: random).
+    pub envelope: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

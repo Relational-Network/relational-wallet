@@ -21,6 +21,4 @@ Relational Wallet is open-source software licensed under [AGPL-3.0-or-later](htt
 | [Privacy Policy](/relational-wallet/legal/privacy-policy) | How we collect, use, and protect your personal data |
 | [Terms of Service](/relational-wallet/legal/terms-of-service) | Your rights and obligations when using the platform |
 
----
 
-**Questions?** Contact us at [legal@relational.network](mailto:legal@relational.network).

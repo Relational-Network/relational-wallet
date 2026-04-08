@@ -19,11 +19,6 @@ aux_links:
   GitHub: "https://github.com/Relational-Network/relational-wallet"
 aux_links_new_tab: true
 
-nav_external_links:
-  - title: Swagger UI
-    url: "https://localhost:8080/docs"
-    hide_icon: false
-
 heading_anchors: true
 enable_copy_code_button: true
 

@@ -26,6 +26,8 @@ use crate::{
     },
 };
 
+use crate::discovery;
+
 pub mod admin;
 pub mod balance;
 pub mod bookmarks;
@@ -94,6 +96,10 @@ pub fn router(state: AppState) -> Router {
         )
         // Fiat request stubs
         .route("/fiat/providers", get(fiat::list_fiat_providers))
+        // Internal discovery endpoints (Phase 2, RA-TLS mutual auth, no JWT)
+        // These are called by peer enclaves, not by end users.
+        // TODO: Rate limiting should be enforced at the proxy layer for
+        // production deployments to prevent brute-force discovery queries.
         .route(
             "/fiat/providers/truelayer/webhook",
             post(fiat::truelayer_webhook),
@@ -124,7 +130,30 @@ pub fn router(state: AppState) -> Router {
             "/admin/fiat/requests/{request_id}/sync",
             post(fiat::sync_fiat_request_admin),
         )
+        // Admin discovery peer management
+        .route(
+            "/admin/peers/self",
+            get(admin::get_self_node_info),
+        )
+        .route(
+            "/admin/peers",
+            get(admin::list_peers).post(admin::add_peer),
+        )
+        .route(
+            "/admin/peers/{node_id}",
+            axum::routing::put(admin::update_peer).delete(admin::remove_peer),
+        )
         .with_state(state.clone());
+
+    // Internal discovery routes (Phase 2): peer-to-peer VOPRF evaluate/lookup.
+    // These live outside /v1 because they use RA-TLS mutual authentication
+    // instead of JWT bearer tokens.
+    let v1_routes = {
+        use axum::routing::post as p;
+        v1_routes
+            .route("/internal/discovery/evaluate", p(discovery::api::evaluate))
+            .route("/internal/discovery/lookup", p(discovery::api::lookup))
+    };
 
     Router::new()
         // Health endpoints (no auth required, but need state for JWKS check)

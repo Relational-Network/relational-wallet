@@ -60,6 +60,7 @@ pub mod api;
 pub mod auth;
 pub mod blockchain;
 pub mod config;
+pub mod discovery;
 pub mod error;
 pub mod fiat_poller;
 pub mod indexer;

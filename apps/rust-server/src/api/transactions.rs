@@ -249,7 +249,10 @@ fn to_summary_with_direction(tx: &StoredTransaction, direction: &str) -> Transac
 /// Returns the resolved on-chain address. If `to_email_hash` is provided,
 /// computes the HMAC lookup key, looks up the email→wallet mapping, then
 /// fetches the wallet's public address.
-fn resolve_recipient(
+///
+/// When `discovery` is enabled and no local wallet is found for an email
+/// hash, fans out to peer enclaves via the VOPRF protocol (Phase 2).
+async fn resolve_recipient(
     to: &Option<String>,
     to_email_hash: &Option<String>,
     state: &AppState,
@@ -273,19 +276,44 @@ fn resolve_recipient(
                 .ok_or_else(|| ApiError::internal("Transaction database not available"))?;
             let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, hash);
             let email_repo = EmailIndexRepository::new(tx_db.clone());
-            let entry = email_repo
+
+            // Try local lookup first
+            if let Some(entry) = email_repo
                 .lookup(&lookup_key)
                 .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?
-                .ok_or_else(|| ApiError::not_found("No wallet found for this email address"))?;
-            let storage = state.storage();
-            let wallet_repo = WalletRepository::new(&storage);
-            let meta = wallet_repo
-                .get(&entry.wallet_id)
-                .map_err(|_| ApiError::not_found("Wallet for email recipient not found"))?;
-            if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
-                return Err(ApiError::not_found("Recipient wallet is not active"));
+            {
+                let storage = state.storage();
+                let wallet_repo = WalletRepository::new(&storage);
+                let meta = wallet_repo
+                    .get(&entry.wallet_id)
+                    .map_err(|_| ApiError::not_found("Wallet for email recipient not found"))?;
+                if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
+                    return Err(ApiError::not_found("Recipient wallet is not active"));
+                }
+                return Ok(meta.public_address);
             }
-            Ok(meta.public_address)
+
+            // Phase 2: Cross-instance discovery fan-out
+            {
+                match state.discovery_client.query(hash).await {
+                    Ok(Some(address)) => {
+                        tracing::info!(
+                            address = %address,
+                            "Resolved email recipient via cross-instance discovery"
+                        );
+                        return Ok(address);
+                    }
+                    Ok(None) => {
+                        // No peer had a match — fall through to error
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Discovery fan-out failed during send");
+                        // Fall through to "not found" error
+                    }
+                }
+            }
+
+            Err(ApiError::not_found("No wallet found for this email address"))
         }
         // Neither provided
         (None, None) => Err(ApiError::bad_request(
@@ -322,7 +350,7 @@ pub async fn estimate_gas(
     Json(request): Json<EstimateGasRequest>,
 ) -> Result<Json<EstimateGasResponse>, ApiError> {
     // Resolve recipient: either direct address or email hash → address
-    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state).await?;
 
     // Get wallet from storage
     let storage = state.storage();
@@ -423,7 +451,7 @@ pub async fn send_transaction(
     Json(request): Json<SendTransactionRequest>,
 ) -> Result<Json<SendTransactionResponse>, ApiError> {
     // Resolve recipient: either direct address or email hash → address
-    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state).await?;
 
     // Get wallet from storage
     let storage = state.storage();

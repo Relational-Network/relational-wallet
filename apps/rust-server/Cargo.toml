@@ -118,6 +118,12 @@ base64ct = { version = "1.6", features = ["alloc"] }
 # -----------------------------------------------------------------------------
 thiserror = "2.0.18"
 
+# -----------------------------------------------------------------------------
+# VOPRF Discovery (Phase 2)
+# -----------------------------------------------------------------------------
+voprf = "0.5"
+libc = "0.2"
+
 [features]
 # Enable development-only code paths (e.g., JWT decode without signature verification).
 # MUST NOT be enabled in production/Docker builds.

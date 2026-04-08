@@ -43,6 +43,10 @@ const USER_WALLET_MAP: TableDefinition<&str, &str> = TableDefinition::new("user_
 /// Payment links: opaque token → JSON PaymentLinkData.
 const PAYMENT_LINKS: TableDefinition<&str, &str> = TableDefinition::new("payment_links");
 
+/// VOPRF tokens: hex-encoded token → public_address (Phase 2 discovery).
+/// Feature-gated: only used when `discovery` feature is enabled.
+const VOPRF_TOKENS: TableDefinition<&str, &str> = TableDefinition::new("voprf_tokens");
+
 // =============================================================================
 // Error Type
 // =============================================================================
@@ -168,6 +172,8 @@ impl TxDatabase {
             let _ = write_txn.open_table(EMAIL_LOOKUP)?;
             let _ = write_txn.open_table(USER_WALLET_MAP)?;
             let _ = write_txn.open_table(PAYMENT_LINKS)?;
+            // Phase 2 discovery: always create table for schema compatibility
+            let _ = write_txn.open_table(VOPRF_TOKENS)?;
         }
         write_txn.commit()?;
 
@@ -561,6 +567,46 @@ impl TxDatabase {
         }
         Ok(results)
     }
+
+    // =========================================================================
+    // VOPRF Token Store (Phase 2 Discovery)
+    // =========================================================================
+
+    /// Register a VOPRF token → public_address mapping.
+    pub fn register_voprf_token(
+        &self,
+        token_hex: &str,
+        public_address: &str,
+    ) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VOPRF_TOKENS)?;
+            table.insert(token_hex, public_address)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Look up a public address by VOPRF token.
+    pub fn lookup_voprf_token(&self, token_hex: &str) -> TxDbResult<Option<String>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VOPRF_TOKENS)?;
+        match table.get(token_hex)? {
+            Some(v) => Ok(Some(v.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Remove a VOPRF token mapping (on wallet deletion).
+    pub fn remove_voprf_token(&self, token_hex: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VOPRF_TOKENS)?;
+            table.remove(token_hex)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -742,6 +788,26 @@ mod tests {
         // Remove
         db.remove_user_wallet(user).unwrap();
         assert_eq!(db.get_user_wallet(user).unwrap(), None);
+    }
+
+    #[test]
+    fn voprf_token_crud() {
+        let (db, _dir) = temp_db();
+        let token = "aabbccdd11223344";
+
+        // Initially not found
+        assert_eq!(db.lookup_voprf_token(token).unwrap(), None);
+
+        // Register
+        db.register_voprf_token(token, "0xDeadBeef").unwrap();
+        assert_eq!(
+            db.lookup_voprf_token(token).unwrap(),
+            Some("0xDeadBeef".to_string())
+        );
+
+        // Remove
+        db.remove_voprf_token(token).unwrap();
+        assert_eq!(db.lookup_voprf_token(token).unwrap(), None);
     }
 
     #[test]

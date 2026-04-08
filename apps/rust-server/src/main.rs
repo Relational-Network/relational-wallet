@@ -10,6 +10,7 @@ mod api;
 mod auth;
 mod blockchain;
 mod config;
+mod discovery;
 mod error;
 #[cfg_attr(test, allow(dead_code))]
 mod fiat_poller;
@@ -224,14 +225,96 @@ async fn main() {
         warn!("CLERK_SECRET_KEY not set — email features disabled");
     }
 
-    let mut state = AppState::new(encrypted_storage)
-        .with_auth_config(auth_config)
-        .with_tx_db(tx_db.clone())
-        .with_email_hmac_key(email_hmac_key);
+    // ========== Phase 2: VOPRF Discovery (always enabled) ==========
+    info!("Initializing VOPRF cross-instance discovery...");
+
+    // Load or generate VOPRF server key (sealed by Gramine encrypted FS)
+    let voprf_key_path = encrypted_storage
+        .paths()
+        .root()
+        .join("system")
+        .join(config::VOPRF_SERVER_KEY_FILE);
+    let voprf_server = Arc::new(
+        discovery::VoprfServerWrapper::load_or_generate(&voprf_key_path)
+            .expect("Failed to load/generate VOPRF server key"),
+    );
+    info!(
+        public_key = %voprf_server.public_key_base64(),
+        "VOPRF server key ready"
+    );
+
+    // Create VOPRF token store
+    let voprf_store = Arc::new(discovery::VoprfTokenStore::new(tx_db.clone()));
+
+    // Load peer registry (self-skip: peers matching own VOPRF pk are excluded)
+    let peers_path = encrypted_storage
+        .paths()
+        .root()
+        .join("system")
+        .join(config::DISCOVERY_PEERS_FILE);
+    let peer_registry = Arc::new(
+        discovery::PeerRegistry::load(&peers_path, voprf_server.public_key_base64())
+            .expect("Failed to load peer registry"),
+    );
+    info!(
+        peer_count = peer_registry.peers().len(),
+        "Peer registry loaded"
+    );
+
+    // Create discovery client
+    let discovery_client = Arc::new(
+        discovery::DiscoveryClient::new(peer_registry.clone()),
+    );
+
+    // ========== Build Application State ==========
+    let mut state = AppState::new(
+        encrypted_storage,
+        voprf_server.clone(),
+        discovery_client,
+        peer_registry,
+        voprf_store,
+    )
+    .with_auth_config(auth_config)
+    .with_tx_db(tx_db.clone())
+    .with_email_hmac_key(email_hmac_key);
 
     if let Some(clerk) = clerk_client {
         state = state.with_clerk_client(clerk);
     }
+
+    // Register VOPRF tokens for all existing wallets
+    {
+        use storage::repository::WalletRepository;
+        let repo = WalletRepository::new(state.storage());
+        let mut registered = 0u32;
+        if let Ok(wallets) = repo.list_all_wallets() {
+            for w in &wallets {
+                if w.status == storage::WalletStatus::Deleted {
+                    continue;
+                }
+                if let Some(ref lookup_key) = w.email_lookup_key {
+                    match voprf_server.compute_local_token(lookup_key.as_bytes()) {
+                        Ok(token) => {
+                            let token_hex = alloy::hex::encode(&token);
+                            if let Err(e) =
+                                tx_db.register_voprf_token(&token_hex, &w.public_address)
+                            {
+                                warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register VOPRF token");
+                            } else {
+                                registered += 1;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(wallet_id = %w.wallet_id, error = ?e, "Failed to compute VOPRF token");
+                        }
+                    }
+                }
+            }
+        }
+        info!(count = registered, "VOPRF tokens registered for existing wallets");
+    }
+
+    info!("VOPRF cross-instance discovery ENABLED");
 
     // Create LRU cache
     let tx_cache = Arc::new(storage::TxCache::new(1000, Duration::from_secs(300)));

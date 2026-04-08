@@ -933,7 +933,7 @@ export function SendForm({
                 onClick={() => void handleCheckEmail()}
                 disabled={emailChecking || !toEmail.trim()}
               >
-                {emailChecking ? "Checking…" : "Verify recipient"}
+                {emailChecking ? "Verifying…" : "Verify recipient"}
               </button>
               {savedRecipients.length > 0 ? (
                 <button

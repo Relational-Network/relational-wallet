@@ -29,3 +29,15 @@
 /// # Default
 /// `/data` (set in Gramine manifest as encrypted mount point)
 pub const DATA_DIR_ENV: &str = "DATA_DIR";
+
+// =============================================================================
+// Discovery Configuration (Phase 2)
+// =============================================================================
+
+/// Filename for the peer registry JSON file under `/data/system/`.
+///
+/// Contains per-peer attestation policies and VOPRF public keys.
+pub const DISCOVERY_PEERS_FILE: &str = "peers.json";
+
+/// Filename for the serialized VOPRF server key under `/data/system/`.
+pub const VOPRF_SERVER_KEY_FILE: &str = "voprf_server_key.bin";

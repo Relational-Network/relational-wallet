@@ -179,6 +179,29 @@ pub async fn create_wallet(
         }
     }
 
+    // Register VOPRF token for cross-instance discovery (Phase 2)
+    if let Some(ref lk) = email_lookup_key {
+        match state.voprf_server.compute_local_token(lk.as_bytes()) {
+            Ok(token) => {
+                let token_hex = alloy::hex::encode(&token);
+                if let Err(e) = state.voprf_store.register(&token_hex, &public_address) {
+                    tracing::warn!(
+                        error = %e,
+                        wallet_id = %wallet_id,
+                        "Failed to register VOPRF token"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    wallet_id = %wallet_id,
+                    "Failed to compute VOPRF token"
+                );
+            }
+        }
+    }
+
     // Audit log
     audit_log!(
         &storage,
@@ -336,6 +359,12 @@ pub async fn delete_wallet(
         if let Some(ref lookup_key) = metadata.email_lookup_key {
             let email_repo = EmailIndexRepository::new(db.clone());
             let _ = email_repo.remove(lookup_key);
+
+            // Remove VOPRF token mapping (Phase 2 discovery)
+            if let Ok(token) = state.voprf_server.compute_local_token(lookup_key.as_bytes()) {
+                let token_hex = alloy::hex::encode(&token);
+                let _ = state.voprf_store.remove(&token_hex);
+            }
         }
 
         // Remove address→wallet mapping

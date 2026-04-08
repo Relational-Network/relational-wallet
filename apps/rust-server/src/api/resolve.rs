@@ -7,6 +7,10 @@
 //! Allows authenticated users to check if a wallet exists for a given email hash,
 //! without revealing the address. Used by the frontend during the "send to email"
 //! flow to let the sender know the recipient has a wallet.
+//!
+//! When the `discovery` feature is enabled and no local wallet is found, the
+//! endpoint fans out to all configured peer enclaves via the two-phase VOPRF
+//! protocol (Phase 2 cross-instance discovery).
 
 use axum::{extract::State, Json};
 
@@ -23,6 +27,9 @@ use crate::{
 ///
 /// The client sends a SHA-256 hash of the normalized email. The server
 /// computes the HMAC lookup key and checks the email index.
+///
+/// If `discovery` is enabled and no local wallet is found, queries peer
+/// enclaves using the VOPRF protocol.
 ///
 /// Returns `{ found: true }` if a wallet exists for that email, `{ found: false }` otherwise.
 /// **Does NOT reveal the address** — the address is only resolved server-side
@@ -59,11 +66,35 @@ pub async fn resolve_email(
     // Compute HMAC lookup key from the client-provided SHA-256 hash
     let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, &body.email_hash);
 
-    // Check email index
+    // Check email index locally first
     let email_repo = EmailIndexRepository::new(tx_db.clone());
     let found = email_repo
         .exists(&lookup_key)
         .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?;
+
+    if found {
+        return Ok(Json(ResolveEmailResponse { found: true }));
+    }
+
+    // Phase 2: Cross-instance discovery fan-out
+    {
+        // Use the email SHA-256 hash as the VOPRF input — this is the raw
+        // identifier that gets blinded before being sent to peers.
+        match state.discovery_client.query(&body.email_hash).await {
+            Ok(Some(_address)) => {
+                // A peer has a wallet for this email. We don't reveal the
+                // address here — the actual send flow resolves it again.
+                return Ok(Json(ResolveEmailResponse { found: true }));
+            }
+            Ok(None) => {
+                // No peer had a match
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Discovery fan-out failed during resolve");
+                // Fall through to return found=false rather than error
+            }
+        }
+    }
 
     Ok(Json(ResolveEmailResponse { found }))
 }

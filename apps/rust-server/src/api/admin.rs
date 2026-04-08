@@ -664,3 +664,237 @@ mod tests {
         assert_eq!(count_files_recursive(path), 0);
     }
 }
+
+// ============================================================================
+// Peer Management — Admin CRUD for Discovery Peer Registry
+// ============================================================================
+
+/// Response for GET /v1/admin/peers/self — this node's discovery identity.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SelfNodeInfoResponse {
+    /// Base64-encoded VOPRF public key for this node.
+    pub voprf_public_key: String,
+    /// Whether RA-TLS library is available (running inside SGX).
+    pub ratls_available: bool,
+    /// Number of configured peers.
+    pub peer_count: usize,
+}
+
+/// Request body for POST /v1/admin/peers — add a new peer.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddPeerRequest {
+    /// Unique node identifier (e.g., "node-eu-1").
+    pub node_id: String,
+    /// HTTPS URL for the peer's API.
+    pub url: String,
+    /// Base64-encoded VOPRF public key.
+    pub voprf_public_key: String,
+    /// MRENCLAVE hex string (64 chars = 32 bytes).
+    pub mrenclave: String,
+    /// Optional MRSIGNER hex string (64 chars = 32 bytes).
+    pub mrsigner: Option<String>,
+    /// Minimum ISV SVN version (default 0).
+    pub min_isv_svn: Option<u16>,
+    /// ISV product ID (default 0).
+    pub isv_prod_id: Option<u16>,
+}
+
+/// Response item for the peer list.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PeerInfoResponse {
+    pub node_id: String,
+    pub url: String,
+    pub voprf_public_key: String,
+    pub mrenclave: String,
+    pub mrsigner: Option<String>,
+    pub min_isv_svn: u16,
+    pub isv_prod_id: u16,
+}
+
+/// GET /v1/admin/peers/self
+///
+/// Returns this node's VOPRF public key and discovery status.
+pub async fn get_self_node_info(
+    AdminOnly(_user): AdminOnly,
+    State(state): State<AppState>,
+) -> Result<Json<SelfNodeInfoResponse>, ApiError> {
+    let peer_count = state.peer_registry.peers().len();
+    let ratls_available = crate::discovery::ffi::is_ratls_available();
+
+    Ok(Json(SelfNodeInfoResponse {
+        voprf_public_key: state.peer_registry.own_public_key().to_owned(),
+        ratls_available,
+        peer_count,
+    }))
+}
+
+/// GET /v1/admin/peers
+///
+/// List all configured discovery peers.
+pub async fn list_peers(
+    AdminOnly(_user): AdminOnly,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PeerInfoResponse>>, ApiError> {
+    let peers = state.peer_registry.list_peers();
+    let response: Vec<PeerInfoResponse> = peers
+        .into_iter()
+        .map(|p| PeerInfoResponse {
+            node_id: p.node_id,
+            url: p.url,
+            voprf_public_key: p.voprf_public_key,
+            mrenclave: alloy::hex::encode(p.attestation_policy.mrenclave),
+            mrsigner: p
+                .attestation_policy
+                .mrsigner
+                .map(|m| alloy::hex::encode(m)),
+            min_isv_svn: p.attestation_policy.min_isv_svn,
+            isv_prod_id: p.attestation_policy.isv_prod_id,
+        })
+        .collect();
+
+    Ok(Json(response))
+}
+
+/// POST /v1/admin/peers
+///
+/// Add a new discovery peer. Builds an RA-TLS client for the peer
+/// (requires RA-TLS library — will fail outside SGX).
+pub async fn add_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Json(body): Json<AddPeerRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let policy = parse_attestation_policy(&body)?;
+
+    let config = crate::discovery::PeerConfig {
+        node_id: body.node_id.clone(),
+        url: body.url.clone(),
+        voprf_public_key: body.voprf_public_key.clone(),
+        attestation_policy: policy,
+    };
+
+    state.peer_registry.add_peer(config).map_err(|e| {
+        ApiError::bad_request(&format!("Failed to add peer: {e}"))
+    })?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &body.node_id
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "message": "Peer added successfully",
+            "node_id": body.node_id
+        })),
+    ))
+}
+
+/// DELETE /v1/admin/peers/{node_id}
+///
+/// Remove a discovery peer by node_id.
+pub async fn remove_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state.peer_registry.remove_peer(&node_id).map_err(|e| {
+        ApiError::not_found(&format!("Peer not found: {e}"))
+    })?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &node_id
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Peer removed successfully",
+        "node_id": node_id
+    })))
+}
+
+/// PUT /v1/admin/peers/{node_id}
+///
+/// Update an existing discovery peer configuration.
+pub async fn update_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+    Json(body): Json<AddPeerRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if body.node_id != node_id {
+        return Err(ApiError::bad_request(
+            "node_id in path must match node_id in body",
+        ));
+    }
+
+    let policy = parse_attestation_policy(&body)?;
+
+    let config = crate::discovery::PeerConfig {
+        node_id: body.node_id.clone(),
+        url: body.url.clone(),
+        voprf_public_key: body.voprf_public_key.clone(),
+        attestation_policy: policy,
+    };
+
+    state.peer_registry.update_peer(config).map_err(|e| {
+        ApiError::bad_request(&format!("Failed to update peer: {e}"))
+    })?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &node_id
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Peer updated successfully",
+        "node_id": node_id
+    })))
+}
+
+/// Parse attestation policy from the AddPeerRequest.
+fn parse_attestation_policy(
+    body: &AddPeerRequest,
+) -> Result<crate::discovery::attestation::AttestationPolicy, ApiError> {
+    let mrenclave_bytes = alloy::hex::decode(&body.mrenclave)
+        .map_err(|_| ApiError::bad_request("Invalid hex in mrenclave"))?;
+    if mrenclave_bytes.len() != 32 {
+        return Err(ApiError::bad_request(
+            "mrenclave must be exactly 32 bytes (64 hex chars)",
+        ));
+    }
+    let mut mrenclave = [0u8; 32];
+    mrenclave.copy_from_slice(&mrenclave_bytes);
+
+    let mrsigner = if let Some(ref hex) = body.mrsigner {
+        let bytes = alloy::hex::decode(hex)
+            .map_err(|_| ApiError::bad_request("Invalid hex in mrsigner"))?;
+        if bytes.len() != 32 {
+            return Err(ApiError::bad_request(
+                "mrsigner must be exactly 32 bytes (64 hex chars)",
+            ));
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        Some(arr)
+    } else {
+        None
+    };
+
+    Ok(crate::discovery::attestation::AttestationPolicy {
+        mrenclave,
+        mrsigner,
+        min_isv_svn: body.min_isv_svn.unwrap_or(0),
+        isv_prod_id: body.isv_prod_id.unwrap_or(0),
+    })
+}
