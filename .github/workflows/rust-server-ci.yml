@@ -125,10 +125,14 @@ jobs:
     env:
       ENCLAVE_SIGNING_KEY: ${{ secrets.ENCLAVE_SIGNING_KEY }}
       IMAGE_TAG: relationalnetwork/rust-server:ci-${{ github.sha }}
-      GHCR_TAG: ghcr.io/${{ github.repository_owner }}/rust-server:${{ github.sha }}
-      GHCR_MAIN: ghcr.io/${{ github.repository_owner }}/rust-server:main
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set GHCR image tags
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "GHCR_TAG=ghcr.io/${OWNER}/rust-server:${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "GHCR_MAIN=ghcr.io/${OWNER}/rust-server:main" >> "$GITHUB_ENV"
 
       - name: Note missing signing key
         if: env.ENCLAVE_SIGNING_KEY == ''
@@ -277,7 +281,8 @@ jobs:
             echo '```'
             echo "Tags:   ${GHCR_TAG}"
             echo "Digest: ${{ steps.push.outputs.digest }}"
-            echo "Deploy: ghcr.io/${{ github.repository_owner }}/rust-server@${{ steps.push.outputs.digest }}"
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            echo "Deploy: ghcr.io/${OWNER}/rust-server@${{ steps.push.outputs.digest }}"
             echo '```'
             echo ""
             echo "> **Deploy by digest, not by tag.** Use the \`Deploy\` reference above"
