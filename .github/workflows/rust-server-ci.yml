@@ -121,9 +121,12 @@ jobs:
       (needs.changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
+      packages: write
     env:
       ENCLAVE_SIGNING_KEY: ${{ secrets.ENCLAVE_SIGNING_KEY }}
       IMAGE_TAG: relationalnetwork/rust-server:ci-${{ github.sha }}
+      GHCR_TAG: ghcr.io/${{ github.repository_owner }}/rust-server:${{ github.sha }}
+      GHCR_MAIN: ghcr.io/${{ github.repository_owner }}/rust-server:main
     steps:
       - uses: actions/checkout@v4
 
@@ -136,6 +139,14 @@ jobs:
       - name: Set up Docker Buildx
         if: env.ENCLAVE_SIGNING_KEY != ''
         uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.ENCLAVE_SIGNING_KEY != '' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare signing key
         if: env.ENCLAVE_SIGNING_KEY != ''
@@ -168,6 +179,7 @@ jobs:
           fi
 
       - name: Build signed image
+        id: build
         if: env.ENCLAVE_SIGNING_KEY != ''
         uses: docker/build-push-action@v6
         with:
@@ -242,6 +254,35 @@ jobs:
             echo "::error::If intentional, update apps/rust-server/measurements.toml in the same PR."
             exit 1
           fi
+
+      - name: Push verified image to GHCR
+        id: push
+        if: env.ENCLAVE_SIGNING_KEY != '' && github.event_name != 'pull_request'
+        run: |
+          docker tag "${IMAGE_TAG}" "${GHCR_TAG}"
+          docker push "${GHCR_TAG}"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${GHCR_TAG}" | cut -d@ -f2)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            docker tag "${IMAGE_TAG}" "${GHCR_MAIN}"
+            docker push "${GHCR_MAIN}"
+          fi
+
+      - name: Record image digest
+        if: steps.push.outcome == 'success'
+        run: |
+          {
+            echo "## Container Image"
+            echo '```'
+            echo "Tags:   ${GHCR_TAG}"
+            echo "Digest: ${{ steps.push.outputs.digest }}"
+            echo "Deploy: ghcr.io/${{ github.repository_owner }}/rust-server@${{ steps.push.outputs.digest }}"
+            echo '```'
+            echo ""
+            echo "> **Deploy by digest, not by tag.** Use the \`Deploy\` reference above"
+            echo "> to pin the exact image content alongside the MRENCLAVE measurement."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Shred signing key
         if: always() && env.ENCLAVE_SIGNING_KEY != ''
