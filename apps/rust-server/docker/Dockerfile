@@ -37,11 +37,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Freeze Ubuntu package resolution to a timestamped snapshot so transitive
-# dependency versions cannot drift over time.
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
 RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
-    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # Pin all builder packages for reproducibility.
 # To update: run the base image and check apt-cache policy <pkg>
@@ -141,11 +150,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Freeze Ubuntu package resolution to a timestamped snapshot so transitive
-# dependency versions cannot drift over time.
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
 RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
-    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # Pin build/sign utility packages.
 ARG RT_CURL_VERSION=7.68.0-1ubuntu2.25
@@ -310,11 +328,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Freeze Ubuntu package resolution to a timestamped snapshot so transitive
-# dependency versions cannot drift over time.
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
 RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
-    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=signer /usr/share/keyrings/gramine-keyring.gpg /usr/share/keyrings/gramine-keyring.gpg
 COPY --from=signer /usr/share/keyrings/intel-sgx-deb.key /usr/share/keyrings/intel-sgx-deb.key
