@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { Scan, Bookmark, ChevronDown, ChevronUp, ExternalLink, Trash2 } from "lucide-react";
 import type {
@@ -112,7 +112,7 @@ export function SendForm({
     prefill?.recipientType ?? (prefill?.to_email_hash ? "email" : "address");
   const prefillAmount = prefill?.amount ?? "";
   const prefillToken =
-    prefill?.token === "reur" ? "reur" : "native";
+    prefill?.token === "native" ? "native" : "reur";
 
   const [toAddress, setToAddress] = useState(prefillTo);
   const [recipientMode, setRecipientMode] = useState<"address" | "email">(prefillRecipientMode);
@@ -129,7 +129,8 @@ export function SendForm({
   const [gasLimitOverride, setGasLimitOverride] = useState("");
   const [priorityFeeOverride, setPriorityFeeOverride] = useState("");
 
-  const [savedRecipients, setSavedRecipients] = useState<RecipientShortcut[]>(shortcuts);
+  const [savedRecipients, setSavedRecipients] = useState<RecipientShortcut[]>(shortcuts ?? []);
+  const prevShortcutsRef = useRef(shortcuts);
   const [showRecipientPicker, setShowRecipientPicker] = useState(false);
   const [pendingDeleteRecipient, setPendingDeleteRecipient] = useState<RecipientShortcut | null>(null);
   const [deletingRecipientId, setDeletingRecipientId] = useState<string | null>(null);
@@ -149,7 +150,12 @@ export function SendForm({
   const MAX_POLLS = 30;
 
   useEffect(() => {
-    setSavedRecipients(shortcuts);
+    const prev = JSON.stringify(prevShortcutsRef.current);
+    const next = JSON.stringify(shortcuts);
+    if (prev !== next) {
+      prevShortcutsRef.current = shortcuts;
+      setSavedRecipients(shortcuts ?? []);
+    }
   }, [shortcuts]);
 
   const trimmedAddress = toAddress.trim();
@@ -927,7 +933,7 @@ export function SendForm({
                 onClick={() => void handleCheckEmail()}
                 disabled={emailChecking || !toEmail.trim()}
               >
-                {emailChecking ? "Checking…" : "Verify recipient"}
+                {emailChecking ? "Verifying…" : "Verify recipient"}
               </button>
               {savedRecipients.length > 0 ? (
                 <button

@@ -25,8 +25,8 @@ use crate::{
     error::ApiError,
     state::AppState,
     storage::{
-        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository, InviteRepository,
-        RecurringRepository, WalletRepository, WalletStatus,
+        AuditEvent, AuditEventType, AuditRepository, BookmarkRepository, WalletRepository,
+        WalletStatus,
     },
 };
 
@@ -47,12 +47,6 @@ pub struct SystemStatsResponse {
     pub deleted_wallets: usize,
     /// Total number of bookmarks.
     pub total_bookmarks: usize,
-    /// Total number of invites.
-    pub total_invites: usize,
-    /// Number of redeemed invites.
-    pub redeemed_invites: usize,
-    /// Total number of recurring payments.
-    pub total_recurring_payments: usize,
     /// Server uptime information.
     pub uptime_seconds: u64,
     /// Current timestamp.
@@ -124,8 +118,6 @@ pub struct AdminUserSummary {
     pub wallet_count: usize,
     /// Number of bookmarks.
     pub bookmark_count: usize,
-    /// Number of recurring payments.
-    pub recurring_payment_count: usize,
 }
 
 /// Response for admin user list.
@@ -203,8 +195,8 @@ pub fn init_server_start_time() {
 
 /// Get system statistics.
 ///
-/// Returns aggregate statistics about the system including wallet counts,
-/// invite usage, and storage metrics. Admin only.
+/// Returns aggregate statistics about the system including wallet counts
+/// and storage metrics. Admin only.
 #[utoipa::path(
     get,
     path = "/v1/admin/stats",
@@ -223,7 +215,7 @@ pub async fn get_system_stats(
     let storage = state.storage();
 
     // Count wallets by status
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let all_wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let active_wallets = all_wallets
         .iter()
@@ -239,17 +231,8 @@ pub async fn get_system_stats(
         .count();
 
     // Count bookmarks
-    let bookmark_repo = BookmarkRepository::new(&storage);
+    let bookmark_repo = BookmarkRepository::new(storage);
     let total_bookmarks = bookmark_repo.list_all().unwrap_or_default().len();
-
-    // Count invites
-    let invite_repo = InviteRepository::new(&storage);
-    let all_invites = invite_repo.list_all().unwrap_or_default();
-    let redeemed_invites = all_invites.iter().filter(|i| i.redeemed).count();
-
-    // Count recurring payments
-    let recurring_repo = RecurringRepository::new(&storage);
-    let total_recurring = recurring_repo.list_all().unwrap_or_default().len();
 
     // Audit log
     audit_log!(&storage, AuditEventType::AdminAccess, &user);
@@ -260,9 +243,6 @@ pub async fn get_system_stats(
         suspended_wallets,
         deleted_wallets,
         total_bookmarks,
-        total_invites: all_invites.len(),
-        redeemed_invites,
-        total_recurring_payments: total_recurring,
         uptime_seconds: get_server_start().elapsed().as_secs(),
         timestamp: Utc::now().to_rfc3339(),
     }))
@@ -287,7 +267,7 @@ pub async fn list_all_wallets(
     State(state): State<AppState>,
 ) -> Result<Json<AdminWalletListResponse>, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let items: Vec<AdminWalletItem> = wallets
@@ -314,7 +294,7 @@ pub async fn list_all_wallets(
 
 /// List all unique users with their resource counts.
 ///
-/// Returns a summary of all users who have wallets, bookmarks, or recurring payments.
+/// Returns a summary of all users who have wallets or bookmarks.
 #[utoipa::path(
     get,
     path = "/v1/admin/users",
@@ -333,13 +313,11 @@ pub async fn list_all_users(
     let storage = state.storage();
 
     // Collect all user IDs from various sources
-    let wallet_repo = WalletRepository::new(&storage);
-    let bookmark_repo = BookmarkRepository::new(&storage);
-    let recurring_repo = RecurringRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
+    let bookmark_repo = BookmarkRepository::new(storage);
 
     let wallets = wallet_repo.list_all_wallets().unwrap_or_default();
     let bookmarks = bookmark_repo.list_all().unwrap_or_default();
-    let recurring = recurring_repo.list_all().unwrap_or_default();
 
     // Build user map
     let mut user_map: std::collections::HashMap<String, AdminUserSummary> =
@@ -352,7 +330,6 @@ pub async fn list_all_users(
                 user_id: wallet.owner_user_id.clone(),
                 wallet_count: 0,
                 bookmark_count: 0,
-                recurring_payment_count: 0,
             });
         entry.wallet_count += 1;
     }
@@ -364,21 +341,8 @@ pub async fn list_all_users(
                 user_id: bookmark.owner_user_id.clone(),
                 wallet_count: 0,
                 bookmark_count: 0,
-                recurring_payment_count: 0,
             });
         entry.bookmark_count += 1;
-    }
-
-    for payment in &recurring {
-        let entry = user_map
-            .entry(payment.owner_user_id.clone())
-            .or_insert_with(|| AdminUserSummary {
-                user_id: payment.owner_user_id.clone(),
-                wallet_count: 0,
-                bookmark_count: 0,
-                recurring_payment_count: 0,
-            });
-        entry.recurring_payment_count += 1;
     }
 
     let users: Vec<AdminUserSummary> = user_map.into_values().collect();
@@ -413,7 +377,7 @@ pub async fn query_audit_logs(
     State(state): State<AppState>,
 ) -> Result<Json<AuditLogResponse>, ApiError> {
     let storage = state.storage();
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
 
     // Default date range: today only
     let today = Utc::now().format("%Y-%m-%d").to_string();
@@ -548,19 +512,19 @@ pub async fn suspend_wallet(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let mut wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.status = WalletStatus::Suspended;
     wallet_repo
         .update(&wallet)
-        .map_err(|e| ApiError::internal(&format!("Failed to suspend wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to suspend wallet: {}", e)))?;
 
     // Audit log
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let event = AuditEvent::new(AuditEventType::AdminAccess)
         .with_user(&user.user_id)
         .with_resource("wallet", &wallet_id)
@@ -591,19 +555,19 @@ pub async fn activate_wallet(
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
 
     let mut wallet = wallet_repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {} not found", wallet_id)))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {} not found", wallet_id)))?;
 
     wallet.status = WalletStatus::Active;
     wallet_repo
         .update(&wallet)
-        .map_err(|e| ApiError::internal(&format!("Failed to activate wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to activate wallet: {}", e)))?;
 
     // Audit log
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let event = AuditEvent::new(AuditEventType::AdminAccess)
         .with_user(&user.user_id)
         .with_resource("wallet", &wallet_id)
@@ -653,9 +617,6 @@ mod tests {
             suspended_wallets: 1,
             deleted_wallets: 1,
             total_bookmarks: 25,
-            total_invites: 5,
-            redeemed_invites: 3,
-            total_recurring_payments: 7,
             uptime_seconds: 3600,
             timestamp: "2026-01-28T12:00:00Z".to_string(),
         };
@@ -702,4 +663,238 @@ mod tests {
         let path = std::path::Path::new("/nonexistent/path");
         assert_eq!(count_files_recursive(path), 0);
     }
+}
+
+// ============================================================================
+// Peer Management — Admin CRUD for Discovery Peer Registry
+// ============================================================================
+
+/// Response for GET /v1/admin/peers/self — this node's discovery identity.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SelfNodeInfoResponse {
+    /// Base64-encoded VOPRF public key for this node.
+    pub voprf_public_key: String,
+    /// Whether RA-TLS library is available (running inside SGX).
+    pub ratls_available: bool,
+    /// Number of configured peers.
+    pub peer_count: usize,
+}
+
+/// Request body for POST /v1/admin/peers — add a new peer.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddPeerRequest {
+    /// Unique node identifier (e.g., "node-eu-1").
+    pub node_id: String,
+    /// HTTPS URL for the peer's API.
+    pub url: String,
+    /// Base64-encoded VOPRF public key.
+    pub voprf_public_key: String,
+    /// MRENCLAVE hex string (64 chars = 32 bytes).
+    pub mrenclave: String,
+    /// Optional MRSIGNER hex string (64 chars = 32 bytes).
+    pub mrsigner: Option<String>,
+    /// Minimum ISV SVN version (default 0).
+    pub min_isv_svn: Option<u16>,
+    /// ISV product ID (default 0).
+    pub isv_prod_id: Option<u16>,
+}
+
+/// Response item for the peer list.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PeerInfoResponse {
+    pub node_id: String,
+    pub url: String,
+    pub voprf_public_key: String,
+    pub mrenclave: String,
+    pub mrsigner: Option<String>,
+    pub min_isv_svn: u16,
+    pub isv_prod_id: u16,
+}
+
+/// GET /v1/admin/peers/self
+///
+/// Returns this node's VOPRF public key and discovery status.
+pub async fn get_self_node_info(
+    AdminOnly(_user): AdminOnly,
+    State(state): State<AppState>,
+) -> Result<Json<SelfNodeInfoResponse>, ApiError> {
+    let peer_count = state.peer_registry.peers().len();
+    let ratls_available = crate::discovery::ffi::is_ratls_available();
+
+    Ok(Json(SelfNodeInfoResponse {
+        voprf_public_key: state.peer_registry.own_public_key().to_owned(),
+        ratls_available,
+        peer_count,
+    }))
+}
+
+/// GET /v1/admin/peers
+///
+/// List all configured discovery peers.
+pub async fn list_peers(
+    AdminOnly(_user): AdminOnly,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PeerInfoResponse>>, ApiError> {
+    let peers = state.peer_registry.list_peers();
+    let response: Vec<PeerInfoResponse> = peers
+        .into_iter()
+        .map(|p| PeerInfoResponse {
+            node_id: p.node_id,
+            url: p.url,
+            voprf_public_key: p.voprf_public_key,
+            mrenclave: alloy::hex::encode(p.attestation_policy.mrenclave),
+            mrsigner: p.attestation_policy.mrsigner.map(alloy::hex::encode),
+            min_isv_svn: p.attestation_policy.min_isv_svn,
+            isv_prod_id: p.attestation_policy.isv_prod_id,
+        })
+        .collect();
+
+    Ok(Json(response))
+}
+
+/// POST /v1/admin/peers
+///
+/// Add a new discovery peer. Builds an RA-TLS client for the peer
+/// (requires RA-TLS library — will fail outside SGX).
+pub async fn add_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Json(body): Json<AddPeerRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let policy = parse_attestation_policy(&body)?;
+
+    let config = crate::discovery::PeerConfig {
+        node_id: body.node_id.clone(),
+        url: body.url.clone(),
+        voprf_public_key: body.voprf_public_key.clone(),
+        attestation_policy: policy,
+    };
+
+    state
+        .peer_registry
+        .add_peer(config)
+        .map_err(|e| ApiError::bad_request(format!("Failed to add peer: {e}")))?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &body.node_id
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "message": "Peer added successfully",
+            "node_id": body.node_id
+        })),
+    ))
+}
+
+/// DELETE /v1/admin/peers/{node_id}
+///
+/// Remove a discovery peer by node_id.
+pub async fn remove_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .peer_registry
+        .remove_peer(&node_id)
+        .map_err(|e| ApiError::not_found(format!("Peer not found: {e}")))?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &node_id
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Peer removed successfully",
+        "node_id": node_id
+    })))
+}
+
+/// PUT /v1/admin/peers/{node_id}
+///
+/// Update an existing discovery peer configuration.
+pub async fn update_peer(
+    AdminOnly(user): AdminOnly,
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+    Json(body): Json<AddPeerRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if body.node_id != node_id {
+        return Err(ApiError::bad_request(
+            "node_id in path must match node_id in body",
+        ));
+    }
+
+    let policy = parse_attestation_policy(&body)?;
+
+    let config = crate::discovery::PeerConfig {
+        node_id: body.node_id.clone(),
+        url: body.url.clone(),
+        voprf_public_key: body.voprf_public_key.clone(),
+        attestation_policy: policy,
+    };
+
+    state
+        .peer_registry
+        .update_peer(config)
+        .map_err(|e| ApiError::bad_request(format!("Failed to update peer: {e}")))?;
+
+    audit_log!(
+        state.storage(),
+        AuditEventType::ConfigChanged,
+        &user,
+        "peer",
+        &node_id
+    );
+
+    Ok(Json(serde_json::json!({
+        "message": "Peer updated successfully",
+        "node_id": node_id
+    })))
+}
+
+/// Parse attestation policy from the AddPeerRequest.
+fn parse_attestation_policy(
+    body: &AddPeerRequest,
+) -> Result<crate::discovery::attestation::AttestationPolicy, ApiError> {
+    let mrenclave_bytes = alloy::hex::decode(&body.mrenclave)
+        .map_err(|_| ApiError::bad_request("Invalid hex in mrenclave"))?;
+    if mrenclave_bytes.len() != 32 {
+        return Err(ApiError::bad_request(
+            "mrenclave must be exactly 32 bytes (64 hex chars)",
+        ));
+    }
+    let mut mrenclave = [0u8; 32];
+    mrenclave.copy_from_slice(&mrenclave_bytes);
+
+    let mrsigner = if let Some(ref hex) = body.mrsigner {
+        let bytes = alloy::hex::decode(hex)
+            .map_err(|_| ApiError::bad_request("Invalid hex in mrsigner"))?;
+        if bytes.len() != 32 {
+            return Err(ApiError::bad_request(
+                "mrsigner must be exactly 32 bytes (64 hex chars)",
+            ));
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        Some(arr)
+    } else {
+        None
+    };
+
+    Ok(crate::discovery::attestation::AttestationPolicy {
+        mrenclave,
+        mrsigner,
+        min_isv_svn: body.min_isv_svn.unwrap_or(0),
+        isv_prod_id: body.isv_prod_id.unwrap_or(0),
+    })
 }

@@ -42,7 +42,9 @@ pub fn normalize_email(email: &str) -> Result<String, EmailError> {
 
     // RFC 5322 basic validation: local@domain.tld
     if !is_valid_email(&nfc) {
-        return Err(EmailError::InvalidFormat(format!("'{nfc}' is not a valid email address")));
+        return Err(EmailError::InvalidFormat(format!(
+            "'{nfc}' is not a valid email address"
+        )));
     }
 
     Ok(nfc)
@@ -64,8 +66,7 @@ pub fn sha256_email(normalized: &str) -> String {
 /// - Layer 1 (client-side): SHA-256 strips PII before transit
 /// - Layer 2 (server-side): HMAC-SHA256 resists offline brute-force if DB leaks
 pub fn hmac_lookup_key(hmac_key: &[u8; 32], email_sha256: &str) -> String {
-    let mut mac = HmacSha256::new_from_slice(hmac_key)
-        .expect("HMAC can take key of any size");
+    let mut mac = HmacSha256::new_from_slice(hmac_key).expect("HMAC can take key of any size");
     mac.update(email_sha256.as_bytes());
     let result = mac.finalize();
     alloy::hex::encode(result.into_bytes())
@@ -119,7 +120,10 @@ mod tests {
 
     #[test]
     fn normalize_case_fold() {
-        assert_eq!(normalize_email("Alice@Example.COM").unwrap(), "alice@example.com");
+        assert_eq!(
+            normalize_email("Alice@Example.COM").unwrap(),
+            "alice@example.com"
+        );
     }
 
     #[test]
@@ -137,7 +141,10 @@ mod tests {
 
     #[test]
     fn normalize_admin_gmail() {
-        assert_eq!(normalize_email("ADMIN@GMAIL.COM").unwrap(), "admin@gmail.com");
+        assert_eq!(
+            normalize_email("ADMIN@GMAIL.COM").unwrap(),
+            "admin@gmail.com"
+        );
     }
 
     #[test]

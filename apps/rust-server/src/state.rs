@@ -36,10 +36,13 @@
 use std::sync::Arc;
 
 use crate::auth::JwksManager;
+use crate::blockchain::AvaxClient;
 use crate::providers::clerk::ClerkClient;
 use crate::storage::tx_cache::TxCache;
 use crate::storage::tx_database::TxDatabase;
 use crate::storage::EncryptedStorage;
+
+use crate::discovery::{DiscoveryClient, PeerRegistry, VoprfServerWrapper, VoprfTokenStore};
 
 // =============================================================================
 // Authentication Configuration
@@ -132,6 +135,25 @@ pub struct AppState {
     /// Sealed by Gramine encrypted FS — never leaves the enclave.
     /// Loaded from `/data/system/email_hmac_key.bin` on startup.
     pub email_hmac_key: [u8; 32],
+
+    /// Shared read-only Avalanche C-Chain client (Fuji testnet).
+    ///
+    /// Reuses a single HTTP connection pool across all requests instead
+    /// of creating a new `AvaxClient` per request.
+    pub avax_client: Option<Arc<AvaxClient>>,
+
+    // ── Phase 2: VOPRF Discovery ──
+    /// VOPRF server key for evaluating blinded queries from peers.
+    pub voprf_server: Arc<VoprfServerWrapper>,
+
+    /// Discovery client for querying peer enclaves.
+    pub discovery_client: Arc<DiscoveryClient>,
+
+    /// Peer registry with attestation policies.
+    pub peer_registry: Arc<PeerRegistry>,
+
+    /// VOPRF token store (wraps TxDatabase table).
+    pub voprf_store: Arc<VoprfTokenStore>,
 }
 
 impl AppState {
@@ -146,9 +168,15 @@ impl AppState {
     /// ```rust,ignore
     /// let storage = EncryptedStorage::with_default_paths();
     /// storage.initialize()?;
-    /// let state = AppState::new(storage);
+    /// let state = AppState::new(storage, voprf_server, discovery_client, peer_registry, voprf_store);
     /// ```
-    pub fn new(encrypted_storage: EncryptedStorage) -> Self {
+    pub fn new(
+        encrypted_storage: EncryptedStorage,
+        voprf_server: Arc<VoprfServerWrapper>,
+        discovery_client: Arc<DiscoveryClient>,
+        peer_registry: Arc<PeerRegistry>,
+        voprf_store: Arc<VoprfTokenStore>,
+    ) -> Self {
         Self {
             storage: Arc::new(encrypted_storage),
             auth_config: AuthConfig::default(),
@@ -156,19 +184,36 @@ impl AppState {
             tx_cache: None,
             clerk_client: None,
             email_hmac_key: [0u8; 32],
+            avax_client: None,
+            voprf_server,
+            discovery_client,
+            peer_registry,
+            voprf_store,
         }
     }
 
+    /// Convenience constructor for tests: creates discovery stubs automatically.
+    #[cfg(test)]
+    pub fn new_test(encrypted_storage: EncryptedStorage) -> Self {
+        let voprf_server = Arc::new(VoprfServerWrapper::generate());
+        let peer_registry = Arc::new(PeerRegistry::empty());
+        let discovery_client = Arc::new(DiscoveryClient::new(peer_registry.clone()));
+        // We need a TxDatabase for VoprfTokenStore
+        let tx_db_path = encrypted_storage.paths().root().join("tx.redb");
+        let tx_db = Arc::new(
+            crate::storage::TxDatabase::open(&tx_db_path).expect("Failed to open test tx database"),
+        );
+        let voprf_store = Arc::new(VoprfTokenStore::new(tx_db));
+        Self::new(
+            encrypted_storage,
+            voprf_server,
+            discovery_client,
+            peer_registry,
+            voprf_store,
+        )
+    }
+
     /// Configure authentication settings.
-    ///
-    /// This method uses the builder pattern for fluent configuration.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let state = AppState::new(storage)
-    ///     .with_auth_config(auth_config);
-    /// ```
     pub fn with_auth_config(mut self, auth_config: AuthConfig) -> Self {
         self.auth_config = auth_config;
         self
@@ -195,6 +240,12 @@ impl AppState {
     /// Configure the email HMAC key.
     pub fn with_email_hmac_key(mut self, key: [u8; 32]) -> Self {
         self.email_hmac_key = key;
+        self
+    }
+
+    /// Configure the shared Avalanche C-Chain client.
+    pub fn with_avax_client(mut self, client: Arc<AvaxClient>) -> Self {
+        self.avax_client = Some(client);
         self
     }
 
@@ -237,7 +288,21 @@ impl Default for AppState {
             let tx_db_path = storage.paths().root().join("tx.redb");
             let tx_db =
                 Arc::new(TxDatabase::open(&tx_db_path).expect("Failed to initialize tx database"));
-            Self::new(storage).with_tx_db(tx_db)
+
+            // Discovery stubs for test contexts
+            let voprf_server = Arc::new(VoprfServerWrapper::generate());
+            let voprf_store = Arc::new(VoprfTokenStore::new(tx_db.clone()));
+            let peer_registry = Arc::new(PeerRegistry::empty());
+            let discovery_client = Arc::new(DiscoveryClient::new(peer_registry.clone()));
+
+            Self::new(
+                storage,
+                voprf_server,
+                discovery_client,
+                peer_registry,
+                voprf_store,
+            )
+            .with_tx_db(tx_db)
         }
         #[cfg(not(test))]
         {

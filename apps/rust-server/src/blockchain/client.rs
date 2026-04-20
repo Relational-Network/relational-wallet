@@ -165,14 +165,9 @@ impl AvaxClient {
 
         Ok(receipt.map(|value| ReceiptStatus {
             block_number: value.block_number.unwrap_or(0),
-            gas_used: value.gas_used as u64,
+            gas_used: value.gas_used,
             success: value.status(),
         }))
-    }
-
-    /// Get the network configuration.
-    pub fn network(&self) -> &NetworkConfig {
-        &self.network
     }
 
     /// Create a signer from a private key (hex string without 0x prefix).

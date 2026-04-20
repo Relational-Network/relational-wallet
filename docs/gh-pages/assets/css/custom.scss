@@ -1,0 +1,93 @@
+---
+---
+
+// Custom overrides for Relational Wallet docs
+// Extends just-the-docs dark theme with web3-appropriate polish
+
+// ─── Typography ───────────────────────────────────────────────────────────────
+
+// Slightly tighter line-height for dense technical content
+.main-content {
+  line-height: 1.65;
+}
+
+// Make H1 on the home page feel like a hero
+.main-content h1:first-of-type {
+  font-size: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+// ─── Code blocks ──────────────────────────────────────────────────────────────
+
+// Slightly larger code font for readability
+code {
+  font-size: 0.88em;
+}
+
+pre.highlight {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+// ─── Tables ───────────────────────────────────────────────────────────────────
+
+// Add subtle row striping to large reference tables
+.main-content table tbody tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+// Make table headers slightly more prominent
+.main-content table thead th {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-size: 0.78em;
+}
+
+// ─── Callout labels ───────────────────────────────────────────────────────────
+
+// Note / warning / tip callout polish
+.note,
+.warning,
+.tip,
+.important {
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.92em;
+}
+
+// ─── Navigation ───────────────────────────────────────────────────────────────
+
+// Slightly bolder active nav item
+.nav-list-item.active > .nav-list-link {
+  font-weight: 600;
+}
+
+// ─── Buttons ──────────────────────────────────────────────────────────────────
+
+.btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+
+.site-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+// ─── Footer ───────────────────────────────────────────────────────────────────
+
+.site-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+// ─── Copy code button ─────────────────────────────────────────────────────────
+
+.copy-code-button {
+  border-radius: 4px;
+  font-size: 0.75rem;
+}

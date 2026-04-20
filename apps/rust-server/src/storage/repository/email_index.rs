@@ -15,7 +15,8 @@ use super::super::tx_database::{TxDatabase, TxDbResult};
 #[derive(Debug, Clone)]
 pub struct EmailIndexEntry {
     pub wallet_id: String,
-    #[allow(dead_code)] // Used during send-by-email resolution; wallet metadata provides the canonical source
+    #[allow(dead_code)]
+    // Used during send-by-email resolution; wallet metadata provides the canonical source
     pub public_address: String,
 }
 

@@ -65,7 +65,7 @@ pub struct DeleteWalletResponse {
 
 /// Create a new wallet for the authenticated user.
 ///
-/// Generates a new p256 keypair inside the SGX enclave and stores it
+/// Generates a new secp256k1 keypair inside the SGX enclave and stores it
 /// encrypted on disk. Returns the wallet metadata (never the private key).
 #[utoipa::path(
     post,
@@ -102,12 +102,12 @@ pub async fn create_wallet(
             .get_user_email(&user.user_id)
             .await
             .map_err(|e| match e {
-                ClerkError::InvalidEmailConfiguration { message, .. } => ApiError::unprocessable(
-                    format!(
+                ClerkError::InvalidEmailConfiguration { message, .. } => {
+                    ApiError::unprocessable(format!(
                         "Email-linked wallets require exactly one verified primary Clerk email: {}",
                         message
-                    ),
-                ),
+                    ))
+                }
                 other => ApiError::internal(format!("Failed to fetch email: {}", other)),
             })?;
 
@@ -116,7 +116,10 @@ pub async fn create_wallet(
 
         // O(1) email uniqueness check
         let email_repo = EmailIndexRepository::new(tx_db.clone());
-        if email_repo.exists(&lookup_key).map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))? {
+        if email_repo
+            .exists(&lookup_key)
+            .map_err(|e| ApiError::internal(format!("Email lookup failed: {}", e)))?
+        {
             return Err(ApiError::conflict("A wallet already exists for this email"));
         }
 
@@ -128,7 +131,7 @@ pub async fn create_wallet(
 
     // Generate secp256k1 keypair (Ethereum/Avalanche compatible)
     let (private_key_pem, public_address) = generate_secp256k1_keypair()
-        .map_err(|e| ApiError::internal(&format!("Key generation failed: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Key generation failed: {}", e)))?;
 
     // Create wallet metadata
     let metadata = WalletMetadata {
@@ -142,37 +145,55 @@ pub async fn create_wallet(
     };
 
     // Store wallet
-    let repo = WalletRepository::new(&storage);
+    let repo = WalletRepository::new(storage);
     repo.create(&metadata, private_key_pem.as_bytes())
-        .map_err(|e| ApiError::internal(&format!("Failed to store wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to store wallet: {}", e)))?;
 
     // Register address → wallet_id in redb for the event indexer.
-    if let Err(e) = tx_db.register_address(&public_address, &wallet_id) {
-        tracing::warn!(
-            error = %e,
-            wallet_id = %wallet_id,
-            "Failed to register wallet address in tx database"
-        );
-    }
+    tx_db
+        .register_address(&public_address, &wallet_id)
+        .map_err(|e| {
+            ApiError::internal(format!(
+                "Failed to register wallet address in tx database: {}",
+                e
+            ))
+        })?;
 
     // Register user → wallet mapping (O(1))
-    if let Err(e) = tx_db.register_user_wallet(&user.user_id, &wallet_id) {
-        tracing::warn!(
-            error = %e,
-            wallet_id = %wallet_id,
-            "Failed to register user→wallet mapping"
-        );
-    }
+    tx_db
+        .register_user_wallet(&user.user_id, &wallet_id)
+        .map_err(|e| {
+            ApiError::internal(format!("Failed to register user→wallet mapping: {}", e))
+        })?;
 
     // Register email lookup index (O(1))
     if let Some(ref lk) = email_lookup_key {
         let email_repo = EmailIndexRepository::new(tx_db.clone());
-        if let Err(e) = email_repo.register(lk, &wallet_id, &public_address) {
-            tracing::warn!(
-                error = %e,
-                wallet_id = %wallet_id,
-                "Failed to register email lookup"
-            );
+        email_repo
+            .register(lk, &wallet_id, &public_address)
+            .map_err(|e| ApiError::internal(format!("Failed to register email lookup: {}", e)))?;
+    }
+
+    // Register VOPRF token for cross-instance discovery (Phase 2)
+    if let Some(ref lk) = email_lookup_key {
+        match state.voprf_server.compute_local_token(lk.as_bytes()) {
+            Ok(token) => {
+                let token_hex = alloy::hex::encode(&token);
+                if let Err(e) = state.voprf_store.register(&token_hex, &public_address) {
+                    tracing::warn!(
+                        error = %e,
+                        wallet_id = %wallet_id,
+                        "Failed to register VOPRF token"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = ?e,
+                    wallet_id = %wallet_id,
+                    "Failed to compute VOPRF token"
+                );
+            }
         }
     }
 
@@ -210,7 +231,7 @@ pub async fn list_wallets(
 ) -> Result<Json<WalletListResponse>, ApiError> {
     let storage = state.storage();
     let tx_db = state.tx_db.as_ref();
-    let repo = WalletRepository::new(&storage);
+    let repo = WalletRepository::new(storage);
 
     // O(1) path: look up user's wallet from redb, then fetch metadata directly
     let wallet_responses: Vec<WalletResponse> = if let Some(db) = tx_db {
@@ -226,7 +247,7 @@ pub async fn list_wallets(
         // Fallback: O(N) filesystem scan (no tx_db configured)
         let wallets = repo
             .list_by_owner(&user.user_id)
-            .map_err(|e| ApiError::internal(&format!("Failed to list wallets: {}", e)))?;
+            .map_err(|e| ApiError::internal(format!("Failed to list wallets: {}", e)))?;
         wallets.into_iter().map(Into::into).collect()
     };
 
@@ -262,11 +283,11 @@ pub async fn get_wallet(
     Path(wallet_id): Path<String>,
 ) -> Result<Json<WalletResponse>, ApiError> {
     let storage = state.storage();
-    let repo = WalletRepository::new(&storage);
+    let repo = WalletRepository::new(storage);
 
     let metadata = repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {wallet_id} not found")))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {wallet_id} not found")))?;
 
     // Verify ownership
     metadata
@@ -274,7 +295,7 @@ pub async fn get_wallet(
         .map_err(|_| ApiError::forbidden("You don't have permission to access this wallet"))?;
 
     // Audit access
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let _ = audit_repo.log(
         &crate::storage::AuditEvent::new(AuditEventType::WalletAccessed)
             .with_user(&user.user_id)
@@ -309,12 +330,12 @@ pub async fn delete_wallet(
     Path(wallet_id): Path<String>,
 ) -> Result<Json<DeleteWalletResponse>, ApiError> {
     let storage = state.storage();
-    let repo = WalletRepository::new(&storage);
+    let repo = WalletRepository::new(storage);
 
     // Get and verify ownership
     let metadata = repo
         .get(&wallet_id)
-        .map_err(|_| ApiError::not_found(&format!("Wallet {wallet_id} not found")))?;
+        .map_err(|_| ApiError::not_found(format!("Wallet {wallet_id} not found")))?;
 
     metadata
         .verify_ownership(&user)
@@ -322,7 +343,7 @@ pub async fn delete_wallet(
 
     // Soft delete
     repo.soft_delete(&wallet_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to delete wallet: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to delete wallet: {}", e)))?;
 
     // Clean up redb index entries so user can create a new wallet
     if let Some(db) = state.tx_db.as_ref() {
@@ -333,6 +354,15 @@ pub async fn delete_wallet(
         if let Some(ref lookup_key) = metadata.email_lookup_key {
             let email_repo = EmailIndexRepository::new(db.clone());
             let _ = email_repo.remove(lookup_key);
+
+            // Remove VOPRF token mapping (Phase 2 discovery)
+            if let Ok(token) = state
+                .voprf_server
+                .compute_local_token(lookup_key.as_bytes())
+            {
+                let token_hex = alloy::hex::encode(&token);
+                let _ = state.voprf_store.remove(&token_hex);
+            }
         }
 
         // Remove address→wallet mapping

@@ -19,7 +19,9 @@ ARG CA_CERTS_VERSION=20240203~20.04.1
 # ---------------------------------------------------------------------------
 # Stage 1 — Rust build (pinned toolchain for reproducibility)
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${UBUNTU_IMAGE} AS builder
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG UBUNTU_SNAPSHOT
 ARG CA_CERTS_VERSION
@@ -35,11 +37,20 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Freeze Ubuntu package resolution to a timestamped snapshot so transitive
-# dependency versions cannot drift over time.
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
 RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
-    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # Pin all builder packages for reproducibility.
 # To update: run the base image and check apt-cache policy <pkg>
@@ -76,6 +87,7 @@ ARG RUSTUP_SHA256=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa
 ENV CARGO_HOME=/opt/cargo
 ENV RUSTUP_HOME=/opt/rustup
 ENV PATH=/opt/cargo/bin:${PATH}
+ENV RUSTC_WRAPPER=
 ENV SOURCE_DATE_EPOCH=1704067200
 ENV TZ=UTC
 ENV LANG=C.UTF-8
@@ -102,15 +114,21 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
 COPY src ./src
-RUN cargo fetch --locked
-RUN CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
+RUN cargo fetch --locked && \
+    CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
 
 # ---------------------------------------------------------------------------
-# Stage 2 — Runtime image + enclave signing
+# Stage 2 — Signer image
+# ---------------------------------------------------------------------------
+# This stage carries the extra tooling needed to configure apt repos and sign
+# the enclave. The final runtime image starts from a fresh Ubuntu base so these
+# build/sign-only tools do not ship in production.
 # ---------------------------------------------------------------------------
 ARG UBUNTU_CODENAME=focal
 
-FROM ${UBUNTU_IMAGE}
+# hadolint ignore=DL3006
+FROM ${UBUNTU_IMAGE} AS signer
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # ARGs are reset after each FROM
 ARG UBUNTU_CODENAME=focal
@@ -132,13 +150,22 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Freeze Ubuntu package resolution to a timestamped snapshot so transitive
-# dependency versions cannot drift over time.
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
 RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
     printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
-    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
-# Pin runtime utility packages.
+# Pin build/sign utility packages.
 ARG RT_CURL_VERSION=7.68.0-1ubuntu2.25
 ARG GNUPG2_VERSION=2.2.19-3ubuntu2.5
 ARG BINUTILS_VERSION=2.34-6ubuntu1.11
@@ -155,6 +182,7 @@ RUN apt-get update && \
 # To update: download the file and sha256sum it.
 ARG GRAMINE_KEYRING_SHA256=29c8a028a14f11e3ac3f2ca2669d6ef717656e64d375cd74617319a75db94f13
 ARG INTEL_SGX_DEB_SHA256=92f96f84281031d889deb81060c44325f0481aee621ae47a15ae1df4431b4a23
+ARG MICROSOFT_ASC_SHA256=2fa9c05d591a1582a9aba276272478c262e95ad00acf60eaee1644d93941e3c6
 
 RUN curl -fsSLo /usr/share/keyrings/gramine-keyring.gpg https://packages.gramineproject.io/gramine-keyring-${UBUNTU_CODENAME}.gpg && \
     echo "${GRAMINE_KEYRING_SHA256}  /usr/share/keyrings/gramine-keyring.gpg" | sha256sum -c - && \
@@ -164,12 +192,20 @@ RUN curl -fsSLo /usr/share/keyrings/intel-sgx-deb.key https://download.01.org/in
     echo "${INTEL_SGX_DEB_SHA256}  /usr/share/keyrings/intel-sgx-deb.key" | sha256sum -c - && \
     echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/intel-sgx-deb.key] https://download.01.org/intel-sgx/sgx_repo/ubuntu '${UBUNTU_CODENAME}' main' > /etc/apt/sources.list.d/intel-sgx.list
 
+RUN curl -fsSLo /tmp/microsoft.asc https://packages.microsoft.com/keys/microsoft.asc && \
+    echo "${MICROSOFT_ASC_SHA256}  /tmp/microsoft.asc" | sha256sum -c - && \
+    gpg --dearmor /tmp/microsoft.asc && \
+    mv /tmp/microsoft.asc.gpg /usr/share/keyrings/microsoft-prod.gpg && \
+    rm -f /tmp/microsoft.asc && \
+    echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/20.04/prod focal main' > /etc/apt/sources.list.d/microsoft-prod.list
+
 # Pin Gramine + SGX package versions for reproducible MRENCLAVE.
 # Bump these deliberately when upgrading.
 # Query current versions: dpkg-query -W -f '${Package}=${Version}\n' gramine sgx-aesm-service
 ARG GRAMINE_VERSION=1.8
 ARG SGX_AESM_VERSION=2.25.100.3-focal1
 ARG SGX_DCAP_QV_VERSION=1.22.100.3-focal1
+ARG AZ_DCAP_VERSION=1.12.3
 ARG PSMISC_VERSION=23.3-1
 
 RUN apt-get update && \
@@ -181,6 +217,7 @@ RUN apt-get update && \
     libsgx-aesm-quote-ex-plugin=${SGX_AESM_VERSION} \
     libsgx-aesm-ecdsa-plugin=${SGX_AESM_VERSION} \
     libsgx-dcap-quote-verify=${SGX_DCAP_QV_VERSION} \
+    az-dcap-client=${AZ_DCAP_VERSION} \
     psmisc=${PSMISC_VERSION} && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -202,9 +239,9 @@ RUN mkdir -p /app/dns && \
 
 # Generate the Gramine manifest and rewrite sgx.trusted_files as an explicit
 # sorted list to avoid nondeterminism from recursive directory traversal order.
-RUN ENTRYPOINT=$(which gramine-ratls) && \
+RUN ENTRYPOINT=$(command -v gramine-ratls) && \
     gramine-manifest \
-    -Dentrypoint=${ENTRYPOINT} \
+    -Dentrypoint="${ENTRYPOINT}" \
     -Dlog_level=error \
     -Darch_libdir=/lib/x86_64-linux-gnu \
     -Dapp_dir=/app \
@@ -252,12 +289,113 @@ RUN --mount=type=secret,id=sgx-key,required=true \
     gramine-sgx-sign \
         --manifest /app/rust-server.manifest \
         --output /app/rust-server.manifest.sgx \
-        --key /run/secrets/sgx-key
+        --key /run/secrets/sgx-key \
+        --date 0000-00-00
 
-RUN mkdir -p /var/run/aesmd/ /data
+# ---------------------------------------------------------------------------
+# Stage 3 — Runtime image
+# ---------------------------------------------------------------------------
+# Start from a fresh Ubuntu base and install only the packages needed to run
+# the signed enclave. Keyrings and repo definitions are copied from the signer
+# stage so curl/gnupg2/binutils are not present in the shipped image.
+# ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
+FROM ${UBUNTU_IMAGE}
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# ARGs are reset after each FROM
+ARG UBUNTU_CODENAME=focal
+ARG UBUNTU_SNAPSHOT
+ARG CA_CERTS_VERSION
+ARG TARGETPLATFORM
+ARG GRAMINE_VERSION=1.8
+ARG SGX_AESM_VERSION=2.25.100.3-focal1
+ARG SGX_DCAP_QV_VERSION=1.22.100.3-focal1
+ARG AZ_DCAP_VERSION=1.12.3
+ARG PSMISC_VERSION=23.3-1
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV TZ=UTC
+ENV PYTHONHASHSEED=0
+
+RUN test "${TARGETPLATFORM}" = "linux/amd64" || \
+    (echo "error: SGX image must be built for linux/amd64 (got ${TARGETPLATFORM})" >&2; exit 1)
+
+# Install CA roots before switching to snapshot mirrors (which redirect to HTTPS).
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates=${CA_CERTS_VERSION} && \
+    rm -rf /var/lib/apt/lists/*
+
+# Freeze Ubuntu package resolution to a timestamped snapshot so transitive
+# dependency versions cannot drift over time.  If snapshot.ubuntu.com is
+# unavailable we fall back to the standard archive; exact version pins in
+# every apt-get install still guarantee reproducibility.
+RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99ubuntu-snapshot && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" > /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-updates main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    printf 'deb [check-valid-until=no] https://snapshot.ubuntu.com/ubuntu/%s focal-security main restricted universe multiverse\n' "${UBUNTU_SNAPSHOT}" >> /etc/apt/sources.list && \
+    if ! apt-get update 2>/dev/null; then \
+      echo "WARNING: snapshot.ubuntu.com unavailable — using archive.ubuntu.com" >&2; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal main restricted universe multiverse\n'        > /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-updates main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+      printf 'deb http://archive.ubuntu.com/ubuntu/ focal-security main restricted universe multiverse\n' >> /etc/apt/sources.list; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=signer /usr/share/keyrings/gramine-keyring.gpg /usr/share/keyrings/gramine-keyring.gpg
+COPY --from=signer /usr/share/keyrings/intel-sgx-deb.key /usr/share/keyrings/intel-sgx-deb.key
+COPY --from=signer /usr/share/keyrings/microsoft-prod.gpg /usr/share/keyrings/microsoft-prod.gpg
+COPY --from=signer /etc/apt/sources.list.d/gramine.list /etc/apt/sources.list.d/gramine.list
+COPY --from=signer /etc/apt/sources.list.d/intel-sgx.list /etc/apt/sources.list.d/intel-sgx.list
+COPY --from=signer /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.list
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    gramine=${GRAMINE_VERSION} \
+    gramine-ratls-dcap=${GRAMINE_VERSION} \
+    sgx-aesm-service=${SGX_AESM_VERSION} \
+    libsgx-aesm-launch-plugin=${SGX_AESM_VERSION} \
+    libsgx-aesm-quote-ex-plugin=${SGX_AESM_VERSION} \
+    libsgx-aesm-ecdsa-plugin=${SGX_AESM_VERSION} \
+    libsgx-dcap-quote-verify=${SGX_DCAP_QV_VERSION} \
+    az-dcap-client=${AZ_DCAP_VERSION} \
+    psmisc=${PSMISC_VERSION} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=signer /app/relational-rust-server /app/relational-rust-server
+COPY --from=signer /app/rust-server.manifest /app/rust-server.manifest
+COPY --from=signer /app/rust-server.manifest.sgx /app/rust-server.manifest.sgx
+COPY --from=signer /app/rust-server.sig /app/rust-server.sig
+COPY --from=signer /app/dns /app/dns
+
+# Fixed service identity: deterministic UID/GID across every build.
+ARG APP_USER=relational
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+# Keep the container bootstrap as root so we can start AESM, then drop
+# privileges in /start.sh before launching gramine-sgx.
+RUN groupadd --gid ${APP_GID} ${APP_USER} && \
+    useradd --uid ${APP_UID} --gid ${APP_GID} \
+        --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin ${APP_USER} && \
+    mkdir -p /var/run/aesmd/ /data && \
+    chown root:root /var/run/aesmd && \
+    chmod 0755 /var/run/aesmd && \
+    chown ${APP_UID}:${APP_GID} /data && \
+    chmod 0750 /data && \
+    command -v getent >/dev/null && \
+    command -v groupadd >/dev/null && \
+    command -v usermod >/dev/null && \
+    (command -v setpriv >/dev/null || command -v runuser >/dev/null || command -v su >/dev/null)
 
 COPY docker/restart_aesm.sh /restart_aesm.sh
 COPY docker/start.sh /start.sh
+RUN chmod 0755 /restart_aesm.sh /start.sh
 
 ENV HOST=0.0.0.0
 EXPOSE 8080

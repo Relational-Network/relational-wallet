@@ -14,8 +14,8 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     auth::Auth,
     blockchain::{
-        ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
-        avax_fuji, REUR_TOKEN,
+        avax_fuji, ensure_fuji_network, format_amount, parse_amount, wallet_from_pem, AvaxClient,
+        TxBuilder, REUR_TOKEN,
     },
     error::ApiError,
     providers::email,
@@ -249,7 +249,10 @@ fn to_summary_with_direction(tx: &StoredTransaction, direction: &str) -> Transac
 /// Returns the resolved on-chain address. If `to_email_hash` is provided,
 /// computes the HMAC lookup key, looks up the email→wallet mapping, then
 /// fetches the wallet's public address.
-fn resolve_recipient(
+///
+/// When `discovery` is enabled and no local wallet is found for an email
+/// hash, fans out to peer enclaves via the VOPRF protocol (Phase 2).
+async fn resolve_recipient(
     to: &Option<String>,
     to_email_hash: &Option<String>,
     state: &AppState,
@@ -267,28 +270,52 @@ fn resolve_recipient(
                     "to_email_hash must be 64 lowercase hex characters",
                 ));
             }
-            let tx_db = state.tx_db.as_ref().ok_or_else(|| {
-                ApiError::internal("Transaction database not available")
-            })?;
+            let tx_db = state
+                .tx_db
+                .as_ref()
+                .ok_or_else(|| ApiError::internal("Transaction database not available"))?;
             let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, hash);
             let email_repo = EmailIndexRepository::new(tx_db.clone());
-            let entry = email_repo
+
+            // Try local lookup first
+            if let Some(entry) = email_repo
                 .lookup(&lookup_key)
-                .map_err(|e| ApiError::internal(&format!("Email lookup failed: {}", e)))?
-                .ok_or_else(|| {
-                    ApiError::not_found("No wallet found for this email address")
-                })?;
-            let storage = state.storage();
-            let wallet_repo = WalletRepository::new(&storage);
-            let meta = wallet_repo.get(&entry.wallet_id).map_err(|_| {
-                ApiError::not_found("Wallet for email recipient not found")
-            })?;
-            if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
-                return Err(ApiError::not_found(
-                    "Recipient wallet is not active",
-                ));
+                .map_err(|e| ApiError::internal(format!("Email lookup failed: {}", e)))?
+            {
+                let storage = state.storage();
+                let wallet_repo = WalletRepository::new(storage);
+                let meta = wallet_repo
+                    .get(&entry.wallet_id)
+                    .map_err(|_| ApiError::not_found("Wallet for email recipient not found"))?;
+                if meta.status == WalletStatus::Deleted || meta.status == WalletStatus::Suspended {
+                    return Err(ApiError::not_found("Recipient wallet is not active"));
+                }
+                return Ok(meta.public_address);
             }
-            Ok(meta.public_address)
+
+            // Phase 2: Cross-instance discovery fan-out
+            {
+                match state.discovery_client.query(hash).await {
+                    Ok(Some(address)) => {
+                        tracing::info!(
+                            address = %address,
+                            "Resolved email recipient via cross-instance discovery"
+                        );
+                        return Ok(address);
+                    }
+                    Ok(None) => {
+                        // No peer had a match — fall through to error
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Discovery fan-out failed during send");
+                        // Fall through to "not found" error
+                    }
+                }
+            }
+
+            Err(ApiError::not_found(
+                "No wallet found for this email address",
+            ))
         }
         // Neither provided
         (None, None) => Err(ApiError::bad_request(
@@ -325,14 +352,14 @@ pub async fn estimate_gas(
     Json(request): Json<EstimateGasRequest>,
 ) -> Result<Json<EstimateGasResponse>, ApiError> {
     // Resolve recipient: either direct address or email hash → address
-    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state).await?;
 
     // Get wallet from storage
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
         crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+        _ => ApiError::internal(format!("Failed to access storage: {}", e)),
     })?;
 
     // Verify ownership
@@ -353,10 +380,10 @@ pub async fn estimate_gas(
     // Get private key and create wallet
     let private_key_pem = wallet_repo
         .read_private_key(&wallet_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to read private key: {}", e)))?;
 
     let eth_wallet = wallet_from_pem(&private_key_pem)
-        .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create signer: {}", e)))?;
 
     // Determine network (Fuji-only).
     let network_config = avax_fuji();
@@ -364,12 +391,12 @@ pub async fn estimate_gas(
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config, eth_wallet)
         .await
-        .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+        .map_err(|e| ApiError::service_unavailable(format!("Failed to connect: {}", e)))?;
 
     // Parse amount
     let decimals = get_token_decimals(&request.token);
     let amount_wei = parse_amount(&request.amount, decimals)
-        .map_err(|e| ApiError::bad_request(&format!("Invalid amount: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid amount: {}", e)))?;
 
     // Estimate gas
     let estimate = if request.token == "native" {
@@ -386,7 +413,7 @@ pub async fn estimate_gas(
             )
             .await
     }
-    .map_err(|e| ApiError::service_unavailable(&format!("Gas estimation failed: {}", e)))?;
+    .map_err(|e| ApiError::service_unavailable(format!("Gas estimation failed: {}", e)))?;
 
     Ok(Json(EstimateGasResponse {
         gas_limit: estimate.gas_limit.to_string(),
@@ -426,14 +453,14 @@ pub async fn send_transaction(
     Json(request): Json<SendTransactionRequest>,
 ) -> Result<Json<SendTransactionResponse>, ApiError> {
     // Resolve recipient: either direct address or email hash → address
-    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state)?;
+    let to_address = resolve_recipient(&request.to, &request.to_email_hash, &state).await?;
 
     // Get wallet from storage
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
         crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+        _ => ApiError::internal(format!("Failed to access storage: {}", e)),
     })?;
 
     // Verify ownership
@@ -454,10 +481,10 @@ pub async fn send_transaction(
     // Get private key and create wallet
     let private_key_pem = wallet_repo
         .read_private_key(&wallet_id)
-        .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to read private key: {}", e)))?;
 
     let eth_wallet = wallet_from_pem(&private_key_pem)
-        .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to create signer: {}", e)))?;
 
     // Determine network (Fuji-only).
     let network_config = avax_fuji();
@@ -465,12 +492,12 @@ pub async fn send_transaction(
     // Create transaction builder
     let tx_builder = TxBuilder::new(network_config.clone(), eth_wallet)
         .await
-        .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+        .map_err(|e| ApiError::service_unavailable(format!("Failed to connect: {}", e)))?;
 
     // Parse amount
     let decimals = get_token_decimals(&request.token);
     let amount_wei = parse_amount(&request.amount, decimals)
-        .map_err(|e| ApiError::bad_request(&format!("Invalid amount: {}", e)))?;
+        .map_err(|e| ApiError::bad_request(format!("Invalid amount: {}", e)))?;
 
     // Parse optional overrides
     let gas_limit = request
@@ -508,7 +535,7 @@ pub async fn send_transaction(
         if msg.contains("insufficient funds") {
             ApiError::unprocessable("Insufficient balance for transaction")
         } else {
-            ApiError::service_unavailable(&format!("Transaction failed: {}", e))
+            ApiError::service_unavailable(format!("Transaction failed: {}", e))
         }
     })?;
 
@@ -524,10 +551,7 @@ pub async fn send_transaction(
         .tx_db
         .as_ref()
         .expect("transaction database must be configured");
-    let recipient_wallet_id = tx_db
-        .get_wallet_id_for_address(&to_address)
-        .ok()
-        .flatten();
+    let recipient_wallet_id = tx_db.get_wallet_id_for_address(&to_address).ok().flatten();
 
     let stored_tx = StoredTransaction::new_pending(
         result.tx_hash.clone(),
@@ -578,7 +602,7 @@ pub async fn send_transaction(
     }
 
     // Log audit event
-    let audit_repo = AuditRepository::new(&storage);
+    let audit_repo = AuditRepository::new(storage);
     let event = AuditEvent::new(AuditEventType::TransactionBroadcast)
         .with_user(&user.user_id)
         .with_resource(&wallet_id, "wallet")
@@ -623,10 +647,10 @@ pub async fn list_transactions(
 ) -> Result<Json<TransactionListResponse>, ApiError> {
     // Get wallet from storage
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
         crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+        _ => ApiError::internal(format!("Failed to access storage: {}", e)),
     })?;
 
     // Verify ownership
@@ -669,7 +693,7 @@ pub async fn list_transactions(
 
     let (results, next_cursor) = tx_db
         .list_by_wallet(&wallet_address, query.cursor.as_deref(), limit)
-        .map_err(|e| ApiError::internal(&format!("Failed to list transactions: {}", e)))?;
+        .map_err(|e| ApiError::internal(format!("Failed to list transactions: {}", e)))?;
 
     // ── Reconcile pending transactions with on-chain status ─────────
     // If there are any pending transactions in the result set, check
@@ -775,10 +799,10 @@ pub async fn get_transaction_status(
 ) -> Result<Json<TransactionStatusResponse>, ApiError> {
     // Get wallet from storage
     let storage = state.storage();
-    let wallet_repo = WalletRepository::new(&storage);
+    let wallet_repo = WalletRepository::new(storage);
     let wallet = wallet_repo.get(&wallet_id).map_err(|e| match e {
         crate::storage::StorageError::NotFound(_) => ApiError::not_found("Wallet not found"),
-        _ => ApiError::internal(&format!("Failed to access storage: {}", e)),
+        _ => ApiError::internal(format!("Failed to access storage: {}", e)),
     })?;
 
     // Verify ownership
@@ -792,7 +816,7 @@ pub async fn get_transaction_status(
         .expect("transaction database must be configured");
     let tx = tx_db
         .get_transaction(&tx_hash)
-        .map_err(|e| ApiError::internal(&format!("Failed to get transaction: {}", e)))?
+        .map_err(|e| ApiError::internal(format!("Failed to get transaction: {}", e)))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
     if !tx.from.eq_ignore_ascii_case(&wallet.public_address)
         && !tx.to.eq_ignore_ascii_case(&wallet.public_address)
@@ -807,28 +831,22 @@ pub async fn get_transaction_status(
                 "Only `fuji` network is supported in this deployment.",
             ));
         }
-        // Create a read-only client to check status
-        let client = AvaxClient::fuji()
-            .await
-            .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
+        // Use shared client from AppState, fall back to per-request
+        let owned_client;
+        let client: &AvaxClient = if let Some(ref shared) = state.avax_client {
+            shared.as_ref()
+        } else {
+            owned_client = AvaxClient::fuji()
+                .await
+                .map_err(|e| ApiError::service_unavailable(format!("Failed to connect: {}", e)))?;
+            &owned_client
+        };
 
         // Get current block for confirmations
         let current_block = client.get_block_number().await.unwrap_or(0);
 
-        // Create a signing provider to check receipt (we need the wallet for this)
-        let private_key_pem = wallet_repo
-            .read_private_key(&wallet_id)
-            .map_err(|e| ApiError::internal(&format!("Failed to read private key: {}", e)))?;
-
-        let eth_wallet = wallet_from_pem(&private_key_pem)
-            .map_err(|e| ApiError::internal(&format!("Failed to create signer: {}", e)))?;
-
-        let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
-            .await
-            .map_err(|e| ApiError::service_unavailable(&format!("Failed to connect: {}", e)))?;
-
-        // Check for receipt
-        if let Ok(Some(receipt)) = tx_builder.get_transaction_status(&tx_hash).await {
+        // Check for receipt using read-only client (no private key needed)
+        if let Ok(Some(receipt)) = client.get_transaction_receipt_status(&tx_hash).await {
             let new_status = if receipt.success {
                 TxStatus::Confirmed
             } else {
@@ -868,15 +886,16 @@ pub async fn get_transaction_status(
                 "Only `fuji` network is supported in this deployment.",
             ));
         }
-        // Try to get current block for confirmations
-        let client = AvaxClient::fuji().await;
-
-        if let (Ok(client), Some(block)) = (client, tx.block_number) {
-            client
-                .get_block_number()
-                .await
-                .ok()
-                .map(|current| current.saturating_sub(block))
+        // Try to get current block for confirmations (shared client preferred)
+        if let Some(block) = tx.block_number {
+            let result = if let Some(ref shared) = state.avax_client {
+                shared.get_block_number().await.ok()
+            } else if let Ok(client) = AvaxClient::fuji().await {
+                client.get_block_number().await.ok()
+            } else {
+                None
+            };
+            result.map(|current| current.saturating_sub(block))
         } else {
             None
         }
@@ -953,8 +972,12 @@ mod tests {
                 b"test-key-b",
             )
             .unwrap();
-        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
-        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
+        tx_db
+            .register_address(sender_addr, sender_wallet_id)
+            .unwrap();
+        tx_db
+            .register_address(receiver_addr, receiver_wallet_id)
+            .unwrap();
 
         let sender_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -1023,8 +1046,12 @@ mod tests {
                 b"test-key-b2",
             )
             .unwrap();
-        tx_db.register_address(sender_addr, sender_wallet_id).unwrap();
-        tx_db.register_address(receiver_addr, receiver_wallet_id).unwrap();
+        tx_db
+            .register_address(sender_addr, sender_wallet_id)
+            .unwrap();
+        tx_db
+            .register_address(receiver_addr, receiver_wallet_id)
+            .unwrap();
 
         let mut receiver_tx = StoredTransaction::new_pending(
             tx_hash.to_string(),
@@ -1041,10 +1068,7 @@ mod tests {
         receiver_tx.block_number = None;
         receiver_tx.gas_used = None;
         tx_db
-            .upsert_transaction(
-                &receiver_tx,
-                &[(receiver_addr.to_string(), "received")],
-            )
+            .upsert_transaction(&receiver_tx, &[(receiver_addr.to_string(), "received")])
             .unwrap();
 
         let response = get_transaction_status(

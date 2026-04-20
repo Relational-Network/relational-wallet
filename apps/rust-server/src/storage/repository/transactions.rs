@@ -11,19 +11,15 @@ use utoipa::ToSchema;
 /// Transaction status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TxStatus {
     /// Transaction has been submitted but not yet confirmed
+    #[default]
     Pending,
     /// Transaction has been confirmed in a block
     Confirmed,
     /// Transaction failed or was reverted
     Failed,
-}
-
-impl Default for TxStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// Token type for a transaction.
@@ -75,6 +71,7 @@ pub struct StoredTransaction {
 
 impl StoredTransaction {
     /// Create a new pending transaction record.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_pending(
         tx_hash: String,
         wallet_id: String,

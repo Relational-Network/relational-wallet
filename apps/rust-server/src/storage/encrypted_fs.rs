@@ -17,7 +17,7 @@
 //! The Rust application treats `/data` as a normal filesystem; Gramine
 //! ensures confidentiality, integrity, and tamper resistance.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
@@ -154,8 +154,6 @@ impl EncryptedStorage {
         let dirs = [
             self.paths.wallets_dir(),
             self.paths.bookmarks_dir(),
-            self.paths.invites_dir(),
-            self.paths.recurring_dir(),
             self.paths.fiat_dir(),
             self.paths.audit_dir(),
             self.paths.system_dir(),
@@ -327,6 +325,9 @@ impl EncryptedStorage {
     // ========== Raw File Operations (for PEM keys, etc.) ==========
 
     /// Write raw bytes to a file (for private keys, etc.).
+    ///
+    /// Uses atomic write (temp file + rename) to prevent partial writes
+    /// from corrupting existing data on crash or power loss.
     pub fn write_raw(&self, path: impl AsRef<Path>, data: &[u8]) -> StorageResult<()> {
         if !self.initialized {
             return Err(StorageError::NotInitialized);
@@ -339,13 +340,12 @@ impl EncryptedStorage {
             fs::create_dir_all(parent)?;
         }
 
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)?;
-        file.write_all(data)?;
-        file.flush()?;
+        // Write to temp file first, then rename for atomicity
+        let temp_path = path.with_extension("tmp");
+        fs::write(&temp_path, data)?;
+
+        // Atomic rename
+        fs::rename(&temp_path, path)?;
         Ok(())
     }
 
@@ -403,8 +403,6 @@ mod tests {
 
         assert!(storage.paths().wallets_dir().exists());
         assert!(storage.paths().bookmarks_dir().exists());
-        assert!(storage.paths().invites_dir().exists());
-        assert!(storage.paths().recurring_dir().exists());
         assert!(storage.paths().audit_dir().exists());
 
         cleanup_storage(&storage);

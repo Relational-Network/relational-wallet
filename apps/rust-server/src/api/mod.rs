@@ -6,7 +6,7 @@ use axum::{
     extract::Path,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::sync::Arc;
@@ -18,10 +18,7 @@ use crate::{
     blockchain::{TokenBalance, WalletBalanceResponse},
     models::{
         Bookmark, CreateBookmarkRequest, CreatePaymentLinkRequest, CreatePaymentLinkResponse,
-        CreateRecurringPaymentRequest, Invite, PaymentLinkInfo, RecurringPayment,
-        RedeemInviteRequest, ResolveEmailRequest, ResolveEmailResponse,
-        UpdateLastPaidDateRequest, UpdateRecurringPaymentRequest,
-        WalletAddress,
+        PaymentLinkInfo, ResolveEmailRequest, ResolveEmailResponse, WalletAddress,
     },
     state::AppState,
     storage::{
@@ -29,14 +26,14 @@ use crate::{
     },
 };
 
+use crate::discovery;
+
 pub mod admin;
 pub mod balance;
 pub mod bookmarks;
 pub mod fiat;
 pub mod health;
-pub mod invites;
 pub mod payment_links;
-pub mod recurring;
 pub mod resolve;
 pub mod transactions;
 pub mod users;
@@ -59,10 +56,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/wallets/{wallet_id}/balance",
             get(balance::get_wallet_balance),
-        )
-        .route(
-            "/wallets/{wallet_id}/balance/native",
-            get(balance::get_native_balance),
         )
         // Transaction endpoints
         .route(
@@ -101,28 +94,9 @@ pub fn router(state: AppState) -> Router {
             "/payment-link/{token}",
             get(payment_links::resolve_payment_link),
         )
-        // Invite endpoints
-        .route("/invite", get(invites::get_invite))
-        .route("/invite/redeem", post(invites::redeem_invite))
-        // Recurring payment endpoints
-        .route(
-            "/recurring/payments",
-            get(recurring::list_recurring_payments).post(recurring::create_recurring_payment),
-        )
-        .route(
-            "/recurring/payment/{recurring_payment_id}",
-            delete(recurring::delete_recurring_payment).put(recurring::update_recurring_payment),
-        )
-        .route(
-            "/recurring/payment/{recurring_payment_id}/last-paid-date",
-            put(recurring::update_last_paid_date),
-        )
-        .route(
-            "/recurring/payments/today",
-            get(recurring::recurring_payments_today),
-        )
         // Fiat request stubs
         .route("/fiat/providers", get(fiat::list_fiat_providers))
+        // TrueLayer webhook (no JWT — authenticates via TrueLayer JWKS signature)
         .route(
             "/fiat/providers/truelayer/webhook",
             post(fiat::truelayer_webhook),
@@ -150,19 +124,27 @@ pub fn router(state: AppState) -> Router {
             get(fiat::get_fiat_service_wallet),
         )
         .route(
-            "/admin/fiat/service-wallet/bootstrap",
-            post(fiat::bootstrap_fiat_service_wallet),
-        )
-        .route("/admin/fiat/reserve/topup", post(fiat::topup_fiat_reserve))
-        .route(
-            "/admin/fiat/reserve/transfer",
-            post(fiat::transfer_fiat_reserve),
-        )
-        .route(
             "/admin/fiat/requests/{request_id}/sync",
             post(fiat::sync_fiat_request_admin),
         )
+        // Admin discovery peer management
+        .route("/admin/peers/self", get(admin::get_self_node_info))
+        .route("/admin/peers", get(admin::list_peers).post(admin::add_peer))
+        .route(
+            "/admin/peers/{node_id}",
+            axum::routing::put(admin::update_peer).delete(admin::remove_peer),
+        )
         .with_state(state.clone());
+
+    // Internal discovery routes (Phase 2): peer-to-peer VOPRF evaluate/lookup.
+    // These live outside /v1 because they use RA-TLS mutual authentication
+    // instead of JWT bearer tokens.
+    let v1_routes = {
+        use axum::routing::post as p;
+        v1_routes
+            .route("/internal/discovery/evaluate", p(discovery::api::evaluate))
+            .route("/internal/discovery/lookup", p(discovery::api::lookup))
+    };
 
     Router::new()
         // Health endpoints (no auth required, but need state for JWKS check)
@@ -269,7 +251,6 @@ fn build_cors_layer() -> CorsLayer {
         wallets::delete_wallet,
         // Wallet balance endpoints
         balance::get_wallet_balance,
-        balance::get_native_balance,
         // Transaction endpoints
         transactions::estimate_gas,
         transactions::send_transaction,
@@ -284,16 +265,6 @@ fn build_cors_layer() -> CorsLayer {
         // Payment link endpoints
         payment_links::create_payment_link,
         payment_links::resolve_payment_link,
-        // Invite endpoints
-        invites::get_invite,
-        invites::redeem_invite,
-        // Recurring payment endpoints
-        recurring::list_recurring_payments,
-        recurring::create_recurring_payment,
-        recurring::update_recurring_payment,
-        recurring::delete_recurring_payment,
-        recurring::recurring_payments_today,
-        recurring::update_last_paid_date,
         // Fiat endpoints
         fiat::list_fiat_providers,
         fiat::truelayer_webhook,
@@ -302,9 +273,6 @@ fn build_cors_layer() -> CorsLayer {
         fiat::list_fiat_requests,
         fiat::get_fiat_request,
         fiat::get_fiat_service_wallet,
-        fiat::bootstrap_fiat_service_wallet,
-        fiat::topup_fiat_reserve,
-        fiat::transfer_fiat_reserve,
         fiat::sync_fiat_request_admin,
         // Admin endpoints
         admin::get_system_stats,
@@ -333,7 +301,6 @@ fn build_cors_layer() -> CorsLayer {
             crate::storage::WalletStatus,
             // Wallet balance schemas
             balance::BalanceResponse,
-            balance::NativeBalanceResponse,
             TokenBalance,
             WalletBalanceResponse,
             // Transaction schemas
@@ -354,9 +321,6 @@ fn build_cors_layer() -> CorsLayer {
             fiat::FiatRequestResponse,
             fiat::FiatRequestListResponse,
             fiat::FiatServiceWalletStatusResponse,
-            fiat::ReserveTopUpRequest,
-            fiat::ReserveTransferRequest,
-            fiat::ReserveTransactionResponse,
             fiat::FiatSyncResponse,
             FiatDirection,
             FiatRequestStatus,
@@ -374,14 +338,8 @@ fn build_cors_layer() -> CorsLayer {
             crate::storage::AuditEventType,
             // Data schemas
             Bookmark,
-            Invite,
-            RecurringPayment,
             WalletAddress,
             CreateBookmarkRequest,
-            RedeemInviteRequest,
-            CreateRecurringPaymentRequest,
-            UpdateRecurringPaymentRequest,
-            UpdateLastPaidDateRequest,
             // Email resolution schemas
             ResolveEmailRequest,
             ResolveEmailResponse,
@@ -402,8 +360,6 @@ fn build_cors_layer() -> CorsLayer {
         (name = "Bookmarks", description = "Bookmark management"),
         (name = "resolve", description = "Email resolution"),
         (name = "payment_links", description = "Payment link generation and resolution"),
-        (name = "Invites", description = "Invite validation and redemption"),
-        (name = "Recurring", description = "Recurring payment scheduling"),
         (name = "Fiat", description = "Fiat on-ramp/off-ramp provider integrations"),
         (name = "Admin", description = "Admin-only system management"),
         (name = "Health", description = "Liveness and readiness checks")

@@ -10,6 +10,7 @@ mod api;
 mod auth;
 mod blockchain;
 mod config;
+mod discovery;
 mod error;
 #[cfg_attr(test, allow(dead_code))]
 mod fiat_poller;
@@ -24,9 +25,9 @@ mod storage;
 mod tls;
 
 #[cfg(not(test))]
-use std::{env, net::SocketAddr, sync::Arc, time::Duration};
-#[cfg(not(test))]
 use axum_server::Handle;
+#[cfg(not(test))]
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 #[cfg(not(test))]
 use api::router;
@@ -95,17 +96,8 @@ async fn main() {
         .expect("Encrypted storage health check failed");
     info!("Encrypted storage initialized and verified");
 
-    // Bootstrap enclave-managed fiat reserve wallet (idempotent) unless disabled.
-    let fiat_bootstrap_enabled = env::var("FIAT_RESERVE_BOOTSTRAP_ENABLED")
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(true);
-    if fiat_bootstrap_enabled {
+    // Bootstrap enclave-managed fiat reserve service wallet (idempotent).
+    {
         let repo = storage::FiatServiceWalletRepository::new(&encrypted_storage);
         match repo.bootstrap() {
             Ok(metadata) => {
@@ -117,35 +109,6 @@ async fn main() {
             }
             Err(error) => {
                 warn!(error = %error, "Failed to bootstrap fiat reserve service wallet");
-            }
-        }
-    } else {
-        info!("FIAT_RESERVE_BOOTSTRAP_ENABLED=false, skipping reserve wallet bootstrap");
-    }
-
-    // Seed invite if configured
-    if let Ok(code) = env::var("SEED_INVITE_CODE") {
-        use chrono::Utc;
-        use storage::repository::invites::StoredInvite;
-        use storage::repository::InviteRepository;
-
-        let repo = InviteRepository::new(&encrypted_storage);
-        // Only create if it doesn't exist
-        if repo.get_by_code(&code).is_err() {
-            let invite = StoredInvite {
-                id: uuid::Uuid::new_v4().to_string(),
-                code,
-                redeemed: false,
-                created_by_user_id: Some("system".to_string()),
-                redeemed_by_user_id: None,
-                created_at: Utc::now(),
-                redeemed_at: None,
-                expires_at: None,
-            };
-            if let Err(e) = repo.create(&invite) {
-                warn!(error = %e, "Failed to seed invite code");
-            } else {
-                info!("Seeded invite code from SEED_INVITE_CODE");
             }
         }
     }
@@ -187,7 +150,9 @@ async fn main() {
                     }
                     // email_lookup_key → { wallet_id, public_address }
                     if let Some(ref lookup_key) = w.email_lookup_key {
-                        if let Err(e) = tx_db.register_email_lookup(lookup_key, &w.wallet_id, &w.public_address) {
+                        if let Err(e) =
+                            tx_db.register_email_lookup(lookup_key, &w.wallet_id, &w.public_address)
+                        {
                             warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register email lookup");
                         }
                     }
@@ -222,16 +187,21 @@ async fn main() {
 
     // ========== Load or Generate Email HMAC Key ==========
     let email_hmac_key: [u8; 32] = {
-        let key_path = encrypted_storage.paths().root().join("system/email_hmac_key.bin");
+        let key_path = encrypted_storage
+            .paths()
+            .root()
+            .join("system/email_hmac_key.bin");
         if let Some(parent) = key_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
         if key_path.exists() {
-            let bytes = std::fs::read(&key_path)
-                .expect("Failed to read email HMAC key");
+            let bytes = std::fs::read(&key_path).expect("Failed to read email HMAC key");
             let mut key = [0u8; 32];
             if bytes.len() != 32 {
-                panic!("email_hmac_key.bin has wrong length (expected 32, got {})", bytes.len());
+                panic!(
+                    "email_hmac_key.bin has wrong length (expected 32, got {})",
+                    bytes.len()
+                );
             }
             key.copy_from_slice(&bytes);
             info!("Loaded email HMAC key from {}", key_path.display());
@@ -240,8 +210,7 @@ async fn main() {
             use k256::elliptic_curve::rand_core::{OsRng, RngCore};
             let mut key = [0u8; 32];
             OsRng.fill_bytes(&mut key);
-            std::fs::write(&key_path, &key)
-                .expect("Failed to write email HMAC key");
+            std::fs::write(&key_path, key).expect("Failed to write email HMAC key");
             info!("Generated and stored new email HMAC key");
             key
         }
@@ -256,14 +225,113 @@ async fn main() {
         warn!("CLERK_SECRET_KEY not set — email features disabled");
     }
 
-    let mut state = AppState::new(encrypted_storage)
-        .with_auth_config(auth_config)
-        .with_tx_db(tx_db.clone())
-        .with_email_hmac_key(email_hmac_key);
+    // ========== Phase 2: VOPRF Discovery (always enabled) ==========
+    info!("Initializing VOPRF cross-instance discovery...");
+
+    // Load or generate VOPRF server key (sealed by Gramine encrypted FS)
+    let voprf_key_path = encrypted_storage
+        .paths()
+        .root()
+        .join("system")
+        .join(config::VOPRF_SERVER_KEY_FILE);
+    let voprf_server = Arc::new(
+        discovery::VoprfServerWrapper::load_or_generate(&voprf_key_path)
+            .expect("Failed to load/generate VOPRF server key"),
+    );
+    info!(
+        public_key = %voprf_server.public_key_base64(),
+        "VOPRF server key ready"
+    );
+
+    // Create VOPRF token store
+    let voprf_store = Arc::new(discovery::VoprfTokenStore::new(tx_db.clone()));
+
+    // Load peer registry (self-skip: peers matching own VOPRF pk are excluded)
+    let peers_path = encrypted_storage
+        .paths()
+        .root()
+        .join("system")
+        .join(config::DISCOVERY_PEERS_FILE);
+    let peer_registry = Arc::new(
+        discovery::PeerRegistry::load(&peers_path, voprf_server.public_key_base64())
+            .expect("Failed to load peer registry"),
+    );
+    info!(
+        peer_count = peer_registry.peers().len(),
+        "Peer registry loaded"
+    );
+
+    // Create discovery client
+    let discovery_client = Arc::new(discovery::DiscoveryClient::new(peer_registry.clone()));
+
+    // ========== Build Application State ==========
+    // Initialize shared Avalanche C-Chain client (connection pool reuse)
+    let avax_client = match blockchain::AvaxClient::fuji().await {
+        Ok(client) => {
+            info!("Shared Avalanche C-Chain client initialized (Fuji)");
+            Some(Arc::new(client))
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to create shared Avalanche client — per-request fallback");
+            None
+        }
+    };
+
+    let mut state = AppState::new(
+        encrypted_storage,
+        voprf_server.clone(),
+        discovery_client,
+        peer_registry,
+        voprf_store,
+    )
+    .with_auth_config(auth_config)
+    .with_tx_db(tx_db.clone())
+    .with_email_hmac_key(email_hmac_key);
+
+    if let Some(client) = avax_client {
+        state = state.with_avax_client(client);
+    }
 
     if let Some(clerk) = clerk_client {
         state = state.with_clerk_client(clerk);
     }
+
+    // Register VOPRF tokens for all existing wallets
+    {
+        use storage::repository::WalletRepository;
+        let repo = WalletRepository::new(state.storage());
+        let mut registered = 0u32;
+        if let Ok(wallets) = repo.list_all_wallets() {
+            for w in &wallets {
+                if w.status == storage::WalletStatus::Deleted {
+                    continue;
+                }
+                if let Some(ref lookup_key) = w.email_lookup_key {
+                    match voprf_server.compute_local_token(lookup_key.as_bytes()) {
+                        Ok(token) => {
+                            let token_hex = alloy::hex::encode(&token);
+                            if let Err(e) =
+                                tx_db.register_voprf_token(&token_hex, &w.public_address)
+                            {
+                                warn!(wallet_id = %w.wallet_id, error = %e, "Failed to register VOPRF token");
+                            } else {
+                                registered += 1;
+                            }
+                        }
+                        Err(e) => {
+                            warn!(wallet_id = %w.wallet_id, error = ?e, "Failed to compute VOPRF token");
+                        }
+                    }
+                }
+            }
+        }
+        info!(
+            count = registered,
+            "VOPRF tokens registered for existing wallets"
+        );
+    }
+
+    info!("VOPRF cross-instance discovery ENABLED");
 
     // Create LRU cache
     let tx_cache = Arc::new(storage::TxCache::new(1000, Duration::from_secs(300)));
@@ -292,11 +360,8 @@ async fn main() {
 
     // ========== Spawn Fiat Request Poller ==========
     {
-        let fiat_poller = fiat_poller::FiatPoller::new(
-            state.storage().clone(),
-            tx_db.clone(),
-            tx_cache.clone(),
-        );
+        let fiat_poller =
+            fiat_poller::FiatPoller::new(state.storage().clone(), tx_db.clone(), tx_cache.clone());
         let shutdown_clone = shutdown.clone();
         tokio::spawn(async move {
             fiat_poller.run(shutdown_clone).await;

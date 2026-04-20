@@ -240,113 +240,37 @@ pub struct PaymentLinkInfo {
 }
 
 // =============================================================================
-// Invite Models
+// Discovery Models (Phase 2)
 // =============================================================================
 
-/// An invitation code for new users.
-///
-/// Invites can be used to control access to the wallet service. Each invite
-/// code can only be redeemed once.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
-pub struct Invite {
-    /// Unique identifier for this invite.
-    pub id: String,
-    /// The invite code (shared with the invitee).
-    pub code: String,
-    /// Whether this invite has been used.
-    pub redeemed: bool,
-}
-
-/// Request to redeem an invite code.
+/// Request to evaluate a blinded VOPRF element (Phase A).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct RedeemInviteRequest {
-    /// The invite ID to redeem.
-    pub invite_id: String,
+pub struct DiscoveryEvaluateRequest {
+    /// Base64-encoded blinded element.
+    pub blinded_element: String,
 }
 
-// =============================================================================
-// Recurring Payment Models
-// =============================================================================
-
-/// A scheduled recurring payment configuration.
-///
-/// Recurring payments allow automatic transfers on a schedule. The actual
-/// execution logic is handled by a separate service.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, PartialEq)]
-pub struct RecurringPayment {
-    /// Unique identifier for this payment schedule.
-    pub id: String,
-    /// The source wallet for payments.
-    pub wallet_id: WalletAddress,
-    /// Public key of the wallet (for verification).
-    pub wallet_public_key: String,
-    /// The recipient address for payments.
-    pub recipient: WalletAddress,
-    /// Payment amount.
-    pub amount: f64,
-    /// Currency code (e.g., "AVAX", "rEUR").
-    pub currency_code: String,
-    /// Start date (Unix timestamp in days).
-    pub payment_start_date: i32,
-    /// Frequency in days between payments.
-    pub frequency: i32,
-    /// End date (Unix timestamp in days, 0 = no end).
-    pub payment_end_date: i32,
-    /// Last payment date (Unix timestamp in days).
-    pub last_paid_date: i32,
-}
-
-/// Request to create a recurring payment schedule.
+/// Response with the VOPRF evaluation result (Phase A).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateRecurringPaymentRequest {
-    /// The source wallet (must be owned by the user).
-    pub wallet_id: WalletAddress,
-    /// Public key for the wallet.
-    pub wallet_public_key: String,
-    /// Recipient address for payments.
-    pub recipient: WalletAddress,
-    /// Payment amount.
-    pub amount: f64,
-    /// Currency code (e.g., "AVAX", "rEUR").
-    pub currency_code: String,
-    /// Start date (Unix timestamp in days).
-    pub payment_start_date: i32,
-    /// Frequency in days between payments.
-    pub frequency: i32,
-    /// End date (Unix timestamp in days, 0 = no end).
-    pub payment_end_date: i32,
+pub struct DiscoveryEvaluateResponse {
+    /// Base64-encoded evaluated element.
+    pub evaluated_element: String,
+    /// Base64-encoded VOPRF proof.
+    pub proof: String,
 }
 
-/// Request to update an existing recurring payment.
+/// Request to look up a finalized VOPRF token (Phase B).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpdateRecurringPaymentRequest {
-    /// ID of the recurring payment to update.
-    pub recurring_payment_id: String,
-    /// Updated source wallet.
-    pub wallet_id: WalletAddress,
-    /// Updated public key.
-    pub wallet_public_key: String,
-    /// Updated recipient address.
-    pub recipient: WalletAddress,
-    /// Updated payment amount.
-    pub amount: f64,
-    /// Updated currency code.
-    pub currency_code: String,
-    /// Updated start date.
-    pub payment_start_date: i32,
-    /// Updated frequency.
-    pub frequency: i32,
-    /// Updated end date.
-    pub payment_end_date: i32,
+pub struct DiscoveryLookupRequest {
+    /// Base64-encoded finalized VOPRF token.
+    pub token: String,
 }
 
-/// Request to update the last paid date for a recurring payment.
+/// Response with a fixed-size encrypted envelope (Phase B).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpdateLastPaidDateRequest {
-    /// ID of the recurring payment.
-    pub recurring_payment_id: String,
-    /// New last paid date (Unix timestamp in days).
-    pub last_paid_date: i32,
+pub struct DiscoveryLookupResponse {
+    /// Base64-encoded 256-byte envelope (match: encrypted address, no-match: random).
+    pub envelope: String,
 }
 
 #[cfg(test)]

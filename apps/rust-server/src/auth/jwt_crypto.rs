@@ -9,10 +9,10 @@
 //! vulnerable/transitively vulnerable bundled backends.
 
 use jsonwebtoken::{
-    Algorithm, AlgorithmFamily, DecodingKey, DecodingKeyKind, EncodingKey,
     crypto::{CryptoProvider, JwkUtils, JwtSigner, JwtVerifier},
-    errors::{Error as JwtError, ErrorKind, Result as JwtResult, new_error},
+    errors::{new_error, Error as JwtError, ErrorKind, Result as JwtResult},
     signature::{Error as SignatureError, Verifier},
+    Algorithm, AlgorithmFamily, DecodingKey, DecodingKeyKind, EncodingKey,
 };
 use ring::signature::{
     self as ring_signature, EcdsaVerificationAlgorithm, RsaParameters, UnparsedPublicKey,
@@ -108,11 +108,9 @@ impl RsaVerifier {
 impl Verifier<Vec<u8>> for RsaVerifier {
     fn verify(&self, msg: &[u8], signature: &Vec<u8>) -> Result<(), SignatureError> {
         match self.key.kind() {
-            DecodingKeyKind::SecretOrDer(bytes) => {
-                UnparsedPublicKey::new(self.parameters, bytes)
-                    .verify(msg, signature)
-                    .map_err(signature_error)
-            }
+            DecodingKeyKind::SecretOrDer(bytes) => UnparsedPublicKey::new(self.parameters, bytes)
+                .verify(msg, signature)
+                .map_err(signature_error),
             DecodingKeyKind::RsaModulusExponent { n, e } => {
                 ring_signature::RsaPublicKeyComponents {
                     n: n.as_slice(),

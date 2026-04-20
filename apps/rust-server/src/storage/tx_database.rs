@@ -43,6 +43,10 @@ const USER_WALLET_MAP: TableDefinition<&str, &str> = TableDefinition::new("user_
 /// Payment links: opaque token → JSON PaymentLinkData.
 const PAYMENT_LINKS: TableDefinition<&str, &str> = TableDefinition::new("payment_links");
 
+/// VOPRF tokens: hex-encoded token → public_address (Phase 2 discovery).
+/// Feature-gated: only used when `discovery` feature is enabled.
+const VOPRF_TOKENS: TableDefinition<&str, &str> = TableDefinition::new("voprf_tokens");
+
 // =============================================================================
 // Error Type
 // =============================================================================
@@ -168,6 +172,8 @@ impl TxDatabase {
             let _ = write_txn.open_table(EMAIL_LOOKUP)?;
             let _ = write_txn.open_table(USER_WALLET_MAP)?;
             let _ = write_txn.open_table(PAYMENT_LINKS)?;
+            // Phase 2 discovery: always create table for schema compatibility
+            let _ = write_txn.open_table(VOPRF_TOKENS)?;
         }
         write_txn.commit()?;
 
@@ -222,6 +228,7 @@ impl TxDatabase {
     ///
     /// Returns `(transactions_with_direction, next_cursor)`.
     /// Each item is `(StoredTransaction, direction_string)`.
+    #[allow(clippy::type_complexity)]
     pub fn list_by_wallet(
         &self,
         wallet_address: &str,
@@ -313,7 +320,10 @@ impl TxDatabase {
                     tx.updated_at = chrono::Utc::now();
                 }
                 TxStatus::Confirmed => {
-                    tx.mark_confirmed(block_number.unwrap_or_default(), gas_used.unwrap_or_default());
+                    tx.mark_confirmed(
+                        block_number.unwrap_or_default(),
+                        gas_used.unwrap_or_default(),
+                    );
                 }
                 TxStatus::Failed => {
                     tx.mark_failed();
@@ -429,19 +439,13 @@ impl TxDatabase {
     }
 
     /// Look up a wallet by email lookup key.
-    pub fn lookup_email(
-        &self,
-        lookup_key: &str,
-    ) -> TxDbResult<Option<(String, String)>> {
+    pub fn lookup_email(&self, lookup_key: &str) -> TxDbResult<Option<(String, String)>> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(EMAIL_LOOKUP)?;
         match table.get(lookup_key)? {
             Some(v) => {
                 let parsed: serde_json::Value = serde_json::from_str(v.value())?;
-                let wallet_id = parsed["wallet_id"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
+                let wallet_id = parsed["wallet_id"].as_str().unwrap_or_default().to_string();
                 let public_address = parsed["public_address"]
                     .as_str()
                     .unwrap_or_default()
@@ -475,10 +479,28 @@ impl TxDatabase {
     // =========================================================================
 
     /// Register user → wallet mapping. O(1).
+    ///
+    /// Uses compare-and-swap: if a mapping already exists for this user
+    /// and points to a *different* wallet, returns an error.  Re-registering
+    /// the same (user, wallet) pair is idempotent.
     pub fn register_user_wallet(&self, user_id: &str, wallet_id: &str) -> TxDbResult<()> {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(USER_WALLET_MAP)?;
+
+            // Compare-and-swap: reject if mapping already exists for a different wallet
+            if let Some(existing) = table.get(user_id)? {
+                let existing_wallet = existing.value();
+                if existing_wallet != wallet_id {
+                    return Err(TxDbError::NotFound(format!(
+                        "User {} already mapped to wallet {}, cannot remap to {}",
+                        user_id, existing_wallet, wallet_id
+                    )));
+                }
+                // Same mapping — idempotent, nothing to do
+                return Ok(());
+            }
+
             table.insert(user_id, wallet_id)?;
         }
         write_txn.commit()?;
@@ -560,14 +582,46 @@ impl TxDatabase {
         let mut results = Vec::new();
         for entry in table.iter()? {
             let entry = entry?;
-            results.push((
-                entry.0.value().to_string(),
-                entry.1.value().to_string(),
-            ));
+            results.push((entry.0.value().to_string(), entry.1.value().to_string()));
         }
         Ok(results)
     }
 
+    // =========================================================================
+    // VOPRF Token Store (Phase 2 Discovery)
+    // =========================================================================
+
+    /// Register a VOPRF token → public_address mapping.
+    pub fn register_voprf_token(&self, token_hex: &str, public_address: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VOPRF_TOKENS)?;
+            table.insert(token_hex, public_address)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Look up a public address by VOPRF token.
+    pub fn lookup_voprf_token(&self, token_hex: &str) -> TxDbResult<Option<String>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VOPRF_TOKENS)?;
+        match table.get(token_hex)? {
+            Some(v) => Ok(Some(v.value().to_string())),
+            None => Ok(None),
+        }
+    }
+
+    /// Remove a VOPRF token mapping (on wallet deletion).
+    pub fn remove_voprf_token(&self, token_hex: &str) -> TxDbResult<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(VOPRF_TOKENS)?;
+            table.remove(token_hex)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -739,16 +793,47 @@ mod tests {
             Some("wallet-1".to_string())
         );
 
-        // Overwrite
+        // Idempotent re-registration of same mapping succeeds
+        db.register_user_wallet(user, "wallet-1").unwrap();
+        assert_eq!(
+            db.get_user_wallet(user).unwrap(),
+            Some("wallet-1".to_string())
+        );
+
+        // CAS: overwrite with different wallet is rejected
+        let err = db.register_user_wallet(user, "wallet-2");
+        assert!(err.is_err(), "Should reject remapping to different wallet");
+
+        // Remove
+        db.remove_user_wallet(user).unwrap();
+        assert_eq!(db.get_user_wallet(user).unwrap(), None);
+
+        // After removal, can register a new wallet
         db.register_user_wallet(user, "wallet-2").unwrap();
         assert_eq!(
             db.get_user_wallet(user).unwrap(),
             Some("wallet-2".to_string())
         );
+    }
+
+    #[test]
+    fn voprf_token_crud() {
+        let (db, _dir) = temp_db();
+        let token = "aabbccdd11223344";
+
+        // Initially not found
+        assert_eq!(db.lookup_voprf_token(token).unwrap(), None);
+
+        // Register
+        db.register_voprf_token(token, "0xDeadBeef").unwrap();
+        assert_eq!(
+            db.lookup_voprf_token(token).unwrap(),
+            Some("0xDeadBeef".to_string())
+        );
 
         // Remove
-        db.remove_user_wallet(user).unwrap();
-        assert_eq!(db.get_user_wallet(user).unwrap(), None);
+        db.remove_voprf_token(token).unwrap();
+        assert_eq!(db.lookup_voprf_token(token).unwrap(), None);
     }
 
     #[test]

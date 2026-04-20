@@ -43,21 +43,8 @@ pub struct SendResult {
     pub explorer_url: String,
 }
 
-/// Transaction receipt after confirmation.
-#[derive(Debug, Clone)]
-pub struct TxReceipt {
-    /// Transaction hash
-    #[allow(dead_code)]
-    pub tx_hash: String,
-    /// Block number where transaction was included
-    pub block_number: u64,
-    /// Gas actually used
-    pub gas_used: u64,
-    /// Whether the transaction was successful
-    pub success: bool,
-}
-
 /// Transaction builder for Avalanche C-Chain.
+#[allow(clippy::type_complexity)]
 pub struct TxBuilder {
     network: NetworkConfig,
     provider: alloy::providers::fillers::FillProvider<
@@ -278,6 +265,7 @@ impl TxBuilder {
     }
 
     /// Send a generic contract call transaction.
+    #[allow(dead_code)]
     pub async fn send_contract_call(
         &self,
         contract_address: &str,
@@ -326,59 +314,6 @@ impl TxBuilder {
             tx_hash,
             explorer_url,
         })
-    }
-
-    /// Wait for a transaction to be confirmed and return the receipt.
-    /// TODO: Transaction status polling
-    #[allow(dead_code)]
-    pub async fn wait_for_confirmation(&self, tx_hash: &str) -> Result<TxReceipt, AvaxClientError> {
-        let hash = tx_hash
-            .parse()
-            .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid tx hash: {}", e)))?;
-
-        let receipt = self
-            .provider
-            .get_transaction_receipt(hash)
-            .await
-            .map_err(|e| AvaxClientError::RpcError(format!("Failed to get receipt: {}", e)))?
-            .ok_or_else(|| AvaxClientError::RpcError("Transaction not found".to_string()))?;
-
-        Ok(TxReceipt {
-            tx_hash: tx_hash.to_string(),
-            block_number: receipt.block_number.unwrap_or(0),
-            gas_used: receipt.gas_used as u64,
-            success: receipt.status(),
-        })
-    }
-
-    /// Get the transaction status by checking for a receipt.
-    pub async fn get_transaction_status(
-        &self,
-        tx_hash: &str,
-    ) -> Result<Option<TxReceipt>, AvaxClientError> {
-        let hash = tx_hash
-            .parse()
-            .map_err(|e| AvaxClientError::InvalidAddress(format!("Invalid tx hash: {}", e)))?;
-
-        let receipt = self
-            .provider
-            .get_transaction_receipt(hash)
-            .await
-            .map_err(|e| AvaxClientError::RpcError(format!("Failed to get receipt: {}", e)))?;
-
-        Ok(receipt.map(|r| TxReceipt {
-            tx_hash: tx_hash.to_string(),
-            block_number: r.block_number.unwrap_or(0),
-            gas_used: r.gas_used as u64,
-            success: r.status(),
-        }))
-    }
-
-    /// Get the network configuration.
-    /// TODO: Transaction polling
-    #[allow(dead_code)]
-    pub fn network(&self) -> &NetworkConfig {
-        &self.network
     }
 }
 

@@ -85,6 +85,7 @@ impl AuthConfig {
 ///         auth_middleware,
 ///     ));
 /// ```
+#[allow(clippy::type_complexity)]
 pub fn auth_layer(
     _config: AuthConfig,
 ) -> axum::middleware::FromFnLayer<

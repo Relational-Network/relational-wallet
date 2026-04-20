@@ -30,16 +30,6 @@ pub enum AuditEventType {
     BookmarkCreated,
     BookmarkDeleted,
 
-    // Invite events
-    InviteCreated,
-    InviteRedeemed,
-
-    // Recurring payment events
-    RecurringCreated,
-    RecurringUpdated,
-    RecurringDeleted,
-    RecurringExecuted,
-
     // Auth events
     AuthSuccess,
     AuthFailure,

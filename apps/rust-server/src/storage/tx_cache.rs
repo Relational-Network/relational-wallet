@@ -45,6 +45,7 @@ impl TxCache {
     /// Get the cached first page for a wallet address.
     ///
     /// Returns `None` if not cached or expired.
+    #[allow(clippy::type_complexity)]
     pub fn get_first_page(
         &self,
         wallet_address: &str,

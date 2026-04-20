@@ -168,7 +168,7 @@ Key targets:
 - `make` — Build SGX artifacts (`rust-server.manifest`, `.manifest.sgx`, `.sig`).
 - `make start-rust-server` — Launch inside SGX enclave (loads `.env`, validates no `<...>` placeholders).
 - `make docker-build` / `make docker-run` / `make docker-stop` — Docker SGX flow.
-- `make docker-sigstruct` — Extract and inspect Docker image SIGSTRUCT.
+- `make show-measurements` / `make docker-sigstruct` — Inspect local or Docker SIGSTRUCT measurements.
 - `make clean` / `make distclean` — Clean generated artifacts (`distclean` also removes `target/` and `Cargo.lock`).
 
 ## Docker (SGX with DCAP)
@@ -180,10 +180,43 @@ make docker-run
 make docker-stop
 ```
 
+`DATA_DIR` override example:
+
+```bash
+make DATA_DIR=/opt/local-docker/data/ docker-run
+```
+
+The container auto-provisions the host data directory at startup (the
+entrypoint runs `chown` as root before dropping privileges), so no
+manual directory creation is needed.
+
 The container:
 - Serves HTTPS on `0.0.0.0:8080` (port 8080 published)
 - Uses your host SGX signing key from `$HOME/.config/gramine/enclave-key.pem`
 - Generates RA-TLS certificates with DCAP attestation at startup
+- Drops privileges to a fixed non-root runtime user (`relational`, UID/GID `10001`) after AESM bootstrap
+
+### Production measurement pinning
+
+`apps/rust-server/measurements.toml` is the audit file for the production SGX
+build. It keeps only:
+- pinned build inputs that affect the enclave artifact
+- core SIGSTRUCT fields extracted from the signed Docker image
+
+Refresh it with:
+
+```bash
+cd apps/rust-server
+make docker-build
+make docker-sigstruct
+```
+
+Then copy the core values into `apps/rust-server/measurements.toml`.
+`make docker-sigstruct` prints the `[enclave]` block in the same field order.
+
+CI in `.github/workflows/rust-server-ci.yml` builds the signed image with the
+`ENCLAVE_SIGNING_KEY` secret and compares the built `mr_enclave` against the
+pinned value in that file.
 
 See [docker/README.md](docker/README.md) for DCAP configuration details.
 
@@ -206,11 +239,9 @@ See [docker/README.md](docker/README.md) for DCAP configuration details.
 | `TRUELAYER_CLIENT_ID` | TrueLayer OAuth client id (sandbox/prod) | — |
 | `TRUELAYER_CLIENT_SECRET` | TrueLayer OAuth client secret | — |
 | `TRUELAYER_SIGNING_KEY_ID` | TrueLayer signing key id | — |
-| `TRUELAYER_SIGNING_PRIVATE_KEY_PATH` | Path to TrueLayer private key PEM | — |
+| `TRUELAYER_SIGNING_PRIVATE_KEY_PEM` | TrueLayer signing private key (inline PEM) | — |
 | `TRUELAYER_MERCHANT_ACCOUNT_ID` | TrueLayer merchant account id | — |
 | `REUR_CONTRACT_ADDRESS_FUJI` | Fuji `rEUR` token contract used for settlement | `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63` |
-| `FIAT_RESERVE_BOOTSTRAP_ENABLED` | Auto-bootstrap enclave reserve wallet on startup | `true` |
-| `FIAT_RESERVE_INITIAL_TOPUP_EUR` | Default top-up amount when admin top-up body omits amount | `1000000.00` |
 | `FIAT_MIN_CONFIRMATIONS` | Required confirmations for off-ramp deposit detection | `1` |
 | `TRUELAYER_WEBHOOK_SHARED_SECRET` | Enables webhook endpoint and verifies webhook secret header | — |
 
@@ -267,9 +298,6 @@ Query parameters: `network=fuji` only. `mainnet` is rejected.
 - `POST /v1/admin/wallets/{id}/suspend` — Suspend a wallet
 - `POST /v1/admin/wallets/{id}/activate` — Reactivate a suspended wallet
 - `GET  /v1/admin/fiat/service-wallet` — Get enclave reserve wallet status/address
-- `POST /v1/admin/fiat/service-wallet/bootstrap` — Idempotently bootstrap enclave reserve wallet
-- `POST /v1/admin/fiat/reserve/topup` — Mint `rEUR` into reserve wallet
-- `POST /v1/admin/fiat/reserve/transfer` — Transfer `rEUR` from reserve wallet
 - `POST /v1/admin/fiat/requests/{request_id}/sync` — Force sync of a fiat request (provider/chain)
 
 ## Project Layout

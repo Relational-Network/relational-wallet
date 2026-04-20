@@ -1,76 +1,80 @@
 ---
 layout: default
-title: Wallet Web
-parent: API Documentation
-nav_order: 2
+title: Frontend Proxy
+parent: API Reference
+nav_order: 8
 ---
 
-# Wallet Web API
+# Frontend Proxy (Wallet Web)
 
-`wallet-web` exposes a catch-all proxy route:
+The Next.js frontend exposes a catch-all server-side proxy at `/api/proxy/*` that forwards requests to the SGX backend, injecting Clerk JWTs server-side.
 
-- `/api/proxy/[...path]`
+---
 
-This lets browsers call the SGX backend without directly handling self-signed RA-TLS certificates.
+## Proxy Route
 
-## Proxy Behavior
-
-Request flow:
-
-```text
-Browser -> /api/proxy/* -> Next.js server -> https://localhost:8080/*
+```
+/api/proxy/[...path]
 ```
 
-Per request, the proxy:
+Every path under `/api/proxy/` is forwarded to the enclave backend at `WALLET_API_BASE_URL`.
 
-1. Resolves backend URL from `WALLET_API_BASE_URL` (default `https://localhost:8080`)
-2. Gets Clerk token server-side
-3. Prefers `getToken({ template: "default" })`, then falls back to `getToken()`
-4. Adds `Authorization: Bearer <jwt>` when token exists
-5. Forwards `x-request-id` header when present
-6. Returns backend status/body with passthrough content type
+**Example:** `/api/proxy/v1/wallets` → `https://localhost:8080/v1/wallets`
 
-Supported methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`.
+---
 
-## Safety Guard
+## Request Flow
 
-The proxy throws in production when both are true:
-
-- `NODE_ENV=production`
-- `NODE_TLS_REJECT_UNAUTHORIZED=0`
-
-Use trusted certificates in production.
-
-## Main Frontend API Surfaces
-
-Common routes that call the proxy:
-
-- `/wallets` dashboard (`/api/proxy/v1/wallets`, `/balance`, `/transactions`, `/fiat/providers`)
-- `/wallets/[wallet_id]/fiat` (`/api/proxy/v1/fiat/*`)
-- `/wallets/bootstrap` (admin fiat reserve endpoints)
-- `/pay` (wallet listing + send flow prefill)
-
-## Example Calls
-
-```bash
-# Wallet list via proxy
-curl http://localhost:3000/api/proxy/v1/wallets \
-  -H "Cookie: __session=..."
-
-# Fiat requests for wallet via proxy
-curl "http://localhost:3000/api/proxy/v1/fiat/requests?wallet_id=<wallet_id>" \
-  -H "Cookie: __session=..."
-
-# Admin reserve topup via proxy
-curl -X POST http://localhost:3000/api/proxy/v1/admin/fiat/reserve/topup \
-  -H "Content-Type: application/json" \
-  -H "Cookie: __session=..." \
-  -d '{"amount_eur":"250.00"}'
 ```
+Browser fetch('/api/proxy/v1/wallets')
+  │
+  ▼
+Next.js server-side route handler
+  1. Strip /api/proxy prefix
+  2. Fetch Clerk JWT from active session
+  3. Add Authorization: Bearer <jwt> header
+  4. Forward to WALLET_API_BASE_URL/v1/wallets
+  │
+  ▼
+SGX backend (RA-TLS, self-signed cert)
+  │
+  ▼
+Response forwarded back to browser
+```
+
+---
 
 ## Environment Variables
 
-```env
-WALLET_API_BASE_URL=https://localhost:8080
-NODE_TLS_REJECT_UNAUTHORIZED=0  # development only
+| Variable | Description |
+|:---------|:------------|
+| `WALLET_API_BASE_URL` | Backend URL (server-only, never exposed to browser) |
+| `NODE_TLS_REJECT_UNAUTHORIZED=0` | Accept self-signed RA-TLS certs (dev only) |
+
+---
+
+## Example Browser Calls
+
+```typescript
+// From frontend code via the typed API client
+const wallets = await fetch('/api/proxy/v1/wallets').then(r => r.json());
+
+// Send transaction
+const result = await fetch(`/api/proxy/v1/wallets/${walletId}/send`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ amount: '0.1', to: '0x...', network: 'fuji', token: 'AVAX' })
+}).then(r => r.json());
 ```
+
+---
+
+## Production Notes
+
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` is rejected when `NODE_ENV=production`
+- Use the [Nginx reverse proxy](/relational-wallet/architecture/system-overview#reverse-proxy-appsproxy) with a valid Let's Encrypt certificate in production
+- `WALLET_API_BASE_URL` must never be a public URL in production — keep it internal
+
+---
+
+For complete API documentation including request/response schemas, see the [API Reference](/relational-wallet/api) section.

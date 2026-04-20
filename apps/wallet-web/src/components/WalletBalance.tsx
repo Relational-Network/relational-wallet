@@ -32,7 +32,13 @@ export function WalletBalance({ walletId, publicAddress, walletStatus, initialBa
   const [balance, setBalance] = useState<BalanceResponse | null>(initialBalance ?? null);
   const [isLoading, setIsLoading] = useState(!initialBalance);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialBalance ? new Date() : null);
+  // Defer timestamp to useEffect to avoid SSR/client hydration mismatch
+  // (new Date() produces different values on server vs client).
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  useEffect(() => {
+    if (initialBalance) setLastUpdated(new Date());
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchBalance = useCallback(async () => {
     if (walletStatus === "deleted" || walletStatus === "suspended") {

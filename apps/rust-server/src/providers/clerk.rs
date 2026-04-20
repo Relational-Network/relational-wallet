@@ -83,6 +83,7 @@ pub struct ClerkClient {
 
 impl ClerkClient {
     /// Create a new Clerk client with the given secret key.
+    #[allow(dead_code)]
     pub fn new(secret_key: String) -> Self {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -167,10 +168,7 @@ mod tests {
         });
 
         let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
-        assert!(matches!(
-            err,
-            ClerkError::InvalidEmailConfiguration { .. }
-        ));
+        assert!(matches!(err, ClerkError::InvalidEmailConfiguration { .. }));
     }
 
     #[test]
@@ -185,9 +183,6 @@ mod tests {
         });
 
         let err = extract_single_verified_primary_email(&body, "user_123").unwrap_err();
-        assert!(matches!(
-            err,
-            ClerkError::InvalidEmailConfiguration { .. }
-        ));
+        assert!(matches!(err, ClerkError::InvalidEmailConfiguration { .. }));
     }
 }

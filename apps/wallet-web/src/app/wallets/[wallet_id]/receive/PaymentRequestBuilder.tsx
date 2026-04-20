@@ -30,7 +30,7 @@ export function PaymentRequestBuilder({
   const QR_SIZE = 220;
   const [recipientMode, setRecipientMode] = useState<"address" | "email">("address");
   const [amount, setAmount] = useState("");
-  const [token, setToken] = useState<"native" | "reur">("native");
+  const [token, setToken] = useState<"native" | "reur">("reur");
   const [note, setNote] = useState("");
   const [copied, setCopied] = useState(false);
   const [showQrPopup, setShowQrPopup] = useState(false);

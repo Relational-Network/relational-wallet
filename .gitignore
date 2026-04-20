@@ -37,7 +37,8 @@ apps/contracts/cache/
 apps/contracts/broadcast/
 
 *.tex
+docs/whitepaper/
 report.md
 SPRINT*
 
-/tl-test
+*_AUDIT.md

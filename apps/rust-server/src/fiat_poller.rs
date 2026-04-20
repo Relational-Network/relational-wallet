@@ -50,7 +50,11 @@ impl FiatPoller {
     ///
     /// The poll interval defaults to 5 seconds but can be overridden via the
     /// `FIAT_POLL_INTERVAL_SECS` environment variable.
-    pub fn new(storage: Arc<EncryptedStorage>, tx_db: Arc<TxDatabase>, tx_cache: Arc<TxCache>) -> Self {
+    pub fn new(
+        storage: Arc<EncryptedStorage>,
+        tx_db: Arc<TxDatabase>,
+        tx_cache: Arc<TxCache>,
+    ) -> Self {
         let poll_interval = std::env::var(POLL_INTERVAL_ENV)
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -114,7 +118,9 @@ impl FiatPoller {
                 self.tx_db.as_ref(),
                 Some(self.tx_cache.as_ref()),
                 request_id,
-            ).await {
+            )
+            .await
+            {
                 Ok(record) => {
                     info!(
                         request_id = %record.request_id,

@@ -89,11 +89,8 @@ impl EventIndexer {
         );
 
         // Build alloy HTTP provider
-        let provider = match ProviderBuilder::new()
-            .connect_http(self.network.rpc_url.parse().expect("valid RPC URL"))
-        {
-            provider => provider,
-        };
+        let provider = ProviderBuilder::new()
+            .connect_http(self.network.rpc_url.parse().expect("valid RPC URL"));
 
         loop {
             if shutdown.is_cancelled() {
@@ -413,7 +410,7 @@ mod tests {
     #[test]
     fn fuji_token_contracts_parses() {
         let contracts = fuji_token_contracts();
-        assert!(contracts.len() >= 1, "Should have at least rEUR");
+        assert!(!contracts.is_empty(), "Should have at least rEUR");
     }
 
     #[test]

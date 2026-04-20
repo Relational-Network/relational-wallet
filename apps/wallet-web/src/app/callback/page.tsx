@@ -15,10 +15,14 @@ import { CheckCircle2 } from "lucide-react";
  * standard "Authorization Complete" view.
  */
 export default function CallbackPage() {
-  const [isPopup] = useState(() => typeof window !== "undefined" && !!window.opener);
+  // Detect popup after mount to avoid SSR/client hydration mismatch
+  // (window.opener is unavailable during SSR).
+  const [isPopup, setIsPopup] = useState(false);
 
   useEffect(() => {
-    if (!isPopup) return;
+    const popup = typeof window !== "undefined" && !!window.opener;
+    setIsPopup(popup);
+    if (!popup) return;
     try {
       window.opener.postMessage({ type: "fiat-callback-complete" }, window.location.origin);
     } catch {
@@ -26,7 +30,7 @@ export default function CallbackPage() {
     }
     const timer = setTimeout(() => window.close(), 600);
     return () => clearTimeout(timer);
-  }, [isPopup]);
+  }, []);
 
   if (isPopup) {
     return (

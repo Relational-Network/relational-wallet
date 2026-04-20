@@ -7,21 +7,16 @@
 use std::{
     collections::HashSet,
     env,
-    str::FromStr,
     sync::{Arc, Mutex, OnceLock},
 };
 
-use alloy::{
-    primitives::{Address, U256},
-    sol,
-    sol_types::SolCall,
-};
+use alloy::primitives::U256;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
-use chrono::Utc;
+use chrono::{TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use utoipa::{IntoParams, ToSchema};
@@ -30,7 +25,7 @@ use crate::{
     audit_log,
     auth::{AdminOnly, Auth},
     blockchain::{
-        ensure_fuji_network, parse_amount, wallet_from_pem, avax_fuji, AvaxClient, TxBuilder,
+        avax_fuji, ensure_fuji_network, parse_amount, wallet_from_pem, AvaxClient, TxBuilder,
     },
     error::ApiError,
     providers::truelayer::{
@@ -50,13 +45,18 @@ const DEFAULT_PROVIDER: &str = "truelayer_sandbox";
 const SUPPORTED_PROVIDER_IDS: [&str; 1] = [DEFAULT_PROVIDER];
 const REUR_DECIMALS: u8 = 6;
 const REUR_CONTRACT_ENV: &str = "REUR_CONTRACT_ADDRESS_FUJI";
-const RESERVE_BOOTSTRAP_ENABLED_ENV: &str = "FIAT_RESERVE_BOOTSTRAP_ENABLED";
-const RESERVE_INITIAL_TOPUP_ENV: &str = "FIAT_RESERVE_INITIAL_TOPUP_EUR";
+
 const FIAT_MIN_CONFIRMATIONS_ENV: &str = "FIAT_MIN_CONFIRMATIONS";
 // Keep provider re-checks slower than the poller sweep interval to avoid
 // duplicate remote API calls for long-lived pending requests.
 // 5s matches the poller sweep (sandbox payouts execute in ~4s).
 const PROVIDER_SYNC_COOLDOWN_SECS: i64 = 5;
+/// Max settlement attempts before permanent failure (non-funding errors).
+const MAX_SETTLEMENT_ATTEMPTS: u32 = 10;
+/// Base delay between settlement retries (seconds). Grows exponentially.
+const SETTLEMENT_RETRY_BASE_SECS: i64 = 15;
+/// Maximum delay cap between settlement retries (seconds).
+const SETTLEMENT_RETRY_MAX_SECS: i64 = 300;
 /// TrueLayer sandbox JWKS URL for webhook signature verification.
 const TRUELAYER_SANDBOX_JWKS_URL: &str = "https://webhooks.truelayer-sandbox.com/.well-known/jwks";
 const ACTIVE_FIAT_STATUSES: [FiatRequestStatus; 5] = [
@@ -69,13 +69,6 @@ const ACTIVE_FIAT_STATUSES: [FiatRequestStatus; 5] = [
 
 /// Webhook path as registered in TrueLayer Console (must match exactly for signature verification).
 const WEBHOOK_PATH: &str = "/v1/fiat/providers/truelayer/webhook";
-
-sol! {
-    #[sol(rpc)]
-    interface RelationalEuroMinter {
-        function mint(address to, uint256 amount) external;
-    }
-}
 
 /// Request body for creating fiat on-ramp/off-ramp requests.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -219,36 +212,6 @@ pub struct FiatServiceWalletStatusResponse {
     pub reur_balance: String,
     /// rEUR balance in raw minor units.
     pub reur_balance_raw: String,
-}
-
-/// Reserve top-up request.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct ReserveTopUpRequest {
-    /// Optional amount in EUR decimal format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount_eur: Option<String>,
-}
-
-/// Reserve transfer request.
-#[derive(Debug, Clone, Deserialize, ToSchema)]
-pub struct ReserveTransferRequest {
-    /// Destination EVM address.
-    pub to: String,
-    /// Amount in EUR decimal format.
-    pub amount_eur: String,
-}
-
-/// Reserve transaction response.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct ReserveTransactionResponse {
-    /// Submitted transaction hash.
-    pub tx_hash: String,
-    /// Explorer URL for tx.
-    pub explorer_url: String,
-    /// Amount used for operation.
-    pub amount_eur: String,
-    /// Amount in token minor units.
-    pub amount_minor: String,
 }
 
 /// Manual sync response.
@@ -540,28 +503,6 @@ fn resolve_reur_contract_address() -> Result<String, ApiError> {
     Ok(value)
 }
 
-fn is_truthy(raw: &str) -> bool {
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-fn reserve_bootstrap_enabled() -> bool {
-    env::var(RESERVE_BOOTSTRAP_ENABLED_ENV)
-        .ok()
-        .map(|v| is_truthy(&v))
-        .unwrap_or(true)
-}
-
-fn reserve_initial_topup_amount() -> String {
-    env::var(RESERVE_INITIAL_TOPUP_ENV)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "1000000.00".to_string())
-}
-
 fn fiat_min_confirmations() -> u64 {
     env::var(FIAT_MIN_CONFIRMATIONS_ENV)
         .ok()
@@ -729,20 +670,36 @@ fn ensure_service_wallet(
     storage: &Arc<crate::storage::EncryptedStorage>,
 ) -> Result<FiatServiceWalletMetadata, ApiError> {
     let repo = FiatServiceWalletRepository::new(storage);
-    if repo.exists() {
-        return repo
-            .get()
-            .map_err(|e| ApiError::internal(format!("Failed to load service wallet: {e}")));
-    }
+    repo.get()
+        .map_err(|e| ApiError::internal(format!("Failed to load service wallet: {e}")))
+}
 
-    if !reserve_bootstrap_enabled() {
-        return Err(ApiError::service_unavailable(
-            "Fiat reserve service wallet is missing and auto-bootstrap is disabled.",
-        ));
-    }
+/// Returns `true` when the error message indicates the sending account
+/// lacks native AVAX to pay for gas.  This is a transient condition that
+/// resolves once the operator funds the service wallet.
+fn is_insufficient_funds_error(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("insufficient funds")
+        || lower.contains("insufficient balance")
+        || lower.contains("not enough funds")
+}
 
-    repo.bootstrap()
-        .map_err(|e| ApiError::internal(format!("Failed to bootstrap service wallet: {e}")))
+/// Exponential backoff guard for settlement retries.
+///
+/// Returns `true` when the poller should skip this request because not
+/// enough time has elapsed since the last attempt.  The delay doubles
+/// with each attempt: 15 s, 30 s, 60 s, 120 s, 300 s (cap).
+fn should_skip_settlement_retry(record: &StoredFiatRequest) -> bool {
+    if record.settlement_attempts == 0 {
+        return false; // First attempt — try immediately.
+    }
+    let exponent = record.settlement_attempts.min(5) - 1;
+    let delay_secs =
+        (SETTLEMENT_RETRY_BASE_SECS * (1_i64 << exponent)).min(SETTLEMENT_RETRY_MAX_SECS);
+    let Some(cooldown) = TimeDelta::try_seconds(delay_secs) else {
+        return false;
+    };
+    Utc::now() - record.updated_at < cooldown
 }
 
 async fn send_reserve_transfer(
@@ -770,44 +727,9 @@ async fn send_reserve_transfer(
         .send_token(to, &contract, amount_minor, None, None)
         .await
         .map_err(|e| ApiError::service_unavailable(format!("Reserve transfer failed: {e}")))
-        .map(|result| {
+        .inspect(|_result| {
             let _ = service_wallet;
-            result
         })
-}
-
-async fn mint_to_address_from_service_wallet(
-    storage: &Arc<crate::storage::EncryptedStorage>,
-    to: &str,
-    amount_eur: &str,
-) -> Result<crate::blockchain::transactions::SendResult, ApiError> {
-    let contract = resolve_reur_contract_address()?;
-    let service_repo = FiatServiceWalletRepository::new(storage);
-
-    let _service_wallet = ensure_service_wallet(storage)?;
-    let private_key_pem = service_repo
-        .read_private_key()
-        .map_err(|e| ApiError::internal(format!("Failed to read service wallet key: {e}")))?;
-
-    let eth_wallet = wallet_from_pem(&private_key_pem)
-        .map_err(|e| ApiError::internal(format!("Failed to load service wallet signer: {e}")))?;
-
-    let amount_minor = parse_amount_to_token_minor_u256(amount_eur)?;
-    let to_addr = Address::from_str(to)
-        .map_err(|e| ApiError::bad_request(format!("Invalid destination address: {e}")))?;
-    let call = RelationalEuroMinter::mintCall {
-        to: to_addr,
-        amount: amount_minor,
-    };
-
-    let tx_builder = TxBuilder::new(avax_fuji(), eth_wallet)
-        .await
-        .map_err(|e| ApiError::service_unavailable(format!("Failed to connect to chain: {e}")))?;
-
-    tx_builder
-        .send_contract_call(&contract, call.abi_encode(), None, None, None)
-        .await
-        .map_err(|e| ApiError::service_unavailable(format!("Reserve mint failed: {e}")))
 }
 
 fn list_wallet_transactions(
@@ -982,80 +904,106 @@ async fn sync_onramp_request(
         }
     }
 
-    if record.status == FiatRequestStatus::SettlementPending {
-        if record.reserve_transfer_tx_hash.is_none() {
-            let wallet_repo = WalletRepository::new(storage);
-            let destination_wallet = match wallet_repo.get(&record.wallet_id) {
-                Ok(wallet) => wallet,
-                Err(error) => {
-                    record.status = FiatRequestStatus::Failed;
-                    record.failure_reason = Some(format!(
-                        "Unable to load destination wallet for settlement: {error}"
-                    ));
-                    record.updated_at = Utc::now();
-                    return;
-                }
-            };
+    if record.status == FiatRequestStatus::SettlementPending
+        && record.reserve_transfer_tx_hash.is_none()
+    {
+        // Exponential backoff: skip this cycle if not enough time
+        // has passed since the last attempt.
+        if should_skip_settlement_retry(record) {
+            return;
+        }
 
-            record.settlement_attempts += 1;
-            info!(
-                request_id = %record.request_id,
-                attempt = record.settlement_attempts,
-                destination = %destination_wallet.public_address,
-                amount_eur = %record.amount_eur,
-                "Attempting on-ramp settlement transfer from service wallet"
-            );
+        let wallet_repo = WalletRepository::new(storage);
+        let destination_wallet = match wallet_repo.get(&record.wallet_id) {
+            Ok(wallet) => wallet,
+            Err(error) => {
+                record.status = FiatRequestStatus::Failed;
+                record.failure_reason = Some(format!(
+                    "Unable to load destination wallet for settlement: {error}"
+                ));
+                record.updated_at = Utc::now();
+                return;
+            }
+        };
 
-            match send_reserve_transfer(
-                storage,
-                &destination_wallet.public_address,
-                &record.amount_eur,
-            )
-            .await
-            {
-                Ok(result) => {
-                    record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
-                    record.last_chain_sync_at = Some(Utc::now());
-                    record.status = FiatRequestStatus::Completed;
-                    record.failure_reason = None;
-                    record.updated_at = Utc::now();
+        record.settlement_attempts += 1;
+        info!(
+            request_id = %record.request_id,
+            attempt = record.settlement_attempts,
+            destination = %destination_wallet.public_address,
+            amount_eur = %record.amount_eur,
+            "Attempting on-ramp settlement transfer from service wallet"
+        );
 
-                    info!(
+        match send_reserve_transfer(
+            storage,
+            &destination_wallet.public_address,
+            &record.amount_eur,
+        )
+        .await
+        {
+            Ok(result) => {
+                record.reserve_transfer_tx_hash = Some(result.tx_hash.clone());
+                record.last_chain_sync_at = Some(Utc::now());
+                record.status = FiatRequestStatus::Completed;
+                record.failure_reason = None;
+                record.updated_at = Utc::now();
+
+                info!(
+                    request_id = %record.request_id,
+                    tx_hash = %result.tx_hash,
+                    "On-ramp settlement transfer succeeded"
+                );
+
+                // Record the incoming rEUR transfer in the user's transaction history.
+                let reur_contract = resolve_reur_contract_address().unwrap_or_default();
+                let service_addr = record.service_wallet_address.clone().unwrap_or_default();
+                let tx_record = StoredTransaction::new_pending(
+                    result.tx_hash.clone(),
+                    record.wallet_id.clone(),
+                    None,
+                    service_addr,
+                    destination_wallet.public_address.clone(),
+                    record.amount_eur.clone(),
+                    TokenType::Erc20(reur_contract),
+                    record.chain_network.clone(),
+                    result.explorer_url.clone(),
+                );
+                // The transfer already succeeded on-chain — mark confirmed.
+                let mut tx_record = tx_record;
+                tx_record.status = TxStatus::Confirmed;
+                let directions = vec![(destination_wallet.public_address.clone(), "received")];
+                if let Err(e) = tx_db.upsert_transaction(&tx_record, &directions) {
+                    warn!(
                         request_id = %record.request_id,
                         tx_hash = %result.tx_hash,
-                        "On-ramp settlement transfer succeeded"
+                        "failed to store on-ramp settlement transaction record in tx db: {e}"
                     );
-
-                    // Record the incoming rEUR transfer in the user's transaction history.
-                    let reur_contract = resolve_reur_contract_address().unwrap_or_default();
-                    let service_addr = record.service_wallet_address.clone().unwrap_or_default();
-                    let tx_record = StoredTransaction::new_pending(
-                        result.tx_hash.clone(),
-                        record.wallet_id.clone(),
-                        None,
-                        service_addr,
-                        destination_wallet.public_address.clone(),
-                        record.amount_eur.clone(),
-                        TokenType::Erc20(reur_contract),
-                        record.chain_network.clone(),
-                        result.explorer_url.clone(),
-                    );
-                    // The transfer already succeeded on-chain — mark confirmed.
-                    let mut tx_record = tx_record;
-                    tx_record.status = TxStatus::Confirmed;
-                    let directions = vec![(destination_wallet.public_address.clone(), "received")];
-                    if let Err(e) = tx_db.upsert_transaction(&tx_record, &directions) {
-                        warn!(
-                            request_id = %record.request_id,
-                            tx_hash = %result.tx_hash,
-                            "failed to store on-ramp settlement transaction record in tx db: {e}"
-                        );
-                    } else if let Some(tx_cache) = tx_cache {
-                        tx_cache.invalidate(&destination_wallet.public_address);
-                    }
+                } else if let Some(tx_cache) = tx_cache {
+                    tx_cache.invalidate(&destination_wallet.public_address);
                 }
-                Err(error) => {
-                    const MAX_SETTLEMENT_ATTEMPTS: u32 = 5;
+            }
+            Err(error) => {
+                let is_funding_issue = is_insufficient_funds_error(&error.message);
+
+                if is_funding_issue {
+                    // Funding errors are transient — don't count toward
+                    // max attempts. The operator needs to top up the
+                    // service wallet with AVAX for gas. We keep the
+                    // request in SettlementPending and use exponential
+                    // backoff so we don't spam the RPC.
+                    record.settlement_attempts = record.settlement_attempts.saturating_sub(1);
+                    warn!(
+                        request_id = %record.request_id,
+                        "Service wallet has insufficient AVAX for gas — \
+                         settlement deferred until funded"
+                    );
+                    record.failure_reason = Some(
+                        "Service wallet needs AVAX for gas fees. \
+                             Settlement will retry automatically once funded."
+                            .to_string(),
+                    );
+                } else {
                     warn!(
                         request_id = %record.request_id,
                         attempt = record.settlement_attempts,
@@ -1077,8 +1025,8 @@ async fn sync_onramp_request(
                             record.settlement_attempts, MAX_SETTLEMENT_ATTEMPTS, error.message
                         ));
                     }
-                    record.updated_at = Utc::now();
                 }
+                record.updated_at = Utc::now();
             }
         }
     }
@@ -1840,110 +1788,6 @@ pub async fn get_fiat_service_wallet(
     }))
 }
 
-/// Idempotently bootstrap fiat reserve service wallet.
-#[utoipa::path(
-    post,
-    path = "/v1/admin/fiat/service-wallet/bootstrap",
-    tag = "Admin",
-    security(("bearer_auth" = [])),
-    responses(
-        (status = 200, description = "Fiat reserve wallet bootstrapped", body = FiatServiceWalletStatusResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden")
-    )
-)]
-pub async fn bootstrap_fiat_service_wallet(
-    AdminOnly(_admin): AdminOnly,
-    State(state): State<AppState>,
-) -> Result<Json<FiatServiceWalletStatusResponse>, ApiError> {
-    let storage = state.storage();
-    let repo = FiatServiceWalletRepository::new(storage);
-    let _ = repo
-        .bootstrap()
-        .map_err(|e| ApiError::internal(format!("Failed to bootstrap service wallet: {e}")))?;
-
-    get_fiat_service_wallet(AdminOnly(_admin), State(state)).await
-}
-
-/// Mint rEUR into reserve wallet.
-#[utoipa::path(
-    post,
-    path = "/v1/admin/fiat/reserve/topup",
-    tag = "Admin",
-    request_body = ReserveTopUpRequest,
-    security(("bearer_auth" = [])),
-    responses(
-        (status = 200, description = "Reserve top-up submitted", body = ReserveTransactionResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden"),
-        (status = 503, description = "Service unavailable")
-    )
-)]
-pub async fn topup_fiat_reserve(
-    AdminOnly(_admin): AdminOnly,
-    State(state): State<AppState>,
-    Json(request): Json<ReserveTopUpRequest>,
-) -> Result<Json<ReserveTransactionResponse>, ApiError> {
-    let storage = state.storage();
-    let service_wallet = ensure_service_wallet(storage)?;
-
-    let amount = request
-        .amount_eur
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(reserve_initial_topup_amount);
-
-    let amount_minor = parse_amount_to_token_minor_u256(&amount)?;
-    let tx = mint_to_address_from_service_wallet(storage, &service_wallet.public_address, &amount)
-        .await?;
-
-    Ok(Json(ReserveTransactionResponse {
-        tx_hash: tx.tx_hash,
-        explorer_url: tx.explorer_url,
-        amount_eur: amount,
-        amount_minor: amount_minor.to_string(),
-    }))
-}
-
-/// Transfer rEUR from reserve wallet to destination.
-#[utoipa::path(
-    post,
-    path = "/v1/admin/fiat/reserve/transfer",
-    tag = "Admin",
-    request_body = ReserveTransferRequest,
-    security(("bearer_auth" = [])),
-    responses(
-        (status = 200, description = "Reserve transfer submitted", body = ReserveTransactionResponse),
-        (status = 400, description = "Bad request"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden")
-    )
-)]
-pub async fn transfer_fiat_reserve(
-    AdminOnly(_admin): AdminOnly,
-    State(state): State<AppState>,
-    Json(request): Json<ReserveTransferRequest>,
-) -> Result<Json<ReserveTransactionResponse>, ApiError> {
-    if !request.to.starts_with("0x")
-        || request.to.len() != 42
-        || !request.to[2..].chars().all(|c| c.is_ascii_hexdigit())
-    {
-        return Err(ApiError::bad_request("Invalid destination EVM address"));
-    }
-
-    let amount_minor = parse_amount_to_token_minor_u256(&request.amount_eur)?;
-    let tx = send_reserve_transfer(state.storage(), &request.to, &request.amount_eur).await?;
-
-    Ok(Json(ReserveTransactionResponse {
-        tx_hash: tx.tx_hash,
-        explorer_url: tx.explorer_url,
-        amount_eur: request.amount_eur,
-        amount_minor: amount_minor.to_string(),
-    }))
-}
-
 /// Manual fiat request sync.
 #[utoipa::path(
     post,
@@ -2045,5 +1889,95 @@ mod tests {
             map_webhook_status("pending"),
             ProviderExecutionStatus::Pending
         );
+    }
+
+    #[test]
+    fn is_insufficient_funds_detects_rpc_error() {
+        assert!(is_insufficient_funds_error(
+            "Reserve transfer failed: Transaction failed: Failed to send: \
+             server returned an error response: error code -32000: insufficient funds for transfer"
+        ));
+    }
+
+    #[test]
+    fn is_insufficient_funds_detects_balance_variant() {
+        assert!(is_insufficient_funds_error(
+            "insufficient balance for value"
+        ));
+        assert!(is_insufficient_funds_error("NOT ENOUGH FUNDS to pay gas"));
+    }
+
+    #[test]
+    fn is_insufficient_funds_rejects_unrelated_errors() {
+        assert!(!is_insufficient_funds_error("nonce too low"));
+        assert!(!is_insufficient_funds_error("connection refused"));
+        assert!(!is_insufficient_funds_error("contract reverted"));
+    }
+
+    #[test]
+    fn backoff_allows_first_attempt_immediately() {
+        let record = StoredFiatRequest {
+            request_id: "test".to_string(),
+            wallet_id: "w".to_string(),
+            owner_user_id: "u".to_string(),
+            direction: FiatDirection::OnRamp,
+            amount_eur: "10.00".to_string(),
+            provider: "truelayer_sandbox".to_string(),
+            note: None,
+            beneficiary_account_holder_name: None,
+            beneficiary_iban: None,
+            provider_reference: None,
+            provider_action_url: None,
+            status: FiatRequestStatus::SettlementPending,
+            chain_network: "fuji".to_string(),
+            service_wallet_address: None,
+            expected_amount_minor: None,
+            deposit_tx_hash: None,
+            reserve_transfer_tx_hash: None,
+            provider_event_id: None,
+            last_provider_sync_at: None,
+            last_chain_sync_at: None,
+            settlement_attempts: 0,
+            failure_reason: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(!should_skip_settlement_retry(&record));
+    }
+
+    #[test]
+    fn backoff_skips_when_too_soon() {
+        let mut record = StoredFiatRequest {
+            request_id: "test".to_string(),
+            wallet_id: "w".to_string(),
+            owner_user_id: "u".to_string(),
+            direction: FiatDirection::OnRamp,
+            amount_eur: "10.00".to_string(),
+            provider: "truelayer_sandbox".to_string(),
+            note: None,
+            beneficiary_account_holder_name: None,
+            beneficiary_iban: None,
+            provider_reference: None,
+            provider_action_url: None,
+            status: FiatRequestStatus::SettlementPending,
+            chain_network: "fuji".to_string(),
+            service_wallet_address: None,
+            expected_amount_minor: None,
+            deposit_tx_hash: None,
+            reserve_transfer_tx_hash: None,
+            provider_event_id: None,
+            last_provider_sync_at: None,
+            last_chain_sync_at: None,
+            settlement_attempts: 1,
+            failure_reason: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(), // just now
+        };
+        // After 1 attempt, backoff is 15s — should skip since updated_at is now.
+        assert!(should_skip_settlement_retry(&record));
+
+        // After enough time passes, should allow retry.
+        record.updated_at = Utc::now() - TimeDelta::try_seconds(20).unwrap();
+        assert!(!should_skip_settlement_retry(&record));
     }
 }

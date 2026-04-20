@@ -18,12 +18,6 @@ export type UserMeResponse = components["schemas"]["UserMeResponse"];
 export type Role = components["schemas"]["Role"];
 export type Bookmark = components["schemas"]["Bookmark"];
 export type CreateBookmarkRequest = components["schemas"]["CreateBookmarkRequest"];
-export type Invite = components["schemas"]["Invite"];
-export type RedeemInviteRequest = components["schemas"]["RedeemInviteRequest"];
-export type RecurringPayment = components["schemas"]["RecurringPayment"];
-export type CreateRecurringPaymentRequest = components["schemas"]["CreateRecurringPaymentRequest"];
-export type UpdateRecurringPaymentRequest = components["schemas"]["UpdateRecurringPaymentRequest"];
-export type UpdateLastPaidDateRequest = components["schemas"]["UpdateLastPaidDateRequest"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
 export type ReadyResponse = components["schemas"]["ReadyResponse"];
 
@@ -615,105 +609,6 @@ export class WalletApiClient {
   ): Promise<ApiResponse<void>> {
     return this.request<void>(`/v1/bookmarks/${encodeURIComponent(bookmarkId)}`, {
       method: "DELETE",
-      token,
-    });
-  }
-
-  // ===========================================================================
-  // Invite Endpoints
-  // ===========================================================================
-
-  /**
-   * Get invite details by code.
-   */
-  async getInvite(token: string, inviteCode: string): Promise<ApiResponse<Invite>> {
-    return this.request<Invite>(`/v1/invite?invite_code=${encodeURIComponent(inviteCode)}`, {
-      method: "GET",
-      token,
-    });
-  }
-
-  /**
-   * Redeem an invite code.
-   */
-  async redeemInvite(
-    token: string,
-    data: RedeemInviteRequest
-  ): Promise<ApiResponse<void>> {
-    return this.request<void>("/v1/invite/redeem", {
-      method: "POST",
-      token,
-      body: JSON.stringify(data),
-    });
-  }
-
-  // ===========================================================================
-  // Recurring Payment Endpoints
-  // ===========================================================================
-
-  /**
-   * List recurring payments for a wallet.
-   */
-  async listRecurringPayments(
-    token: string,
-    walletId: string
-  ): Promise<ApiResponse<RecurringPayment[]>> {
-    return this.request<RecurringPayment[]>(`/v1/recurring/payments?wallet_id=${encodeURIComponent(walletId)}`, {
-      method: "GET",
-      token,
-    });
-  }
-
-  /**
-   * Create a recurring payment.
-   */
-  async createRecurringPayment(
-    token: string,
-    data: CreateRecurringPaymentRequest
-  ): Promise<ApiResponse<void>> {
-    return this.request<void>("/v1/recurring/payment", {
-      method: "POST",
-      token,
-      body: JSON.stringify(data),
-    });
-  }
-
-  /**
-   * Update a recurring payment.
-   */
-  async updateRecurringPayment(
-    token: string,
-    paymentId: string,
-    data: Omit<UpdateRecurringPaymentRequest, "recurring_payment_id">
-  ): Promise<ApiResponse<void>> {
-    return this.request<void>(`/v1/recurring/payment/${encodeURIComponent(paymentId)}`, {
-      method: "PUT",
-      token,
-      body: JSON.stringify({ ...data, recurring_payment_id: paymentId }),
-    });
-  }
-
-  /**
-   * Delete a recurring payment.
-   */
-  async deleteRecurringPayment(
-    token: string,
-    paymentId: string
-  ): Promise<ApiResponse<void>> {
-    return this.request<void>(`/v1/recurring/payment/${encodeURIComponent(paymentId)}`, {
-      method: "DELETE",
-      token,
-    });
-  }
-
-  /**
-   * Get recurring payments due today.
-   */
-  async getRecurringPaymentsToday(
-    token: string
-  ): Promise<ApiResponse<RecurringPayment[]>> {
-    return this.request<RecurringPayment[]>("/v1/recurring/payments/today", {
-      method: "GET",
       token,
     });
   }

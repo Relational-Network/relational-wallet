@@ -47,6 +47,7 @@ impl Role {
 
     /// Parse role from string (case-insensitive).
     /// Used when extracting roles from Clerk public metadata.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Role> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Role::Admin),

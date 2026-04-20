@@ -195,7 +195,7 @@ async fn verify_jwt_production(
         .as_ref()
         .and_then(|m| m.role.as_deref())
         .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
-        .or_else(|| claims.role.as_deref())
+        .or(claims.role.as_deref())
         .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 
@@ -237,7 +237,7 @@ fn verify_jwt_development(token: &str) -> Result<AuthenticatedUser, AuthError> {
         .as_ref()
         .and_then(|m| m.role.as_deref())
         .or_else(|| claims.metadata.as_ref().and_then(|m| m.role.as_deref()))
-        .or_else(|| claims.role.as_deref())
+        .or(claims.role.as_deref())
         .and_then(Role::from_str)
         .unwrap_or(Role::Client);
 
@@ -356,7 +356,7 @@ mod tests {
         let mut storage = EncryptedStorage::new(paths);
         storage.initialize().expect("Failed to initialize storage");
 
-        let state = AppState::new(storage).with_auth_config(AuthConfig {
+        let state = AppState::new_test(storage).with_auth_config(AuthConfig {
             jwks: None,
             issuer: Some("test".to_string()),
             audience: None,
@@ -397,6 +397,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "dev")]
     async fn auth_extractor_succeeds_with_jwt() {
         let (state, _temp_dir) = create_test_state();
         let token = create_test_jwt("user_123");

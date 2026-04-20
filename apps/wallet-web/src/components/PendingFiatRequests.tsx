@@ -4,7 +4,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Clock, AlertCircle } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Clock, AlertCircle, AlertTriangle } from "lucide-react";
 import type { FiatRequest, FiatRequestListResponse } from "@/lib/api";
 import { ActionDialog } from "@/components/ActionDialog";
 
@@ -63,6 +63,22 @@ function formatDate(value: string): string {
 function shortenAddress(address: string): string {
   if (address.length < 16) return address;
   return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
+/** Translate raw backend failure_reason into a user-friendly message. */
+function humanizeFailureReason(reason: string): string {
+  const lower = reason.toLowerCase();
+  if (lower.includes("insufficient funds") || lower.includes("avax for gas")) {
+    return "Settlement delayed — waiting for gas funding. Will retry automatically.";
+  }
+  if (lower.includes("insufficient balance") || lower.includes("not enough funds")) {
+    return "Settlement delayed — waiting for gas funding. Will retry automatically.";
+  }
+  const attemptMatch = reason.match(/Attempt (\d+)\/(\d+)/);
+  if (attemptMatch) {
+    return `Settlement retry ${attemptMatch[1]}/${attemptMatch[2]} — will retry shortly.`;
+  }
+  return reason;
 }
 
 export function PendingFiatRequests({
@@ -374,6 +390,15 @@ export function PendingFiatRequests({
                   <Clock size={11} style={{ verticalAlign: "-1px", marginRight: "0.25rem" }} />
                   {formatDate(request.created_at)}
                 </div>
+                {request.status === "settlement_pending" && request.failure_reason && (
+                  <div
+                    className="pending-request-meta"
+                    style={{ color: "var(--warning-600, #b45309)", display: "flex", alignItems: "center", gap: "0.25rem", marginTop: "0.15rem" }}
+                  >
+                    <AlertTriangle size={11} />
+                    <span>{humanizeFailureReason(request.failure_reason)}</span>
+                  </div>
+                )}
               </div>
 
               <div style={{ flexShrink: 0 }}>

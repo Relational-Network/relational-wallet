@@ -2,9 +2,9 @@
 //
 // Copyright (C) 2026 Relational Network
 
-//! # Relational Wallet - Custodial Avalanche Wallet Service
+//! # Relational Wallet - Enclave-Mediated Avalanche Wallet Service
 //!
-//! This crate provides a **TEE-backed custodial wallet service** using Intel SGX
+//! This crate provides a **TEE-backed enclave-mediated wallet service** using Intel SGX
 //! (via Gramine) for secure key management, with Avalanche C-Chain as the
 //! settlement layer.
 //!
@@ -60,6 +60,7 @@ pub mod api;
 pub mod auth;
 pub mod blockchain;
 pub mod config;
+pub mod discovery;
 pub mod error;
 pub mod fiat_poller;
 pub mod indexer;

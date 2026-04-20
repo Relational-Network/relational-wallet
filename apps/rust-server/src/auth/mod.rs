@@ -27,8 +27,8 @@
 pub mod claims;
 pub mod error;
 pub mod extractor;
-pub mod jwt_crypto;
 pub mod jwks;
+pub mod jwt_crypto;
 pub mod middleware;
 pub mod roles;
 
