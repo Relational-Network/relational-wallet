@@ -12,7 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROXY_DIR="$(dirname "$SCRIPT_DIR")"
-DOMAIN="relational-wallet.duckdns.org"
+DOMAIN="${DOMAIN:-relational-wallet.duckdns.org}"
 CERT_DIR="/etc/nginx/certs"
 WEBROOT="/var/www/certbot"
 
@@ -51,9 +51,9 @@ else
     echo "  ✓ Certificate already exists at $CERT_DIR/"
 fi
 
-# ── 4. Install Nginx config ─────────────────────────────────────────
-echo "→ Installing Nginx configuration..."
-cp "$PROXY_DIR/nginx.conf" /etc/nginx/nginx.conf
+# ── 4. Install Nginx config (substitute __DOMAIN__) ─────────────────
+echo "→ Installing Nginx configuration for $DOMAIN..."
+sed "s|__DOMAIN__|$DOMAIN|g" "$PROXY_DIR/nginx.conf" > /etc/nginx/nginx.conf
 echo "  ✓ Config installed"
 
 # ── 5. Test and restart ─────────────────────────────────────────────

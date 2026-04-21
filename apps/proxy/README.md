@@ -1,100 +1,62 @@
-# Relational Wallet — Nginx Reverse Proxy
+# proxy
 
-Nginx TLS-terminating reverse proxy that sits in front of the rust-server,
-providing a valid certificate for external callers (TrueLayer webhooks, etc.).
+TLS-terminating nginx in front of the rust-server. Holds a Let's Encrypt cert (DNS-01 via DuckDNS) on port 443 and forwards to the SGX backend on `127.0.0.1:8080`. The backend uses self-signed RA-TLS, so `proxy_ssl_verify off` is set on the upstream — clients that need to verify enclave identity should still validate the RA-TLS quote out-of-band.
 
 ```
-TrueLayer webhook
-       ↓ HTTPS (valid cert)
-  Nginx (port 443)
-       ↓ HTTPS (proxy_ssl_verify off — RA-TLS self-signed)
-  rust-server (port 8080)
+external client ──► nginx :443 (LE cert) ──► rust-server :8080 (RA-TLS)
 ```
 
-## Quick Start
+[`nginx.conf`](nginx.conf) is a template — `__DOMAIN__` is substituted at install time by the scripts below.
 
-### 1. Install & bootstrap (self-signed cert)
+## Normal path: deploy with the host bootstrap
+
+[`scripts/deploy-instance.sh`](../../scripts/deploy-instance.sh) at the repo root invokes both scripts here for you:
 
 ```bash
-sudo bash apps/proxy/scripts/setup.sh
+sudo INSTANCE=wallet-001 DUCKDNS_TOKEN=... bash scripts/deploy-instance.sh
 ```
 
-This installs Nginx, generates a self-signed bootstrap cert, and starts
-proxying `https://localhost:443 → https://127.0.0.1:8080`.
+That installs nginx + a self-signed bootstrap cert, then immediately upgrades to a Let's Encrypt cert for `wallet-001.duckdns.org`.
 
-### 2. Get a real Let's Encrypt certificate
+## Standalone usage
+
+If you only want the proxy (e.g. retrofitting an existing host):
 
 ```bash
-# Get your token from https://www.duckdns.org
-sudo DUCKDNS_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-    bash apps/proxy/scripts/get-cert.sh
+# 1. nginx + bootstrap self-signed cert for the chosen domain
+sudo DOMAIN=wallet-001.duckdns.org bash scripts/setup.sh
+
+# 2. real cert via DuckDNS DNS-01 (no port 80 needed)
+sudo DOMAIN=wallet-001.duckdns.org \
+     DUCKDNS_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+     bash scripts/get-cert.sh
 ```
 
-This uses DNS-01 challenge via DuckDNS — no port 80 needed.
-Auto-renewal is configured via cron (every 12 hours).
+`get-cert.sh` also installs a cron job that runs `certbot renew` twice daily and reloads nginx on rotation. The DuckDNS token is persisted at `/etc/letsencrypt/duckdns/.env` (mode 600) for the renewal hook.
 
-### 3. Verify
+## Operate
 
 ```bash
-# Proxy health
-curl https://relational-wallet.duckdns.org/proxy/health
-
-# Backend passthrough
-curl -k https://relational-wallet.duckdns.org/docs
+sudo nginx -t                              # validate config
+sudo systemctl reload nginx                # apply changes
+sudo systemctl status nginx
+sudo tail -f /var/log/nginx/{access,error}.log
+curl https://wallet-001.duckdns.org/proxy/health
 ```
 
-## Configuration
+After editing [`nginx.conf`](nginx.conf), reinstall via the setup script (it re-substitutes `__DOMAIN__`); don't edit `/etc/nginx/nginx.conf` directly.
 
-### DuckDNS Setup
+## What's in the config
 
-1. Go to [duckdns.org](https://www.duckdns.org) and sign in
-2. Create subdomain: `relational-wallet`
-3. Point it to your server's public IP
-4. Copy your token for the `get-cert.sh` script
+- HTTP → HTTPS redirect (with `/.well-known/acme-challenge/` reserved)
+- TLS 1.2/1.3 only, modern cipher suite, no session tickets
+- `X-Content-Type-Options`, `X-Frame-Options` security headers
+- `/proxy/health` returned by nginx itself (doesn't touch backend)
+- Rate limit on `POST /v1/fiat/providers/truelayer/webhook`: 10 req/s burst 20 per IP
+- All other paths proxied with `X-Real-IP`, `X-Forwarded-{For,Proto}`, `X-Request-ID`, and TrueLayer signature headers passed through
 
-### TrueLayer Console
+`client_max_body_size` is `1m` — bump if you add endpoints that need larger uploads.
 
-Once the cert is live, configure the webhook URL in TrueLayer Console:
+---
 
-```
-https://relational-wallet.duckdns.org/v1/fiat/providers/truelayer/webhook
-```
-
-### Files
-
-| File | Purpose |
-|------|---------|
-| `nginx.conf` | Main Nginx config (installed to `/etc/nginx/nginx.conf`) |
-| `scripts/setup.sh` | Install Nginx + self-signed bootstrap cert |
-| `scripts/get-cert.sh` | Obtain Let's Encrypt cert via DuckDNS DNS-01 |
-| `certs/` | Local cert storage (gitignored) |
-
-### Nginx Management
-
-```bash
-sudo nginx -t                   # Test config
-sudo systemctl reload nginx     # Reload after config change
-sudo systemctl status nginx     # Check status
-sudo tail -f /var/log/nginx/access.log   # Watch requests
-sudo tail -f /var/log/nginx/error.log    # Watch errors
-```
-
-### Updating Config
-
-After editing `nginx.conf`:
-
-```bash
-sudo cp apps/proxy/nginx.conf /etc/nginx/nginx.conf
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-## Architecture Notes
-
-- **No HTTP fallback**: Port 80 redirects to HTTPS.
-- **RA-TLS passthrough**: Nginx connects to the backend via HTTPS but skips
-  certificate verification (`proxy_ssl_verify off`) since the rust-server uses
-  a self-signed RA-TLS cert generated by Gramine.
-- **Rate limiting**: Webhook endpoint is limited to 10 req/s per IP with
-  burst=20.
-- **Header forwarding**: `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`,
-  and all `tl-*` headers are passed through to the backend.
+SPDX-License-Identifier: AGPL-3.0-or-later · Copyright (C) 2026 Relational Network

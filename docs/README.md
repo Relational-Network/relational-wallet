@@ -1,43 +1,29 @@
-# Relational Wallet SDK Documentation
+# docs
 
-This folder hosts two things:
+Diagram sources, the GitHub Pages site, and the whitepaper.
 
-## 1. Diagram Sources
+| Path | Contents |
+|------|----------|
+| [`sequence/`](sequence/) | PlantUML sequence diagram sources (`.puml`) |
+| [`architecture/`](architecture/) | Architecture diagram exports |
+| [`includes/`](includes/) | Shared PlantUML styles |
+| [`whitepaper/`](whitepaper/) | Project whitepaper sources |
+| [`gh-pages/`](gh-pages/) | Jekyll site published to GitHub Pages |
+| [`render.sh`](render.sh) | Renders all `.puml` files to PNG/SVG under `seq-diagrams/` |
 
-**PlantUML and PNG/SVG exports** that stay in `docs/`.
+## Diagrams
 
-### Structure
-
-- `sequence/`: Source PlantUML sequence diagram files (`.puml`)
-- `architecture/`: Architecture diagram exports
-- `includes/`: Shared styles and configuration
-- `seq-diagrams/`: Output of rendered images
-
-### How to Edit
-
-1. Open this folder in VS Code.
-2. Install the **PlantUML** extension.
-3. Edit `.puml` files in `sequence/`.
-4. Press `Alt + D` to preview.
-
-### Rendering Diagrams
-
-To render all `.puml` files in `sequence/` to PNG (and SVG):
+Edit `.puml` files in [`sequence/`](sequence/) (VS Code + the PlantUML extension gives `Alt+D` preview). Re-render after changes:
 
 ```bash
 ./docs/render.sh
 ```
 
-The generated output will appear in the `seq-diagrams/` directory.
+## GitHub Pages site
 
-## 2. GitHub Pages Content
+Published from [`gh-pages/`](gh-pages/) by the workflow in [`.github/workflows/docs-site.yml`](../.github/workflows/docs-site.yml). Repo setting: **Settings → Pages → Source = GitHub Actions**.
 
-Broader Wallet SDK documentation under [`docs/gh-pages/`](gh-pages/).
-This includes installation, API, contracts, architecture, operations, and legal sections.
-
-### Local Preview
-
-Ensure you have Ruby ≥ 3.1 and Bundler 2.5.x installed (`gem install bundler -v 2.5.21 --user-install` if needed).
+Local preview (Ruby ≥ 3.1, Bundler 2.5.x):
 
 ```bash
 cd docs/gh-pages
@@ -45,21 +31,8 @@ bundle install
 bundle exec jekyll serve --livereload --source . --destination ../_site
 ```
 
-The site is now available at http://127.0.0.1:4000. Changes to files inside `docs/gh-pages/` hot-reload automatically. Stop the server with `Ctrl + C` when finished.
+Site at <http://127.0.0.1:4000>; livereloads on edits to `gh-pages/`. Diagrams under `../sequence/` and `../architecture/` need a manual `../render.sh` after `.puml` edits.
 
-**Note:** Diagrams remain under `../sequence/` and `../architecture/`, so run `../render.sh` from the repo root whenever you modify `.puml` sources.
+---
 
-### GitHub Pages
-
-1. Open **Settings → Pages** on GitHub.
-2. **Source**: Deploy from a branch.
-3. **Branch**: `main`, **Folder**: `/docs/gh-pages`.
-4. **Save** — GitHub builds the Jekyll site using `_config.yml` and automatically redeploys after each push to `main`.
-
-## License
-
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
-
-You may copy, modify, and redistribute this work under the terms of the AGPL-3.0. A full copy of the license can be found in the `LICENSE` file or at:
-
-👉 https://www.gnu.org/licenses/agpl-3.0.html
+SPDX-License-Identifier: AGPL-3.0-or-later · Copyright (C) 2026 Relational Network

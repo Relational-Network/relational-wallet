@@ -1,117 +1,68 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<!-- Copyright (C) 2026 Relational Network -->
+# contracts — Relational Euro (`rEUR`)
 
-# Relational Euro (`rEUR`) Contracts
+Foundry workspace for the v1 non-upgradeable Euro stablecoin used by rust-server fiat settlement.
 
-This workspace contains the v1 non-upgradeable Euro stablecoin contract and deployment tooling.
+| | |
+|---|---|
+| Name | `Relational Euro` |
+| Symbol | `rEUR` |
+| Decimals | `6` |
+| Standard | Managed ERC-20 (`ERC20`, `ERC20Burnable`, `Pausable`, `AccessControl`) |
+| Roles | `DEFAULT_ADMIN_ROLE`, `MINTER_ROLE`, `PAUSER_ROLE` |
 
-## Contract Profile
+AML/KYC and transfer compliance are out of scope in this phase.
 
-- Name: `Relational Euro`
-- Symbol: `rEUR`
-- Decimals: `6`
-- Standard: managed ERC20 (`ERC20`, `ERC20Burnable`, `Pausable`, `AccessControl`)
-- Roles:
-  - `DEFAULT_ADMIN_ROLE`
-  - `MINTER_ROLE`
-  - `PAUSER_ROLE`
+## Deployments
 
-AML/KYC and transfer compliance restrictions are intentionally out of scope in this phase.
+| Network | Address | Tx |
+|---------|---------|----|
+| Fuji | [`0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`](https://testnet.snowtrace.io/address/0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63) | [`0x89878d99…`](https://testnet.snowtrace.io/tx/0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14) |
+| Avalanche Mainnet | — | — |
+
+The Fuji address is wired into rust-server via `REUR_CONTRACT_ADDRESS_FUJI` in [`../rust-server/.env.example`](../rust-server/.env.example).
 
 ## Prerequisites
 
-1. Install Foundry:
-
 ```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
-
-2. From this directory, install dependencies:
-
-```bash
-cd apps/contracts
+curl -L https://foundry.paradigm.xyz | bash && foundryup
 forge install OpenZeppelin/openzeppelin-contracts --no-git
 forge install foundry-rs/forge-std --no-git
 ```
 
-`--no-git` is recommended in this monorepo to avoid nested git submodules.
+`--no-git` avoids nested submodules in this monorepo.
 
-## Run Tests
+## Test
 
 ```bash
-cd apps/contracts
 forge test -vv
 ```
 
-## Deploy to Avalanche Fuji
-
-1. Create and fill your env file:
+## Deploy
 
 ```bash
-cd apps/contracts
-cp .env.example .env
-```
+cp .env.example .env    # fill PRIVATE_KEY, ADMIN/MINTER/PAUSER, FUJI_RPC_URL
+set -a && source .env && set +a
 
-2. Export variables:
-
-```bash
-set -a
-source .env
-set +a
-```
-
-3. Run deployment:
-
-```bash
 forge script script/DeployFuji.s.sol:DeployFuji \
   --rpc-url "$FUJI_RPC_URL" \
   --broadcast
 ```
 
-The script prints:
-- deployed contract address
-- admin/minter/pauser addresses
-- role IDs
+The script prints the deployed address, role IDs, and role holders. Record new deployments in the table above and update `REUR_CONTRACT_ADDRESS_*` in rust-server's env template.
 
-## Verify Assigned Roles
-
-Set token address after deployment:
+## Verify roles
 
 ```bash
-TOKEN_ADDRESS=0xREPLACE_WITH_DEPLOYED_ADDRESS
-```
-
-Check role constants:
-
-```bash
+TOKEN=0x<deployed-address>
 MINTER_ROLE=$(cast keccak "MINTER_ROLE")
 PAUSER_ROLE=$(cast keccak "PAUSER_ROLE")
-DEFAULT_ADMIN_ROLE=0x0000000000000000000000000000000000000000000000000000000000000000
+ADMIN_ROLE=0x0000000000000000000000000000000000000000000000000000000000000000
+
+cast call "$TOKEN" "hasRole(bytes32,address)(bool)" "$ADMIN_ROLE"  "$ADMIN_ADDRESS"  --rpc-url "$FUJI_RPC_URL"
+cast call "$TOKEN" "hasRole(bytes32,address)(bool)" "$MINTER_ROLE" "$MINTER_ADDRESS" --rpc-url "$FUJI_RPC_URL"
+cast call "$TOKEN" "hasRole(bytes32,address)(bool)" "$PAUSER_ROLE" "$PAUSER_ADDRESS" --rpc-url "$FUJI_RPC_URL"
 ```
 
-Verify role membership:
+---
 
-```bash
-cast call "$TOKEN_ADDRESS" "hasRole(bytes32,address)(bool)" "$DEFAULT_ADMIN_ROLE" "$ADMIN_ADDRESS" --rpc-url "$FUJI_RPC_URL"
-cast call "$TOKEN_ADDRESS" "hasRole(bytes32,address)(bool)" "$MINTER_ROLE" "$MINTER_ADDRESS" --rpc-url "$FUJI_RPC_URL"
-cast call "$TOKEN_ADDRESS" "hasRole(bytes32,address)(bool)" "$PAUSER_ROLE" "$PAUSER_ADDRESS" --rpc-url "$FUJI_RPC_URL"
-```
-
-## Address Registry
-
-After deployment, update:
-
-1. `TODO.md` -> `Deployment Address Registry` table.
-2. This file with known deployment addresses.
-
-### Known Deployments
-
-| Network | Contract Address | Tx Hash | Notes |
-|---|---|---|---|
-| Fuji | `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63` | `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14` | Deployed on Feb 11, 2026 |
-| Avalanche Mainnet | TBD | TBD | Future |
-
-## Deferred Integration
-
-Backend/SGX integration and frontend token wiring are intentionally deferred to a later phase.
+SPDX-License-Identifier: AGPL-3.0-or-later · Copyright (C) 2026 Relational Network

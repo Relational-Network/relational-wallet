@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-DOMAIN="relational-wallet.duckdns.org"
+DOMAIN="${DOMAIN:-relational-wallet.duckdns.org}"
 CERT_DIR="/etc/nginx/certs"
 EMAIL="${LETSENCRYPT_EMAIL:-admin@relational.network}"
 

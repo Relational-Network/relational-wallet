@@ -1,101 +1,92 @@
 # Relational Wallet
 
-**TEE-backed custodial Avalanche wallet service** running inside Intel SGX enclaves with Gramine. All private keys and sensitive data are encrypted at rest using SGX sealing.
+**TEE-backed non-custodial Avalanche wallet service.** Private keys and persistent state stay sealed inside an Intel SGX enclave (Gramine encrypted FS); clients verify the enclave identity via DCAP RA-TLS before sending requests.
 
 ## Architecture
 
-This monorepo contains:
-
-- **[Rust Server](apps/rust-server/)** — Axum REST API running inside SGX with DCAP RA-TLS
-- **[Wallet Web](apps/wallet-web/)** — Next.js frontend with Clerk authentication
-- **[Contracts](apps/contracts/)** — Foundry workspace for `Relational Euro (rEUR)` smart contracts
-
-## Security Model
-
-- **Intel SGX** — All cryptographic operations run inside a hardware enclave
-- **DCAP Remote Attestation** — TLS certificates embed attestation evidence
-- **Gramine Encrypted FS** — All data sealed to enclave identity at `/data`
-- **Clerk JWT Auth** — Role-based access (Admin, Client, Support, Auditor)
-- **Ownership Enforcement** — Users can only access their own wallets
-
-## Features
-
-### Core
-- **Wallet Management** — Create, list, delete wallets with secp256k1 key generation (Ethereum-compatible)
-- **Bookmarks** — Address book per wallet with ownership enforcement
-- **Invites** — Invite codes with expiration and redemption tracking
-- **Recurring Payments** — Scheduled payment configuration
-
-### Admin & Operations (Phase 6)
-- **System Statistics** — Wallet counts, invite usage, uptime metrics
-- **User Management** — List all users with resource counts
-- **Audit Logs** — Query security events with date range and filters
-- **Wallet Suspension** — Admin can suspend/reactivate wallets
-
-### API
-- Swagger UI: `https://localhost:8080/docs`
-- OpenAPI JSON: `https://localhost:8080/api-doc/openapi.json`
-
-### Smart Contracts
-- **Relational Euro (`rEUR`)** managed ERC-20 contract (mint, burn, pause, role-based access)
-- **Fuji Deployment**: `0x76568BEd5Acf1A5Cd888773C8cAe9ea2a9131A63`
-- **Deployment Tx**: `0x89878d998b832bc06877990ea0f7e522b9a8bf1a389e8839013daa605d289f14`
-
-## Quick Start
-
-### Prerequisites
-- Intel SGX hardware with DCAP support
-- Gramine with `gramine-ratls-dcap` package
-- Rust 1.92+
-- Node.js 20+
-
-### Run with SGX
-```bash
-cd apps/rust-server
-make                    # Build for SGX
-make start-rust-server  # Run inside enclave
+```
+Browser ─► Vercel (wallet-web, Next.js) ─► nginx (LE cert) ─► rust-server (SGX, RA-TLS)
+                                                                    │
+                                                              Avalanche C-Chain
 ```
 
-### Run Frontend
+| Component | Path | Hosting |
+|-----------|------|---------|
+| `wallet-web` | [apps/wallet-web](apps/wallet-web/) | Vercel (per instance) |
+| `proxy` | [apps/proxy](apps/proxy/) | nginx on the SGX host |
+| `rust-server` | [apps/rust-server](apps/rust-server/) | Docker on the SGX host |
+| `contracts` (`rEUR`) | [apps/contracts](apps/contracts/) | Avalanche Fuji |
+
+Container image: `ghcr.io/relational-network/rust-server:main` (built + signed by [.github/workflows/rust-server-ci.yml](.github/workflows/rust-server-ci.yml); `MRENCLAVE` pinned in [apps/rust-server/measurements.toml](apps/rust-server/measurements.toml)).
+
+## Host prerequisites
+
+A single instance lives on one Linux host. Required:
+
+- **SGX hardware** with DCAP support and `/dev/sgx/{enclave,provision}` exposed
+- **`sgx-aesm-service`** running (provides `/var/run/aesmd`)
+- **Docker** (for the rust-server image)
+- **Ports 80 + 443** reachable from the public internet (nginx + Let's Encrypt)
+
+External accounts (one-time):
+
+- **DuckDNS** subdomain + token — one DNS name per instance (e.g. `wallet-001.duckdns.org`)
+- **Clerk** application — provides `CLERK_JWKS_URL` and `CLERK_ISSUER`
+- **Vercel** project pointing at `apps/wallet-web`
+- *(optional)* **TrueLayer** sandbox credentials for fiat on/off-ramp
+
+## Deploy a new instance
+
 ```bash
-cd apps/wallet-web
-pnpm install
-pnpm dev
+sudo INSTANCE=wallet-001 \
+     DUCKDNS_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+     bash scripts/deploy-instance.sh
 ```
 
-### Run Contract Tests
+This installs nginx + Let's Encrypt cert for `wallet-001.duckdns.org`, drops a systemd unit that runs the SGX container (auto-restarts on reboot, pulls latest image on `systemctl restart`), and seeds an env file at `/etc/relational-wallet/rust-server.env` from [apps/rust-server/.env.example](apps/rust-server/.env.example).
+
+Edit the env file (Clerk keys, CORS, optional TrueLayer creds), then start:
+
 ```bash
-cd apps/contracts
-forge test -vv
+sudo $EDITOR /etc/relational-wallet/rust-server.env
+sudo systemctl restart rust-server
 ```
 
-## Documentation
+Then deploy [apps/wallet-web](apps/wallet-web/) to Vercel and set:
 
-- [Rust Server README](apps/rust-server/README.md) — Detailed API documentation
-- [Contracts README](apps/contracts/README.md) — Contract design, testing, and deployment
-- [Copilot Instructions](.github/copilot-instructions.md) — AI coding guidelines
-- [API Docs](docs/gh-pages/) — GitHub Pages documentation
+```
+WALLET_API_BASE_URL=https://wallet-001.duckdns.org
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
+CLERK_SECRET_KEY=sk_live_...
+```
+
+Add the resulting Vercel URL to `CORS_ALLOWED_ORIGINS` in the host env file and restart `rust-server`.
+
+## Operate
+
+```bash
+sudo systemctl restart rust-server      # also pulls latest image
+sudo systemctl status rust-server
+journalctl -u rust-server -f            # logs
+curl https://wallet-001.duckdns.org/proxy/health
+```
+
+For reproducible deploys, pin the image to a digest:
+
+```bash
+sudo IMAGE=ghcr.io/relational-network/rust-server@sha256:<digest> \
+     INSTANCE=wallet-001 DUCKDNS_TOKEN=... \
+     bash scripts/deploy-instance.sh
+```
+
+## Further reading
+
+- [apps/rust-server/README.md](apps/rust-server/README.md) — API, manifest, Gramine details
+- [apps/rust-server/docker/README.md](apps/rust-server/docker/README.md) — image build + MRENCLAVE pinning
+- [apps/proxy/README.md](apps/proxy/README.md) — nginx config + cert renewal
+- [apps/wallet-web/README.md](apps/wallet-web/README.md) — frontend + Clerk wiring
+- [apps/contracts/README.md](apps/contracts/README.md) — `rEUR` contract
 
 ## License
 
-This project is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0).
-
-You may copy, modify, and redistribute this work under the terms of the AGPL-3.0.
-A full copy of the license can be found in the `LICENSE` file or at:
-
-👉 https://www.gnu.org/licenses/agpl-3.0.html
-
-## Development Scripts
-
-### Header Checks
-```bash
-./scripts/check_headers.sh                    # Verify SPDX headers
-REQUIRED_YEAR=2026 ./scripts/check_headers.sh # Require specific year
-./scripts/update_header_year.sh 2025 2026     # Update year in headers
-```
-
-### Tests
-```bash
-cd apps/rust-server && cargo test             # Run unit tests
-```
-
+AGPL-3.0-or-later — see [LICENSE](LICENSE).

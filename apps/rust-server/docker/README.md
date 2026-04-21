@@ -1,158 +1,86 @@
-# Rust Server Gramine Docker (Ubuntu 20.04) with DCAP RA-TLS
+# rust-server — SGX Docker image
 
-This folder contains a Gramine SGX image that builds and runs the Rust server on Ubuntu 20.04 (focal) with **DCAP remote attestation** and **RA-TLS** for secure HTTPS communication.
+Reproducible Gramine + DCAP RA-TLS image for the Relational Wallet rust-server. Built and signed in CI; published to `ghcr.io/relational-network/rust-server:main` with `MRENCLAVE` pinned in [`../measurements.toml`](../measurements.toml).
 
-## Features
+## Run (production)
 
-- **DCAP Attestation**: Uses Intel DCAP (Data Center Attestation Primitives) for remote attestation
-- **RA-TLS**: TLS certificates are generated at runtime by `gramine-ratls` with attestation evidence embedded
-- **HTTPS Only**: The server only accepts HTTPS connections (no HTTP fallback)
-- **Deterministic Build**: Enclave is signed at build time — MRENCLAVE and MRSIGNER are fixed per image
-- **Slimmer Runtime Image**: Build/sign-only tooling stays in an intermediate Docker stage and is not shipped in the final runtime image
-
-## Build
+Use [`scripts/deploy-instance.sh`](../../../scripts/deploy-instance.sh) at the repo root — it pulls this image, runs it under systemd with a per-instance env file, and survives reboot. The raw `docker run` form is:
 
 ```bash
-./build.sh ubuntu20
+docker run --rm \
+  --device /dev/sgx/enclave \
+  --device /dev/sgx/provision \
+  -v /var/run/aesmd:/var/run/aesmd \
+  -v /var/lib/relational-wallet/data:/data \
+  --env-file /etc/relational-wallet/rust-server.env \
+  -p 127.0.0.1:8080:8080 \
+  ghcr.io/relational-network/rust-server:main
 ```
 
-The signing key defaults to `$HOME/.config/gramine/enclave-key.pem`.
-Override with the `SGX_SIGNING_KEY` environment variable:
+The container starts as root only long enough to wire AESM and SGX device groups, then drops to UID/GID `10001`. Pre-create the data dir with that ownership:
 
 ```bash
-SGX_SIGNING_KEY=/path/to/production-key.pem ./build.sh ubuntu20
+sudo install -d -m 0750 -o 10001 -g 10001 /var/lib/relational-wallet/data
 ```
 
-To override the pinned Ubuntu snapshot timestamp:
+The signing key is **not** required at runtime — it is consumed at build time only.
+
+## Build (locally)
+
+Defaults to the host signing key at `$HOME/.config/gramine/enclave-key.pem` (generate with `gramine-sgx-gen-private-key` if missing). From the repo root:
+
+```bash
+cd apps/rust-server
+make docker-build                    # uses default key
+SGX_SIGNING_KEY=/path/to/prod.pem ./docker/build.sh ubuntu20
+```
+
+Build context is `apps/rust-server/`; see [`../.dockerignore`](../.dockerignore).
+
+## Reproducibility
+
+`MRSIGNER` is determined by the RSA-3072 signing key. `MRENCLAVE` is determined by binary + manifest + trusted files; the Dockerfile pins everything that affects it:
+
+- Rust toolchain (`RUST_TOOLCHAIN`, matches `rust-toolchain.toml`)
+- Gramine + SGX AESM packages (`GRAMINE_VERSION`, `SGX_AESM_VERSION`)
+- Ubuntu apt snapshot (`UBUNTU_SNAPSHOT`)
+- Build platform (`linux/amd64`, enforced in `build.sh`)
+- Rust reproducibility env (`SOURCE_DATE_EPOCH`, fixed `RUSTFLAGS`, single codegen unit)
+- Runtime UID/GID (`10001:10001`)
+- SIGSTRUCT date (`--date 0000-00-00` to `gramine-sgx-sign`)
+- `sgx.debug = false`
+
+Override the apt snapshot if needed:
 
 ```bash
 UBUNTU_SNAPSHOT=20260210T000000Z ./build.sh ubuntu20
 ```
 
-This builds the image as:
+## Verification
 
-```
-relationalnetwork/rust-server:focal
-```
-
-Note: the Docker build context is `apps/rust-server` (see `apps/rust-server/.dockerignore`).
-
-## Generate a signing key (SGX only)
-
-If you have not already, generate a key on your host:
+Inspect a built image's measurements:
 
 ```bash
-gramine-sgx-gen-private-key
+make docker-sigstruct      # prints [enclave] block in measurements.toml field order
+make verify-mrenclave      # rebuilds locally and diffs against measurements.toml
 ```
 
-By default, the key is stored at `$HOME/.config/gramine/enclave-key.pem`.
+CI ([`.github/workflows/rust-server-ci.yml`](../../../.github/workflows/rust-server-ci.yml)) does the same on every push: builds with the `ENCLAVE_SIGNING_KEY` secret, asserts `debug_enclave = false`, `isv_prod_id = 0`, `isv_svn = 0`, and fails if `mr_enclave` drifts from `measurements.toml`. Pushes to `main` publish the image; PRs verify only.
 
-**Important:** Use the same key for all production builds to preserve MRSIGNER.
-Store it securely (e.g., in a hardware security module or encrypted vault).
+To roll a new release:
 
-## Run
+1. `make docker-build && make docker-sigstruct`
+2. Copy the printed `[enclave]` block into [`../measurements.toml`](../measurements.toml) **in the same PR** as the source change.
+3. Merge — CI re-verifies and pushes the image.
 
-The signing key is **NOT needed at runtime** — it is only used during `docker build`.
+Deploy by digest, not tag, when pinning a release:
 
 ```bash
-docker run --rm -it \
-  --device /dev/sgx/enclave \
-  --device /dev/sgx/provision \
-  -p 8080:8080 \
-  relationalnetwork/rust-server:focal
+sudo IMAGE=ghcr.io/relational-network/rust-server@sha256:<digest> \
+     INSTANCE=wallet-001 DUCKDNS_TOKEN=... \
+     bash scripts/deploy-instance.sh
 ```
 
-The container starts as root only long enough to bootstrap AESM and prepare
-runtime permissions, then drops to a fixed non-root service user (`relational`,
-UID/GID `10001`) before launching `gramine-sgx`.
+---
 
-When bind-mounting `/data`, pre-provision the host directory for that user:
-
-```bash
-sudo install -d -m 0750 -o 10001 -g 10001 /path/to/data
-```
-
-## Deterministic Enclave Measurements
-
-| Measurement | What controls it | How to keep it stable |
-|-------------|-----------------|----------------------|
-| **MRSIGNER** | The RSA-3072 signing key | Use the same key for every build |
-| **MRENCLAVE** | Binary + manifest + trusted files | Pin Rust toolchain + Gramine versions |
-
-The following are pinned in the Dockerfile:
-- Rust toolchain version (via `RUST_TOOLCHAIN` build arg, matches `rust-toolchain.toml`)
-- Gramine package version (via `GRAMINE_VERSION` build arg)
-- SGX AESM package version (via `SGX_AESM_VERSION` build arg)
-- Ubuntu apt snapshot timestamp (via `UBUNTU_SNAPSHOT` build arg)
-- Build target platform (`linux/amd64`, enforced in `build.sh`)
-- Rust reproducibility env (`SOURCE_DATE_EPOCH`, single codegen unit/job, fixed `RUSTFLAGS`)
-- Fixed service UID/GID for runtime privilege dropping (`10001:10001`)
-
-### How to pin `measurements.toml`
-
-Use the same production signing key every time. The Dockerfile already passes
-`--date 0000-00-00` to `gramine-sgx-sign`.
-
-```bash
-cd apps/rust-server
-make docker-build
-make docker-sigstruct
-```
-
-Record only the audit-critical values in `apps/rust-server/measurements.toml`:
-- pinned build inputs: base image digest, Ubuntu snapshot, Gramine, Rust, SIGSTRUCT date
-- core SIGSTRUCT fields: `mr_enclave`, `mr_signer`, `isv_prod_id`, `isv_svn`, `debug_enclave`
-
-`make docker-sigstruct` prints the `[enclave]` block in the same field order.
-
-### Recommended CI check
-
-For CI, store the enclave RSA key in a repo/org secret such as
-`ENCLAVE_SIGNING_KEY`, then:
-
-1. Build the Docker image from `apps/rust-server` using
-   `apps/rust-server/docker/Dockerfile`.
-2. Inject the signing key as a BuildKit secret named `sgx-key`.
-3. Run `gramine-sgx-sigstruct-view /app/rust-server.sig` inside the built image.
-4. Compare the built `mr_enclave` against `apps/rust-server/measurements.toml`.
-5. Fail the workflow if it differs.
-
-This repository's `.github/workflows/rust-server-ci.yml` follows that model.
-Configure the `ENCLAVE_SIGNING_KEY` GitHub secret to enable the signed-image
-build path. With that secret configured, the workflow compares the built
-`mr_enclave` against `apps/rust-server/measurements.toml` and fails on
-unexpected drift.
-
-## DCAP Configuration
-
-For DCAP attestation to work, you need:
-
-1. **Intel SGX DCAP driver** installed on the host
-2. The container needs access to `/dev/sgx/enclave` and `/dev/sgx/provision`
-
-The container installs the following DCAP packages:
-- `gramine-ratls-dcap` - RA-TLS library with DCAP support
-
-## TLS Certificate Details
-
-At startup, `gramine-ratls` generates:
-- Certificate: `/tmp/ra-tls.crt.pem` (inside the enclave)
-- Private key: `/tmp/ra-tls.key.pem` (inside the enclave)
-
-The certificate contains SGX attestation evidence that clients can verify using the RA-TLS verification library.
-
-## Notes
-
-- AESM is started in the container via `restart_aesm.sh`.
-- The container entrypoint starts as root, wires SGX device groups when needed, then runs `gramine-sgx rust-server` as the non-root `relational` user.
-- The entrypoint does not auto-migrate `/data` ownership; bind-mounted data must already be writable by UID/GID `10001`.
-- This image installs Gramine and Intel SGX AESM/DCAP packages from their official apt repos.
-- The final runtime image excludes build/sign-only tools such as `curl`, `gnupg2`, and `binutils`.
-- The enclave is signed at **build time** — no signing key is needed at runtime.
-- The server binds to `0.0.0.0:8080` over **HTTPS** (set in the Gramine manifest).
-- `sgx.debug = false` is enforced in Docker builds — no action needed.
-
-## License
-
-SPDX-License-Identifier: AGPL-3.0-or-later
-Copyright (C) 2026 Relational Network
+SPDX-License-Identifier: AGPL-3.0-or-later · Copyright (C) 2026 Relational Network

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Relational Network
+#
+# systemd unit for the Relational Wallet rust-server SGX container.
+# Installed by scripts/deploy-instance.sh — placeholders are substituted at install time.
+
+[Unit]
+Description=Relational Wallet rust-server (SGX)
+Documentation=https://github.com/Relational-Network/relational-wallet
+Requires=docker.service aesmd.service
+After=docker.service aesmd.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10s
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+# Pull the pinned image on every (re)start so `systemctl restart rust-server`
+# upgrades to the latest published build. To freeze a version, pin __IMAGE__
+# to a digest (ghcr.io/.../rust-server@sha256:...) in deploy-instance.sh.
+ExecStartPre=-/usr/bin/docker rm -f rust-server-sgx
+ExecStartPre=/usr/bin/docker pull __IMAGE__
+
+ExecStart=/usr/bin/docker run --rm \
+    --name rust-server-sgx \
+    --device /dev/sgx/enclave \
+    --device /dev/sgx/provision \
+    --stop-timeout 30 \
+    -p 127.0.0.1:8080:8080 \
+    -v __DATA_DIR__:/data \
+    -v /var/run/aesmd:/var/run/aesmd \
+    --env-file __ENV_FILE__ \
+    __IMAGE__
+
+ExecStop=/usr/bin/docker stop -t 30 rust-server-sgx
+
+[Install]
+WantedBy=multi-user.target
