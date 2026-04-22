@@ -9,7 +9,7 @@ rust = "1.92.0"
 sigstruct_date = "0000-00-00"
 
 [enclave]
-mr_enclave = "b40b75dd1d7502c43da07493cf7cb5f9e2ee9068e732fbb8bde6d668bbe34c9b"
+mr_enclave = "5762ebc041703f0642b588c832386663a1cd63dffe28ce7b391a8788ff232a6d"
 mr_signer = "e3878281391c618d0fc7c56f70e7447f66da294e328044fedd21bb37eac8a539"
 isv_prod_id = 0
 isv_svn = 0

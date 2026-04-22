@@ -58,6 +58,22 @@ loader.env.FUJI_RPC_URL = { passthrough = true }
 loader.env.REUR_CONTRACT_ADDRESS_FUJI = { passthrough = true }
 loader.env.FIAT_MIN_CONFIRMATIONS = { passthrough = true }
 
+# ========== RA-TLS PEER VERIFICATION POLICY ==========
+# Read by libra_tls_verify_dcap.so inside the enclave when verifying a peer's
+# quote. Absent → strict default (any non-OK TCB status fails verification).
+# Passthrough keeps MRENCLAVE independent of policy values so a single image
+# can be deployed across environments with different TCB tolerance.
+loader.env.RA_TLS_ALLOW_DEBUG_ENCLAVE_INSECURE = "0"
+loader.env.RA_TLS_ALLOW_OUTDATED_TCB_INSECURE = "1"
+loader.env.RA_TLS_ALLOW_HW_CONFIG_NEEDED = "1"
+loader.env.RA_TLS_ALLOW_SW_HARDENING_NEEDED = "1"
+
+# ========== AZURE DCAP QUOTE PROVIDER ==========
+# Read by /lib/x86_64-linux-gnu/libdcap_quoteprov.so when fetching PCK
+# collateral for quote verification.
+loader.env.AZDCAP_COLLATERAL_VERSION = "v4"
+loader.env.AZDCAP_DEBUG_LOG_LEVEL = "Info"
+
 fs.mounts = [
     { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
     { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
