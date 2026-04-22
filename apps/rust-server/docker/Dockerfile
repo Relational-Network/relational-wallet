@@ -245,6 +245,12 @@ RUN mkdir -p /app/dns && \
     printf '127.0.0.1 localhost\n' > /app/dns/hosts && \
     printf 'hosts: files dns\n' > /app/dns/nsswitch.conf
 
+# Pin the system CA bundle into /app so libcurl inside the enclave (used by
+# libdcap_quoteprov.so to fetch PCK collateral from Azure PCS over HTTPS) can
+# verify server certificates. Without this, DCAP quote verification returns
+# SGX_QL_NETWORK_ERROR (0xE019) because the TLS handshake fails.
+RUN cp /etc/ssl/certs/ca-certificates.crt /app/ca-certificates.crt
+
 # Generate the Gramine manifest and rewrite sgx.trusted_files as an explicit
 # sorted list to avoid nondeterminism from recursive directory traversal order.
 RUN ENTRYPOINT=$(command -v gramine-ratls) && \
@@ -385,6 +391,7 @@ COPY --from=signer /app/rust-server.manifest /app/rust-server.manifest
 COPY --from=signer /app/rust-server.manifest.sgx /app/rust-server.manifest.sgx
 COPY --from=signer /app/rust-server.sig /app/rust-server.sig
 COPY --from=signer /app/dns /app/dns
+COPY --from=signer /app/ca-certificates.crt /app/ca-certificates.crt
 
 # Fixed service identity: deterministic UID/GID across every build.
 ARG APP_USER=relational
