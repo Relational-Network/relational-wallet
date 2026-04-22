@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -25,6 +25,7 @@ import {
   Trash2,
   Edit,
   Network,
+  Stethoscope,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -964,6 +965,29 @@ interface PeerForm {
   isv_prod_id: string;
 }
 
+interface DiagnosticStep {
+  step: string;
+  ok: boolean;
+  detail: string | null;
+}
+
+interface ObservedMeasurements {
+  mrenclave: string;
+  mrsigner: string;
+  isv_prod_id: number;
+  isv_svn: number;
+}
+
+interface RaTlsTestResponse {
+  ok: boolean;
+  target: string;
+  steps: DiagnosticStep[];
+  wrapper_code: number | null;
+  wrapper_code_meaning: string | null;
+  observed_measurements: ObservedMeasurements | null;
+  remediation: string[];
+}
+
 const EMPTY_PEER_FORM: PeerForm = {
   node_id: "",
   url: "",
@@ -973,6 +997,89 @@ const EMPTY_PEER_FORM: PeerForm = {
   min_isv_svn: "0",
   isv_prod_id: "0",
 };
+
+// ─── Test result panel ───────────────────────────────────────────────────────
+
+function TestResultPanel({ result, onClose }: { result: RaTlsTestResponse; onClose: () => void }) {
+  const borderColor = result.ok ? "var(--success, #16a34a)" : "var(--danger, #dc2626)";
+  const steps = result.steps ?? [];
+  const remediation = result.remediation ?? [];
+  return (
+    <div className="card" style={{
+      padding: "0.75rem 1rem",
+      border: `2px solid ${borderColor}`,
+      borderRadius: 10,
+      background: "var(--bg-subtle)",
+      fontSize: "0.8125rem",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+          {result.ok
+            ? <CheckCircle2 size={16} color="var(--success, #16a34a)" />
+            : <XCircle size={16} color="var(--danger, #dc2626)" />}
+          RA-TLS test: {result.target} — {result.ok ? "OK" : "Failed"}
+        </div>
+        <button type="button" className="btn btn-ghost" onClick={onClose}
+          style={{ padding: "0.2rem 0.4rem", fontSize: "0.75rem" }}>
+          Close
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+        {steps.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+            {s.ok
+              ? <CheckCircle2 size={13} color="var(--success, #16a34a)" style={{ marginTop: 2, flexShrink: 0 }} />
+              : <XCircle size={13} color="var(--danger, #dc2626)" style={{ marginTop: 2, flexShrink: 0 }} />}
+            <div>
+              <code style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>{s.step}</code>
+              {s.detail && (
+                <div style={{ color: "var(--ink-secondary)", fontSize: "0.75rem", wordBreak: "break-word" }}>
+                  {s.detail}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {result.wrapper_code !== null && (
+        <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)", marginBottom: 8 }}>
+          mbedTLS wrapper code: <code>{result.wrapper_code}</code>
+          {result.wrapper_code_meaning && <> — {result.wrapper_code_meaning}</>}
+        </div>
+      )}
+
+      {result.observed_measurements && (
+        <details style={{ fontSize: "0.75rem", marginBottom: 8 }}>
+          <summary style={{ cursor: "pointer", color: "var(--ink-secondary)" }}>
+            Observed measurements
+          </summary>
+          <pre style={{
+            background: "var(--bg)",
+            padding: "0.5rem",
+            borderRadius: 6,
+            fontFamily: "var(--font-mono)",
+            fontSize: "0.7rem",
+            overflow: "auto",
+            margin: "0.25rem 0 0",
+          }}>
+{JSON.stringify(result.observed_measurements, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {remediation.length > 0 && (
+        <div style={{ fontSize: "0.75rem" }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Suggested next steps:</div>
+          <ul style={{ margin: 0, paddingLeft: "1.25rem", color: "var(--ink-secondary)" }}>
+            {remediation.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Peers tab ───────────────────────────────────────────────────────────────
 
@@ -987,6 +1094,54 @@ function PeersTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<PeerForm>(EMPTY_PEER_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, RaTlsTestResponse>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  const runTest = useCallback(async (key: string, path: string) => {
+    setTestingId(key);
+    try {
+      const res = await fetch(`/api/proxy${path}`, { method: "POST" });
+      const text = await res.text();
+      let parsed: RaTlsTestResponse;
+      try {
+        parsed = JSON.parse(text) as RaTlsTestResponse;
+      } catch {
+        parsed = {
+          ok: false,
+          target: key,
+          steps: [{ step: "http_response", ok: false, detail: `${res.status}: ${text.slice(0, 200)}` }],
+          wrapper_code: null,
+          wrapper_code_meaning: null,
+          observed_measurements: null,
+          remediation: ["Backend returned non-JSON response. Check server logs."],
+        };
+      }
+      setTestResults(prev => ({ ...prev, [key]: parsed }));
+    } catch (e) {
+      setTestResults(prev => ({
+        ...prev,
+        [key]: {
+          ok: false,
+          target: key,
+          steps: [{ step: "network", ok: false, detail: e instanceof Error ? e.message : "network error" }],
+          wrapper_code: null,
+          wrapper_code_meaning: null,
+          observed_measurements: null,
+          remediation: ["Failed to reach backend. Check proxy and network."],
+        },
+      }));
+    } finally {
+      setTestingId(null);
+    }
+  }, []);
+
+  const clearTest = useCallback((key: string) => {
+    setTestResults(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1172,7 +1327,19 @@ function PeersTab() {
               style={{ padding: "0.25rem 0.5rem", flexShrink: 0 }}>
               {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
+            <button type="button" className="btn btn-ghost"
+              onClick={() => runTest("self", "/v1/admin/peers/self/test")}
+              disabled={testingId === "self"}
+              title="Test local RA-TLS verifier"
+              style={{ padding: "0.25rem 0.5rem", flexShrink: 0, display: "flex", alignItems: "center", gap: 4, fontSize: "0.75rem" }}>
+              <Stethoscope size={14} /> {testingId === "self" ? "Testing…" : "Test"}
+            </button>
           </div>
+          {testResults["self"] && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <TestResultPanel result={testResults["self"]} onClose={() => clearTest("self")} />
+            </div>
+          )}
         </div>
       )}
 
@@ -1336,7 +1503,8 @@ function PeersTab() {
           </thead>
           <tbody>
             {peers.map((p) => (
-              <tr key={p.node_id} style={{ borderBottom: "1px solid var(--border)" }}>
+              <Fragment key={p.node_id}>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
                 <td style={{ padding: "0.75rem 1rem" }}>
                   <span style={{ fontWeight: 600 }}>{p.node_id}</span>
                 </td>
@@ -1359,6 +1527,15 @@ function PeersTab() {
                     <button
                       type="button" className="btn btn-ghost"
                       style={{ padding: "0.3rem 0.5rem" }}
+                      disabled={testingId === p.node_id}
+                      onClick={() => runTest(p.node_id, `/v1/admin/peers/${p.node_id}/test`)}
+                      title="Test RA-TLS handshake with this peer"
+                    >
+                      <Stethoscope size={14} />
+                    </button>
+                    <button
+                      type="button" className="btn btn-ghost"
+                      style={{ padding: "0.3rem 0.5rem" }}
                       onClick={() => openEdit(p)}
                       title="Edit peer"
                     >
@@ -1376,6 +1553,17 @@ function PeersTab() {
                   </div>
                 </td>
               </tr>
+              {testResults[p.node_id] && (
+                <tr>
+                  <td colSpan={4} style={{ padding: "0 1rem 0.75rem" }}>
+                    <TestResultPanel
+                      result={testResults[p.node_id]}
+                      onClose={() => clearTest(p.node_id)}
+                    />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
             {peers.length === 0 && (
               <tr>

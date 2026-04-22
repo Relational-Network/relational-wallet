@@ -12,6 +12,13 @@ on:
       - '.github/workflows/rust-server-ci.yml'
   workflow_dispatch:
 
+# Cancel superseded runs on the same ref (e.g. force-push to a PR) so we
+# don't pay for a build we are about to throw away. Never cancel runs on
+# main — those publish images we want to keep.
+concurrency:
+  group: rust-server-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -192,6 +199,13 @@ jobs:
           load: true
           push: false
           tags: ${{ env.IMAGE_TAG }}
+          # GitHub Actions layer cache. With mode=max every intermediate
+          # layer is exported, so subsequent runs (including the post-merge
+          # main run) reuse the apt installs, the rustup install, and the
+          # cargo dep build — typically the only layers that re-execute
+          # are the ones impacted by the actual source change.
+          cache-from: type=gha,scope=rust-server-sgx
+          cache-to: type=gha,scope=rust-server-sgx,mode=max
           secret-files: |
             sgx-key=${{ runner.temp }}/enclave-key.pem
 

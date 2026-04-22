@@ -71,7 +71,7 @@ loader.env.RA_TLS_ALLOW_SW_HARDENING_NEEDED = "1"
 # ========== AZURE DCAP QUOTE PROVIDER ==========
 # Read by /lib/x86_64-linux-gnu/libdcap_quoteprov.so when fetching PCK
 # collateral for quote verification.
-loader.env.AZDCAP_COLLATERAL_VERSION = "v4"
+loader.env.AZDCAP_COLLATERAL_VERSION = "v3"
 loader.env.AZDCAP_DEBUG_LOG_LEVEL = "Info"
 
 fs.mounts = [
