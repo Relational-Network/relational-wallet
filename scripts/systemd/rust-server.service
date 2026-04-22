@@ -30,6 +30,7 @@ ExecStart=/usr/bin/docker run --rm \
     --device /dev/sgx/provision \
     --stop-timeout 30 \
     -p 127.0.0.1:8080:8080 \
+    -p 0.0.0.0:__RATLS_PORT__:8080 \
     -v __DATA_DIR__:/data \
     -v /var/run/aesmd:/var/run/aesmd \
     --env-file __ENV_FILE__ \

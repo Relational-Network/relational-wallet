@@ -222,6 +222,14 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# az-dcap-client installs libdcap_quoteprov.so at /usr/lib, which the Gramine
+# enclave cannot see (only /lib and /lib/x86_64-linux-gnu are mounted).
+# The in-enclave QVL dlopens libdcap_quoteprov.so.1 then libdcap_quoteprov.so;
+# place both in arch_libdir so it resolves via LD_LIBRARY_PATH and is measured
+# into MRENCLAVE by the trusted_files find below.
+RUN cp /usr/lib/libdcap_quoteprov.so /lib/x86_64-linux-gnu/libdcap_quoteprov.so && \
+    ln -s libdcap_quoteprov.so /lib/x86_64-linux-gnu/libdcap_quoteprov.so.1
+
 WORKDIR /app
 
 COPY --from=builder /app/target/release/relational-rust-server /app/relational-rust-server
@@ -363,6 +371,12 @@ RUN apt-get update && \
     psmisc=${PSMISC_VERSION} && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Mirror the signer stage: the enclave measured libdcap_quoteprov.so at
+# /lib/x86_64-linux-gnu/libdcap_quoteprov.so, so the runtime image must
+# have the byte-identical file at the same path or integrity checks fail.
+RUN cp /usr/lib/libdcap_quoteprov.so /lib/x86_64-linux-gnu/libdcap_quoteprov.so && \
+    ln -s libdcap_quoteprov.so /lib/x86_64-linux-gnu/libdcap_quoteprov.so.1
 
 WORKDIR /app
 
