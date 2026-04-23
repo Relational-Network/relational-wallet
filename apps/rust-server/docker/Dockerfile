@@ -92,8 +92,19 @@ ENV SOURCE_DATE_EPOCH=1704067200
 ENV TZ=UTC
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+# Reproducibility envs:
+#   CARGO_INCREMENTAL=0           — incremental builds embed timestamps/hashes that drift
+#   CODEGEN_UNITS=1               — required: parallel codegen *within* a crate is non-deterministic
+#   ZERO_AR_DATE=1                — strip mtimes from ar archives
+#
+# We do NOT pin CARGO_BUILD_JOBS. Cargo builds *separate crates* in parallel,
+# but each crate's output is fully determined by codegen-units=1, the fixed
+# RUSTFLAGS below (rng-seed, remap-path-prefix, no build-id), and the locked
+# Cargo.lock. Parallel jobs therefore produce byte-identical binaries; this
+# is the same approach used by rustc's own reproducible-builds CI.
+# Verifiers reproduce MRENCLAVE (pinned in measurements.toml) regardless of
+# their core count.
 ENV CARGO_INCREMENTAL=0
-ENV CARGO_BUILD_JOBS=1
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 ENV CARGO_PROFILE_RELEASE_DEBUG=0
 ENV CARGO_PROFILE_RELEASE_STRIP=symbols
@@ -115,7 +126,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
 COPY src ./src
 RUN cargo fetch --locked && \
-    CARGO_NET_OFFLINE=true cargo build --release --locked --jobs 1
+    CARGO_NET_OFFLINE=true cargo build --release --locked
 
 # ---------------------------------------------------------------------------
 # Stage 2 — Signer image
