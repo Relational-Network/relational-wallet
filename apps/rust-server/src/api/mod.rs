@@ -129,19 +129,13 @@ pub fn router(state: AppState) -> Router {
         )
         // Admin discovery peer management
         .route("/admin/peers/self", get(admin::get_self_node_info))
-        .route(
-            "/admin/peers/self/test",
-            post(admin::test_self_ratls),
-        )
+        .route("/admin/peers/self/test", post(admin::test_self_ratls))
         .route("/admin/peers", get(admin::list_peers).post(admin::add_peer))
         .route(
             "/admin/peers/{node_id}",
             axum::routing::put(admin::update_peer).delete(admin::remove_peer),
         )
-        .route(
-            "/admin/peers/{node_id}/test",
-            post(admin::test_peer_ratls),
-        )
+        .route("/admin/peers/{node_id}/test", post(admin::test_peer_ratls))
         .with_state(state.clone());
 
     // Internal discovery routes (Phase 2): peer-to-peer VOPRF evaluate/lookup.

@@ -761,6 +761,7 @@ pub async fn add_peer(
     State(state): State<AppState>,
     Json(body): Json<AddPeerRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    validate_node_id(&body.node_id)?;
     let policy = parse_attestation_policy(&body)?;
 
     let config = crate::discovery::PeerConfig {
@@ -834,6 +835,7 @@ pub async fn update_peer(
         ));
     }
 
+    validate_node_id(&body.node_id)?;
     let policy = parse_attestation_policy(&body)?;
 
     let config = crate::discovery::PeerConfig {
@@ -860,6 +862,25 @@ pub async fn update_peer(
         "message": "Peer updated successfully",
         "node_id": node_id
     })))
+}
+
+/// Reserved peer node_id values that collide with literal route segments
+/// in the admin peer-management API (e.g. `/admin/peers/self/test`).
+const RESERVED_NODE_IDS: &[&str] = &["self"];
+
+/// Reject node_id values that would collide with literal segments in
+/// the admin peer routes (currently `"self"`, used by the self-test
+/// diagnostic). Without this, axum's static-over-dynamic route
+/// precedence silently dispatches Test/Edit/Delete on a peer named
+/// "self" to the self-handler instead, returning the local enclave's
+/// state and misleading the operator.
+fn validate_node_id(node_id: &str) -> Result<(), ApiError> {
+    if RESERVED_NODE_IDS.contains(&node_id) {
+        return Err(ApiError::bad_request(format!(
+            "node_id \"{node_id}\" is reserved (collides with /admin/peers/{node_id} route)"
+        )));
+    }
+    Ok(())
 }
 
 /// Parse attestation policy from the AddPeerRequest.
@@ -933,7 +954,12 @@ pub struct RaTlsTestResponse {
     /// Decoded explanation of the wrapper code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wrapper_code_meaning: Option<&'static str>,
-    /// Measurements observed in the verified quote (only present on success).
+    /// Measurements observed in the verified quote. Populated only by
+    /// the self-test diagnostic on success (which uses a dry-run
+    /// callback that records what it sees). Peer tests run the
+    /// enforcing handshake inside reqwest, where measurements are
+    /// checked but not surfaced — they are always `None` for peer
+    /// tests, regardless of pass/fail.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub observed_measurements: Option<crate::discovery::ffi::ObservedMeasurements>,
     /// Free-form remediation hints for failure cases.
@@ -957,7 +983,7 @@ pub struct RaTlsTestResponse {
         (status = 403, description = "Not authorized (admin required)"),
     ),
     security(("bearer_auth" = [])),
-    tag = "admin"
+    tag = "Admin"
 )]
 pub async fn test_self_ratls(
     AdminOnly(_user): AdminOnly,
@@ -991,8 +1017,12 @@ pub async fn test_self_ratls(
         }));
     }
 
-    // Step 2: read our own RA-TLS certificate
-    let cert_bytes = match std::fs::read(crate::tls::RA_TLS_CERT_PATH) {
+    // Step 2: read our own RA-TLS certificate (blocking — std::fs)
+    let cert_read_result =
+        tokio::task::spawn_blocking(|| std::fs::read(crate::tls::RA_TLS_CERT_PATH))
+            .await
+            .map_err(|e| ApiError::internal(format!("cert_read join error: {e}")))?;
+    let cert_bytes = match cert_read_result {
         Ok(s) => {
             steps.push(DiagnosticStep {
                 step: "cert_read",
@@ -1027,7 +1057,13 @@ pub async fn test_self_ratls(
     };
 
     // Step 3: PEM (incl. Gramine TRUSTED CERTIFICATE label) → DER via tls::load_ratls_certificate
-    let der = match crate::tls::load_ratls_certificate(crate::tls::RA_TLS_CERT_PATH) {
+    // Synchronous file IO + parsing — run off the reactor.
+    let cert_decode_result = tokio::task::spawn_blocking(|| {
+        crate::tls::load_ratls_certificate(crate::tls::RA_TLS_CERT_PATH)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("cert_decode join error: {e}")))?;
+    let der = match cert_decode_result {
         Ok(certs) if !certs.is_empty() => {
             let der_bytes = certs[0].as_ref().to_vec();
             steps.push(DiagnosticStep {
@@ -1083,8 +1119,17 @@ pub async fn test_self_ratls(
         }
     };
 
-    // Step 4: dry-run verify (detailed — captures stderr from C library)
-    let dry = match crate::discovery::ffi::verify_ratls_cert_dry_run_detailed(&der) {
+    // Step 4: dry-run verify (detailed — captures stderr from C library).
+    // The DCAP path does multi-second blocking HTTPS collateral fetches and
+    // synchronous file IO under ~/.az-dcap-client; run it off the reactor
+    // so concurrent admin clicks can't stall the worker pool. The diagnostic
+    // is specifically meant to be invoked when collateral fetching is slow.
+    let dry = match tokio::task::spawn_blocking(move || {
+        crate::discovery::ffi::verify_ratls_cert_dry_run_detailed(&der)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("verify_callback join error: {e}")))?
+    {
         Ok(d) => d,
         Err(e) => {
             steps.push(DiagnosticStep {
@@ -1124,7 +1169,10 @@ pub async fn test_self_ratls(
     }
 
     // Failure path: surface inner quote3_error_t if we captured it from stderr.
-    let mut detail = format!("DCAP quote verification failed with wrapper code {}", dry.wrapper_code);
+    let mut detail = format!(
+        "DCAP quote verification failed with wrapper code {}",
+        dry.wrapper_code
+    );
     let mut remediation: Vec<&'static str> = Vec::new();
     if let Some(q3) = dry.quote3_error {
         let (name, hint) = crate::discovery::ffi::decode_quote3_error(q3);
@@ -1177,7 +1225,7 @@ pub async fn test_self_ratls(
         (status = 404, description = "Peer not found"),
     ),
     security(("bearer_auth" = [])),
-    tag = "admin"
+    tag = "Admin"
 )]
 pub async fn test_peer_ratls(
     AdminOnly(_user): AdminOnly,
@@ -1263,8 +1311,7 @@ pub async fn test_peer_ratls(
             });
             // Try to detect whether this was an RA-TLS verifier failure vs. a
             // network / connect-level error.
-            let is_ratls_failure =
-                chain.contains("RA-TLS") || chain.contains("CertificateInvalid");
+            let is_ratls_failure = chain.contains("RA-TLS") || chain.contains("CertificateInvalid");
             let remediation: Vec<&'static str> = if is_ratls_failure {
                 vec![
                     "Run /v1/admin/peers/self/test first — if self-test fails, fix the local verifier before debugging the peer.",
@@ -1300,6 +1347,9 @@ fn pem_to_der(pem: &str) -> Result<Vec<u8>, String> {
     let start = pem.find(BEGIN).ok_or("missing BEGIN CERTIFICATE")?;
     let after = &pem[start + BEGIN.len()..];
     let end = after.find(END).ok_or("missing END CERTIFICATE")?;
-    let b64: String = after[..end].chars().filter(|c| !c.is_whitespace()).collect();
+    let b64: String = after[..end]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     Base64::decode_vec(&b64).map_err(|e| format!("base64 decode failed: {e}"))
 }

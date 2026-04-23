@@ -1226,7 +1226,7 @@ function PeersTab() {
 
       if (editingId) {
         // PUT update
-        const res = await fetch(`/api/proxy/v1/admin/peers/${editingId}`, {
+        const res = await fetch(`/api/proxy/v1/admin/peers/${encodeURIComponent(editingId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -1262,7 +1262,7 @@ function PeersTab() {
     if (!window.confirm(`Remove peer "${nodeId}"? This will stop discovery queries to this node.`)) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/proxy/v1/admin/peers/${nodeId}`, { method: "DELETE" });
+      const res = await fetch(`/api/proxy/v1/admin/peers/${encodeURIComponent(nodeId)}`, { method: "DELETE" });
       if (!res.ok) {
         const text = await res.text().catch(() => "Unknown error");
         throw new Error(`${res.status}: ${text}`);
@@ -1528,7 +1528,7 @@ function PeersTab() {
                       type="button" className="btn btn-ghost"
                       style={{ padding: "0.3rem 0.5rem" }}
                       disabled={testingId === p.node_id}
-                      onClick={() => runTest(p.node_id, `/v1/admin/peers/${p.node_id}/test`)}
+                      onClick={() => runTest(p.node_id, `/v1/admin/peers/${encodeURIComponent(p.node_id)}/test`)}
                       title="Test RA-TLS handshake with this peer"
                     >
                       <Stethoscope size={14} />

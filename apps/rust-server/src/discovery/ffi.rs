@@ -17,7 +17,7 @@
 
 use std::cell::RefCell;
 use std::ffi::CString;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use super::attestation::AttestationPolicy;
 
@@ -164,6 +164,21 @@ pub struct ObservedMeasurements {
     pub isv_svn: u16,
 }
 
+/// RAII guard that unconditionally clears `DRY_RUN_MODE` and
+/// `OBSERVED_MEASUREMENTS` for the current thread on drop. Prevents a
+/// panic between the set-true and set-false points of a dry-run from
+/// leaking the flag onto the worker thread, which would cause every
+/// subsequent `verify_ratls_cert` call on that worker to silently
+/// accept any MRENCLAVE/MRSIGNER.
+struct DryRunGuard;
+
+impl Drop for DryRunGuard {
+    fn drop(&mut self) {
+        DRY_RUN_MODE.with(|d| *d.borrow_mut() = false);
+        OBSERVED_MEASUREMENTS.with(|m| *m.borrow_mut() = None);
+    }
+}
+
 // =============================================================================
 // Measurement Callback
 // =============================================================================
@@ -298,6 +313,13 @@ pub enum RaTlsError {
 pub fn verify_ratls_cert(der: &[u8], policy: &AttestationPolicy) -> Result<(), RaTlsError> {
     let lib = get_ratls_lib().map_err(|msg| RaTlsError::LibraryNotAvailable(msg.to_string()))?;
 
+    // Defensively clear DRY_RUN_MODE on this worker before invoking the
+    // enforcing callback. Belt-and-suspenders: even if a prior dry-run
+    // somehow leaked the flag (e.g. from a panic that bypassed the
+    // RAII guard in verify_ratls_cert_dry_run_detailed), production
+    // verification must never short-circuit policy checks.
+    DRY_RUN_MODE.with(|d| *d.borrow_mut() = false);
+
     // Set thread-local policy for the callback
     CURRENT_POLICY.with(|p| {
         *p.borrow_mut() = Some(policy.clone());
@@ -354,18 +376,55 @@ pub struct DryRunResult {
     pub quote3_error: Option<u32>,
 }
 
+/// Process-wide lock serializing fd 2 redirection in `capture_stderr`.
+///
+/// `capture_stderr` mutates a process-global file descriptor (stderr).
+/// Without serialization, two concurrent calls can interleave their
+/// `dup`/`dup2`/`close` sequences such that one call's `dup` of fd 2
+/// captures the other call's pipe write end as the "saved" stderr —
+/// and after the first call drops its pipe read end, the second call's
+/// restore points fd 2 at a pipe with no reader, permanently breaking
+/// stderr (and risking SIGPIPE-induced process termination).
+static CAPTURE_STDERR_LOCK: Mutex<()> = Mutex::new(());
+
+/// RAII guard that restores fd 2 from `saved_fd` on drop. Ensures a
+/// panic inside the captured closure still puts stderr back, instead
+/// of leaving fd 2 pointing at our internal pipe.
+struct StderrRestoreGuard {
+    saved_fd: libc::c_int,
+}
+
+impl Drop for StderrRestoreGuard {
+    fn drop(&mut self) {
+        if self.saved_fd >= 0 {
+            unsafe {
+                libc::dup2(self.saved_fd, 2);
+                libc::close(self.saved_fd);
+            }
+        }
+    }
+}
+
 /// Capture everything written to fd 2 (stderr) by `f`. Restores the
-/// original fd 2 on return. Used by the self-test diagnostic to surface
-/// C-library error prints (e.g. `sgx_qv_verify_quote failed: 57402`).
+/// original fd 2 on return — including across panics in `f` — and
+/// serializes concurrent calls via a process-wide mutex.
 ///
 /// # Safety
 ///
-/// Manipulates global file descriptors. Not safe to run concurrently
-/// with other code that writes to stderr; the diagnostic endpoint is
-/// admin-only and rare, so this is acceptable.
+/// Manipulates global file descriptors. The mutex prevents two
+/// `capture_stderr` calls from racing, but other code that writes
+/// directly to fd 2 from a different thread during `f`'s execution
+/// will still have its output captured here.
 fn capture_stderr<F: FnOnce() -> R, R>(f: F) -> (R, String) {
     use std::io::Read;
     use std::os::fd::FromRawFd;
+
+    // Serialize fd 2 manipulation across threads. Recover from poisoning
+    // because a prior panic that left fd 2 mid-swap will have been
+    // unwound by the RAII guard below.
+    let _lock = CAPTURE_STDERR_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
 
     // Flush Rust's stderr before swapping the fd.
     let _ = std::io::Write::flush(&mut std::io::stderr());
@@ -377,7 +436,9 @@ fn capture_stderr<F: FnOnce() -> R, R>(f: F) -> (R, String) {
 
     let mut pipe_fds: [libc::c_int; 2] = [0, 0];
     if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
-        unsafe { libc::close(saved); }
+        unsafe {
+            libc::close(saved);
+        }
         return (f(), String::new());
     }
     let (read_fd, write_fd) = (pipe_fds[0], pipe_fds[1]);
@@ -390,27 +451,33 @@ fn capture_stderr<F: FnOnce() -> R, R>(f: F) -> (R, String) {
         }
         return (f(), String::new());
     }
-    unsafe { libc::close(write_fd); }
-
-    let result = f();
-
-    let _ = std::io::Write::flush(&mut std::io::stderr());
     unsafe {
-        libc::dup2(saved, 2);
-        libc::close(saved);
+        libc::close(write_fd);
     }
+
+    // Run the closure under an RAII guard that restores fd 2 even if
+    // `f` panics. `catch_unwind` lets us read the pipe and re-raise.
+    let guard = StderrRestoreGuard { saved_fd: saved };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+    drop(guard); // Restores fd 2 -> saved, closes saved.
 
     // Read everything available from the read end (non-blocking).
     let flags = unsafe { libc::fcntl(read_fd, libc::F_GETFL) };
     if flags >= 0 {
-        unsafe { libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK); }
+        unsafe {
+            libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
     }
     let mut captured = String::new();
     let mut file = unsafe { std::fs::File::from_raw_fd(read_fd) };
     let _ = file.read_to_string(&mut captured);
     drop(file);
 
-    (result, captured)
+    match result {
+        Ok(r) => (r, captured),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 /// Parse `sgx_qv_verify_quote failed: NNNNN` (decimal) from captured stderr.
@@ -441,14 +508,22 @@ fn parse_quote3_error(stderr: &str) -> Option<u32> {
 pub fn verify_ratls_cert_dry_run(der: &[u8]) -> Result<ObservedMeasurements, RaTlsError> {
     verify_ratls_cert_dry_run_detailed(der).and_then(|r| {
         if r.wrapper_code != 0 {
-            let mut detail = format!("DCAP quote verification failed with code {}", r.wrapper_code);
+            let mut detail = format!(
+                "DCAP quote verification failed with code {}",
+                r.wrapper_code
+            );
             if let Some(q3) = r.quote3_error {
                 let (name, hint) = decode_quote3_error(q3);
-                detail.push_str(&format!(" — inner quote3_error_t = {q3} (0x{q3:04X}) {name}: {hint}"));
+                detail.push_str(&format!(
+                    " — inner quote3_error_t = {q3} (0x{q3:04X}) {name}: {hint}"
+                ));
             } else if !r.captured_stderr.is_empty() {
                 detail.push_str(&format!(" — stderr: {}", r.captured_stderr.trim()));
             }
-            Err(RaTlsError::VerificationFailed { code: r.wrapper_code, detail })
+            Err(RaTlsError::VerificationFailed {
+                code: r.wrapper_code,
+                detail,
+            })
         } else {
             r.observed.ok_or_else(|| RaTlsError::VerificationFailed {
                 code: 0,
@@ -466,6 +541,8 @@ pub fn verify_ratls_cert_dry_run_detailed(der: &[u8]) -> Result<DryRunResult, Ra
     DRY_RUN_MODE.with(|d| *d.borrow_mut() = true);
     OBSERVED_MEASUREMENTS.with(|m| *m.borrow_mut() = None);
     CALLBACK_ERROR.with(|e| *e.borrow_mut() = None);
+    // Reset both thread-locals on every exit path, including panics.
+    let _dry_run_guard = DryRunGuard;
 
     unsafe {
         (lib.set_measurement_callback)(Some(measurement_callback));
@@ -475,7 +552,6 @@ pub fn verify_ratls_cert_dry_run_detailed(der: &[u8]) -> Result<DryRunResult, Ra
         capture_stderr(|| unsafe { (lib.verify_callback_der)(der.as_ptr(), der.len()) });
 
     let observed = OBSERVED_MEASUREMENTS.with(|m| m.borrow_mut().take());
-    DRY_RUN_MODE.with(|d| *d.borrow_mut() = false);
 
     // Echo captured stderr back to real stderr so server logs still see it.
     if !captured_stderr.is_empty() {
@@ -500,11 +576,18 @@ pub fn verify_ratls_cert_dry_run_detailed(der: &[u8]) -> Result<DryRunResult, Ra
 /// `quote3_error_t` code (e.g., `0xE03A`) is logged to stderr by the
 /// library just before returning the wrapper code.
 pub fn decode_wrapper_code(code: i32) -> &'static str {
+    // mbedTLS x509 error codes (see include/mbedtls/x509.h). Values are
+    // negative; the bare hex base is shown in the comments for grep.
     match code {
         0 => "success",
+        // -0x2700
         -9984 => "MBEDTLS_ERR_X509_CERT_VERIFY_FAILED — DCAP verification or measurement check failed (look for 'sgx_qv_verify_quote failed: NNNNN' in stderr for the inner quote3_error_t code)",
-        -8704 => "MBEDTLS_ERR_X509_INVALID_FORMAT — RA-TLS certificate is not a valid X.509 DER",
-        -29056 => "MBEDTLS_ERR_X509_INVALID_EXTENSIONS — RA-TLS certificate is missing the SGX quote extension",
+        // -0x2180
+        -8576 => "MBEDTLS_ERR_X509_INVALID_FORMAT — RA-TLS certificate is not a valid X.509 DER",
+        // -0x2200
+        -8704 => "MBEDTLS_ERR_X509_INVALID_VERSION — RA-TLS certificate uses an unsupported X.509 version field",
+        // -0x2500
+        -9472 => "MBEDTLS_ERR_X509_INVALID_EXTENSIONS — RA-TLS certificate is missing the SGX quote extension",
         _ => "unknown wrapper code",
     }
 }
@@ -568,6 +651,20 @@ mod tests {
         CURRENT_POLICY.with(|p| {
             assert!(p.borrow().is_none());
         });
+    }
+
+    #[test]
+    fn decode_wrapper_code_pins_mbedtls_constants() {
+        // Pin the numeric values to their canonical mbedTLS x509 codes so a
+        // future typo (e.g. mixing up INVALID_FORMAT vs INVALID_VERSION,
+        // both of which fall in the -0x21XX/-0x22XX range) is caught here
+        // instead of misleading an operator in the admin diagnostic UI.
+        assert_eq!(decode_wrapper_code(0), "success");
+        assert!(decode_wrapper_code(-9984).starts_with("MBEDTLS_ERR_X509_CERT_VERIFY_FAILED"));
+        assert!(decode_wrapper_code(-8576).starts_with("MBEDTLS_ERR_X509_INVALID_FORMAT"));
+        assert!(decode_wrapper_code(-8704).starts_with("MBEDTLS_ERR_X509_INVALID_VERSION"));
+        assert!(decode_wrapper_code(-9472).starts_with("MBEDTLS_ERR_X509_INVALID_EXTENSIONS"));
+        assert_eq!(decode_wrapper_code(-12345), "unknown wrapper code");
     }
 
     #[test]
