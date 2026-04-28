@@ -306,10 +306,37 @@ async fn main() {
                 if w.status == storage::WalletStatus::Deleted {
                     continue;
                 }
-                if let Some(ref lookup_key) = w.email_lookup_key {
-                    match voprf_server.compute_local_token(lookup_key.as_bytes()) {
+                // VOPRF input is the raw SHA-256 bytes of the normalized email
+                // (the same value peers blind in Phase A).
+                if let Some(ref sha256_hex) = w.email_sha256 {
+                    let sha256_bytes = match alloy::hex::decode(sha256_hex) {
+                        Ok(b) => b,
+                        Err(e) => {
+                            warn!(wallet_id = %w.wallet_id, error = %e, "email_sha256 not valid hex — skipping");
+                            continue;
+                        }
+                    };
+
+                    // DEBUG-VOPRF: remove after debugging — startup re-registration input
+                    info!(
+                        wallet_id = %w.wallet_id,
+                        email_sha256_hex = %sha256_hex,
+                        input_len_bytes = sha256_bytes.len(),
+                        "[VOPRF-DBG] startup: computing VOPRF token over raw SHA-256(email)"
+                    );
+                    // END DEBUG-VOPRF
+
+                    match voprf_server.compute_local_token(&sha256_bytes) {
                         Ok(token) => {
                             let token_hex = alloy::hex::encode(&token);
+                            // DEBUG-VOPRF: remove after debugging — startup token stored
+                            info!(
+                                wallet_id = %w.wallet_id,
+                                token_hex = %token_hex,
+                                public_address = %w.public_address,
+                                "[VOPRF-DBG] startup: REGISTERED token→address in voprf_tokens"
+                            );
+                            // END DEBUG-VOPRF
                             if let Err(e) =
                                 tx_db.register_voprf_token(&token_hex, &w.public_address)
                             {

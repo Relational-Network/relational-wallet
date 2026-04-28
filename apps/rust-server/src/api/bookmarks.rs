@@ -306,6 +306,7 @@ mod tests {
             status: WalletStatus::Active,
             label: None,
             email_lookup_key: None,
+            email_sha256: None,
         };
         let repo = WalletRepository::new(storage);
         repo.create(&metadata, b"test_key").unwrap();

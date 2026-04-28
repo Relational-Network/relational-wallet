@@ -46,6 +46,14 @@ pub async fn evaluate(
 ) -> Result<Json<DiscoveryEvaluateResponse>, ApiError> {
     let voprf_server = &state.voprf_server;
 
+    // DEBUG-VOPRF: remove after debugging — Phase A received
+    tracing::info!(
+        blinded_element = %body.blinded_element,
+        server_public_key = %voprf_server.public_key_base64(),
+        "[VOPRF-DBG] evaluate: received blinded element"
+    );
+    // END DEBUG-VOPRF
+
     // Decode the blinded element from base64
     let blinded_bytes = Base64::decode_vec(&body.blinded_element)
         .map_err(|_| ApiError::bad_request("Invalid base64 in blinded_element"))?;
@@ -59,6 +67,14 @@ pub async fn evaluate(
     // Encode results as base64
     let evaluated_base64 = Base64::encode_string(&eval_result.message.serialize());
     let proof_base64 = Base64::encode_string(&eval_result.proof.serialize());
+
+    // DEBUG-VOPRF: remove after debugging — Phase A response
+    tracing::info!(
+        evaluated_element = %evaluated_base64,
+        proof = %proof_base64,
+        "[VOPRF-DBG] evaluate: returning evaluation + proof"
+    );
+    // END DEBUG-VOPRF
 
     // Audit: log event metadata only (never log blinded elements or proofs)
     tracing::debug!("Served discovery evaluate request");
@@ -88,16 +104,29 @@ pub async fn lookup(
         .map_err(|_| ApiError::bad_request("Invalid base64 in token"))?;
     let token_hex = alloy::hex::encode(&token_bytes);
 
-    let envelope = match state.voprf_store.lookup(&token_hex) {
+    // DEBUG-VOPRF: remove after debugging — lookup attempt
+    let store_result = state.voprf_store.lookup(&token_hex);
+    let matched = matches!(store_result, Ok(Some(_)));
+    tracing::info!(
+        received_token_hex = %token_hex,
+        token_len = token_bytes.len(),
+        matched_in_store = matched,
+        "[VOPRF-DBG] lookup: redb voprf_tokens probe"
+    );
+    let envelope = match store_result {
         Ok(Some(public_address)) => {
-            // Match: encrypt the address in a fixed-size envelope
+            tracing::info!(
+                public_address = %public_address,
+                "[VOPRF-DBG] lookup: MATCH — encrypting real envelope"
+            );
             encrypt_envelope(&token_bytes, &public_address)?
         }
         _ => {
-            // No match: random bytes of the same size
+            tracing::info!("[VOPRF-DBG] lookup: NO MATCH — returning random envelope");
             random_envelope()
         }
     };
+    // END DEBUG-VOPRF
 
     let envelope_base64 = Base64::encode_string(&envelope);
 

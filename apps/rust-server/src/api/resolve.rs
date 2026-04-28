@@ -66,11 +66,26 @@ pub async fn resolve_email(
     // Compute HMAC lookup key from the client-provided SHA-256 hash
     let lookup_key = email::hmac_lookup_key(&state.email_hmac_key, &body.email_hash);
 
+    // DEBUG-VOPRF: remove after debugging — resolve entry
+    tracing::info!(
+        email_hash = %body.email_hash,
+        local_lookup_key = %lookup_key,
+        "[VOPRF-DBG] resolve_email: entered"
+    );
+    // END DEBUG-VOPRF
+
     // Check email index locally first
     let email_repo = EmailIndexRepository::new(tx_db.clone());
     let found = email_repo
         .exists(&lookup_key)
         .map_err(|e| ApiError::internal(format!("Email lookup failed: {}", e)))?;
+
+    // DEBUG-VOPRF: remove after debugging — local index check
+    tracing::info!(
+        found_local = found,
+        "[VOPRF-DBG] resolve_email: local index check"
+    );
+    // END DEBUG-VOPRF
 
     if found {
         return Ok(Json(ResolveEmailResponse { found: true }));
@@ -80,14 +95,27 @@ pub async fn resolve_email(
     {
         // Use the email SHA-256 hash as the VOPRF input — this is the raw
         // identifier that gets blinded before being sent to peers.
+
+        // DEBUG-VOPRF: remove after debugging — fan-out trigger
+        tracing::info!(
+            input_to_query = %body.email_hash,
+            "[VOPRF-DBG] resolve_email: invoking discovery fan-out (raw SHA-256 hex)"
+        );
+        // END DEBUG-VOPRF
+
         match state.discovery_client.query(&body.email_hash).await {
             Ok(Some(_address)) => {
+                // DEBUG-VOPRF: remove after debugging
+                tracing::info!("[VOPRF-DBG] resolve_email: fan-out MATCHED on a peer");
+                // END DEBUG-VOPRF
                 // A peer has a wallet for this email. We don't reveal the
                 // address here — the actual send flow resolves it again.
                 return Ok(Json(ResolveEmailResponse { found: true }));
             }
             Ok(None) => {
-                // No peer had a match
+                // DEBUG-VOPRF: remove after debugging
+                tracing::info!("[VOPRF-DBG] resolve_email: fan-out returned no match");
+                // END DEBUG-VOPRF
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Discovery fan-out failed during resolve");

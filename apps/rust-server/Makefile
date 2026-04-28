@@ -160,6 +160,7 @@ docker-run:
 		--device /dev/sgx/provision \
 		--stop-timeout 30 \
 		-p 8080:8080 \
+		-p 8443:8080 \
 		-v "$(DATA_DIR):/data" \
 		--env-file .env \
 		relationalnetwork/rust-server:focal || status=$$?; \

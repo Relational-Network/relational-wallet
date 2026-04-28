@@ -97,6 +97,7 @@ pub async fn create_wallet(
 
     // ── Fetch email from Clerk and enforce 1-wallet-per-email ──
     let mut email_lookup_key: Option<String> = None;
+    let mut email_sha256_hex: Option<String> = None;
     if let Some(ref clerk) = state.clerk_client {
         let normalized_email = clerk
             .get_user_email(&user.user_id)
@@ -124,6 +125,7 @@ pub async fn create_wallet(
         }
 
         email_lookup_key = Some(lookup_key);
+        email_sha256_hex = Some(sha256_hex);
     }
 
     // Generate wallet ID
@@ -142,6 +144,7 @@ pub async fn create_wallet(
         status: WalletStatus::Active,
         label: request.label,
         email_lookup_key: email_lookup_key.clone(),
+        email_sha256: email_sha256_hex.clone(),
     };
 
     // Store wallet
@@ -174,11 +177,34 @@ pub async fn create_wallet(
             .map_err(|e| ApiError::internal(format!("Failed to register email lookup: {}", e)))?;
     }
 
-    // Register VOPRF token for cross-instance discovery (Phase 2)
-    if let Some(ref lk) = email_lookup_key {
-        match state.voprf_server.compute_local_token(lk.as_bytes()) {
+    // Register VOPRF token for cross-instance discovery (Phase 2).
+    // VOPRF input is the raw bytes of SHA-256(normalized_email) — the same
+    // value the querying peer blinds and sends in Phase A. Must match on
+    // both sides, so we cannot use the per-node HMAC lookup key here.
+    if let Some(ref sha256_hex) = email_sha256_hex {
+        let sha256_bytes = alloy::hex::decode(sha256_hex)
+            .map_err(|_| ApiError::internal("email_sha256 is not valid hex"))?;
+
+        // DEBUG-VOPRF: remove after debugging — registration input
+        tracing::info!(
+            wallet_id = %wallet_id,
+            email_sha256_hex = %sha256_hex,
+            input_len_bytes = sha256_bytes.len(),
+            "[VOPRF-DBG] wallet-create: computing VOPRF token over raw SHA-256(email) (32 bytes)"
+        );
+        // END DEBUG-VOPRF
+
+        match state.voprf_server.compute_local_token(&sha256_bytes) {
             Ok(token) => {
                 let token_hex = alloy::hex::encode(&token);
+                // DEBUG-VOPRF: remove after debugging — token stored
+                tracing::info!(
+                    wallet_id = %wallet_id,
+                    token_hex = %token_hex,
+                    public_address = %public_address,
+                    "[VOPRF-DBG] wallet-create: REGISTERED token→address in voprf_tokens"
+                );
+                // END DEBUG-VOPRF
                 if let Err(e) = state.voprf_store.register(&token_hex, &public_address) {
                     tracing::warn!(
                         error = %e,
@@ -354,14 +380,16 @@ pub async fn delete_wallet(
         if let Some(ref lookup_key) = metadata.email_lookup_key {
             let email_repo = EmailIndexRepository::new(db.clone());
             let _ = email_repo.remove(lookup_key);
+        }
 
-            // Remove VOPRF token mapping (Phase 2 discovery)
-            if let Ok(token) = state
-                .voprf_server
-                .compute_local_token(lookup_key.as_bytes())
-            {
-                let token_hex = alloy::hex::encode(&token);
-                let _ = state.voprf_store.remove(&token_hex);
+        // Remove VOPRF token mapping (Phase 2 discovery).
+        // VOPRF input is raw SHA-256 bytes — must match registration.
+        if let Some(ref sha256_hex) = metadata.email_sha256 {
+            if let Ok(sha256_bytes) = alloy::hex::decode(sha256_hex) {
+                if let Ok(token) = state.voprf_server.compute_local_token(&sha256_bytes) {
+                    let token_hex = alloy::hex::encode(&token);
+                    let _ = state.voprf_store.remove(&token_hex);
+                }
             }
         }
 
@@ -491,6 +519,7 @@ mod tests {
             status: WalletStatus::Active,
             label: Some("My Wallet".to_string()),
             email_lookup_key: None,
+            email_sha256: None,
         };
 
         let response: WalletResponse = metadata.into();

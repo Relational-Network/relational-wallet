@@ -944,6 +944,7 @@ mod tests {
             status: WalletStatus::Active,
             label: None,
             email_lookup_key: None,
+            email_sha256: None,
         }
     }
 
