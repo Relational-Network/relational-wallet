@@ -50,12 +50,25 @@ impl DiscoveryClient {
     /// for this email.
     pub async fn query(&self, email_sha256: &str) -> Result<Option<String>, DiscoveryError> {
         if !self.peer_registry.has_peers() {
+            // DEBUG-VOPRF: remove after debugging
+            tracing::info!("[VOPRF-DBG] query: no peers configured, returning None");
+            // END DEBUG-VOPRF
             return Ok(None);
         }
         let peers = self.peer_registry.peers();
 
         let input = alloy::hex::decode(email_sha256)
             .map_err(|_| DiscoveryError::InvalidInput("Invalid hex in email_sha256".into()))?;
+
+        // DEBUG-VOPRF: remove after debugging — query inputs
+        tracing::info!(
+            email_sha256_hex = %email_sha256,
+            input_len_bytes = input.len(),
+            input_bytes_hex = %alloy::hex::encode(&input),
+            peer_count = peers.len(),
+            "[VOPRF-DBG] query: starting Phase A fan-out"
+        );
+        // END DEBUG-VOPRF
 
         // ── Phase A: Evaluate (parallel across all peers) ──
         let mut phase_a_futures = Vec::with_capacity(peers.len());
@@ -144,6 +157,16 @@ async fn evaluate_peer(
     peer_pk_base64: &str,
     input: &[u8],
 ) -> Result<(Vec<u8>, reqwest::Client), DiscoveryError> {
+    // DEBUG-VOPRF: remove after debugging — Phase A start per peer
+    tracing::info!(
+        peer_node_id = %peer_node_id,
+        peer_url = %peer_url,
+        peer_pk_base64 = %peer_pk_base64,
+        input_len = input.len(),
+        "[VOPRF-DBG] Phase A: starting for peer"
+    );
+    // END DEBUG-VOPRF
+
     // Blind the input (fresh randomness)
     let blind_result =
         voprf_ops::blind(input).map_err(|e| DiscoveryError::VoprfError(e.to_string()))?;
@@ -153,6 +176,15 @@ async fn evaluate_peer(
     let request = DiscoveryEvaluateRequest {
         blinded_element: blind_result.blinded_element_base64,
     };
+
+    // DEBUG-VOPRF: remove after debugging — blinded element sent
+    tracing::info!(
+        peer_node_id = %peer_node_id,
+        url = %url,
+        blinded_element = %request.blinded_element,
+        "[VOPRF-DBG] Phase A: POST evaluate"
+    );
+    // END DEBUG-VOPRF
 
     let response = client.post(&url).json(&request).send().await.map_err(|e| {
         DiscoveryError::PeerError(format!("Phase A request to {peer_node_id} failed: {e}"))
@@ -171,6 +203,15 @@ async fn evaluate_peer(
         ))
     })?;
 
+    // DEBUG-VOPRF: remove after debugging — evaluated element + proof received
+    tracing::info!(
+        peer_node_id = %peer_node_id,
+        evaluated_element = %eval_response.evaluated_element,
+        proof = %eval_response.proof,
+        "[VOPRF-DBG] Phase A: received evaluate response"
+    );
+    // END DEBUG-VOPRF
+
     // Finalize: verify proof and compute the VOPRF token
     let token = voprf_ops::finalize(
         &blind_result.state,
@@ -183,6 +224,15 @@ async fn evaluate_peer(
         DiscoveryError::VoprfError(format!("Finalization failed for {peer_node_id}: {e}"))
     })?;
 
+    // DEBUG-VOPRF: remove after debugging — token derived from VOPRF finalize
+    tracing::info!(
+        peer_node_id = %peer_node_id,
+        token_hex = %alloy::hex::encode(&token),
+        token_len = token.len(),
+        "[VOPRF-DBG] Phase A: finalized — derived token for this peer"
+    );
+    // END DEBUG-VOPRF
+
     Ok((token, client))
 }
 
@@ -194,6 +244,15 @@ async fn lookup_peer(
 ) -> Result<Option<String>, DiscoveryError> {
     let url = format!("{peer_url}/internal/discovery/lookup");
     let token_base64 = Base64::encode_string(token);
+
+    // DEBUG-VOPRF: remove after debugging — Phase B start
+    tracing::info!(
+        peer_url = %peer_url,
+        token_hex = %alloy::hex::encode(token),
+        token_base64 = %token_base64,
+        "[VOPRF-DBG] Phase B: POST lookup"
+    );
+    // END DEBUG-VOPRF
 
     let request = DiscoveryLookupRequest {
         token: token_base64,
@@ -222,7 +281,19 @@ async fn lookup_peer(
         .map_err(|_| DiscoveryError::PeerError("Invalid base64 in envelope".into()))?;
 
     // Try to decrypt: GCM auth success → match, GCM auth fail → no match
-    Ok(decrypt_envelope(token, &envelope))
+    let decrypted = decrypt_envelope(token, &envelope);
+
+    // DEBUG-VOPRF: remove after debugging — Phase B decrypt outcome
+    tracing::info!(
+        peer_url = %peer_url,
+        envelope_len = envelope.len(),
+        decrypt_matched = decrypted.is_some(),
+        "[VOPRF-DBG] Phase B: decrypt attempt complete \
+         (Some = token was present on peer, None = random envelope / wrong token)"
+    );
+    // END DEBUG-VOPRF
+
+    Ok(decrypted)
 }
 
 // =============================================================================

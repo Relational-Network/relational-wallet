@@ -57,8 +57,21 @@ pub struct WalletMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// HMAC(node_secret, SHA-256(email)), hex-encoded.
+    ///
+    /// Used as the key for the local `email_lookup` redb index (Phase 1).
+    /// Per-node value; cannot be reproduced by peers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_lookup_key: Option<String>,
+
+    /// SHA-256(normalized_email), hex-encoded (64 chars → 32 raw bytes).
+    ///
+    /// VOPRF input for Phase 2 cross-instance discovery:
+    /// `token = VOPRF_Evaluate(sk_N, SHA-256(email))`. Required on both sides
+    /// (registration + query) so tokens match across nodes. Stored here so the
+    /// startup re-registration loop can rebuild the `voprf_tokens` table
+    /// without needing the raw email.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_sha256: Option<String>,
 }
 
 /// Response returned to API clients (never includes private key).
@@ -308,6 +321,7 @@ mod tests {
             status: WalletStatus::Active,
             label: Some("My Wallet".to_string()),
             email_lookup_key: None,
+            email_sha256: None,
         }
     }
 
